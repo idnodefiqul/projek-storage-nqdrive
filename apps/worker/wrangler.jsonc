@@ -1,0 +1,41 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nqdrive-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2024-11-01",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // D1 Database binding.
+  // Buat database dengan: wrangler d1 create nqdrive-db
+  // Lalu ganti database_id di bawah dengan ID yang dikembalikan perintah tersebut.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nqdrive-db",
+      "database_id": "8e10fce6-509b-4ee9-a627-3edefc9a3bff",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Scheduled cron trigger — refreshes Google Drive access tokens before they expire
+  // and syncs storage quota for every connected account.
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
+
+  // Non-secret runtime configuration. Actual secrets (JWT_SECRET, GOOGLE_CLIENT_SECRET,
+  // ENCRYPTION_KEY, etc.) must NEVER be placed here — use `wrangler secret put <NAME>`
+  // for production and a local-only `.dev.vars` file (gitignored) for development.
+  //
+  // PENTING: Ganti GOOGLE_OAUTH_REDIRECT_URI dengan URL worker production kamu sebelum deploy.
+  // Format: https://nqdrive-worker.YOUR_SUBDOMAIN.workers.dev/api/google/callback
+  // atau custom domain jika sudah dikonfigurasi.
+  "vars": {
+    "APP_ENV": "production",
+    "GOOGLE_OAUTH_REDIRECT_URI": "https://developers.google.com/oauthplayground"
+  },
+
+  "observability": {
+    "enabled": true
+  }
+}

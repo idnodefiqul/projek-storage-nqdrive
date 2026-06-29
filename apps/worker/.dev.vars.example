@@ -1,0 +1,13 @@
+# Copy this file to ".dev.vars" (gitignored) and fill in real values for local development.
+# In production, set these with: wrangler secret put <NAME>
+
+# Used to sign and verify JWT session tokens. Generate with: openssl rand -base64 48
+JWT_SECRET=
+
+# Google OAuth 2.0 credentials (from Google Cloud Console -> APIs & Services -> Credentials)
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# 32-byte key (base64) used to encrypt Google Drive refresh tokens at rest in D1.
+# Generate with: openssl rand -base64 32
+ENCRYPTION_KEY=

@@ -1,0 +1,73 @@
+@import "tailwindcss";
+
+/* Scan komponen UI dari packages/ui agar class-nya masuk ke CSS output */
+@source "../../../packages/ui/src";
+
+/*
+  NQDRIVE Theme
+  -------------
+  Palet: emerald/teal (brand), zinc (netral).
+  Default: light mode. Dark mode via class "dark" di <html>.
+*/
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Brand - emerald/teal */
+  --color-brand-50:  #ecfdf5;
+  --color-brand-100: #d1fae5;
+  --color-brand-200: #a7f3d0;
+  --color-brand-300: #6ee7b7;
+  --color-brand-400: #34d399;
+  --color-brand-500: #10b981;
+  --color-brand-600: #059669;
+  --color-brand-700: #047857;
+  --color-brand-800: #065f46;
+  --color-brand-900: #064e3b;
+
+  /* Accent warning/progress */
+  --color-accent-500: #f59e0b;
+  --color-accent-600: #d97706;
+
+  --radius-card: 0.75rem;
+}
+
+@layer base {
+  :root {
+    --background: 255 255 255;
+    --foreground: 24 24 27;
+  }
+
+  .dark {
+    --background: 18 18 21;
+    --foreground: 244 244 245;
+  }
+
+  body {
+    @apply bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100;
+    font-family: var(--font-sans);
+  }
+
+  /* Smooth scrolling global */
+  html {
+    scroll-behavior: smooth;
+  }
+
+  /* Sidebar drawer transition — pastikan transform + opacity smooth */
+  .sidebar-transition {
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+@layer utilities {
+  /* Hide scrollbar tapi masih bisa scroll */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+}

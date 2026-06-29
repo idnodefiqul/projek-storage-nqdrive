@@ -1,0 +1,29 @@
+{
+  "name": "@nqdrive/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NQDRIVE Cloudflare Worker — REST API, authentication, storage orchestration, and streaming download/upload endpoints.",
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "tsc --noEmit",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "db:migrate:local": "wrangler d1 migrations apply nqdrive-db --local",
+    "db:migrate:remote": "wrangler d1 migrations apply nqdrive-db --remote",
+    "cf-typegen": "wrangler types"
+  },
+  "dependencies": {
+    "@nqdrive/types": "workspace:*",
+    "@nqdrive/shared": "workspace:*",
+    "@nqdrive/api": "workspace:*",
+    "@nqdrive/storage": "workspace:*",
+    "hono": "^4.6.9",
+    "@hono/zod-validator": "^0.4.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3",
+    "wrangler": "^3.84.0",
+    "@cloudflare/workers-types": "^4.20241106.0"
+  }
+}

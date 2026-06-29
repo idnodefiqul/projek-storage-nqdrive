@@ -1,0 +1,42 @@
+{
+  "name": "@nqdrive/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "NQDRIVE dashboard — React frontend for managing the unified virtual storage pool.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "prebuild": "node scripts/generate-headers.mjs",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "deploy": "wrangler pages deploy dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@nqdrive/types": "workspace:*",
+    "@nqdrive/shared": "workspace:*",
+    "@nqdrive/api": "workspace:*",
+    "@nqdrive/ui": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "@tanstack/react-router": "^1.81.5",
+    "@tanstack/react-query": "^5.59.20",
+    "@tanstack/react-table": "^8.20.5",
+    "zod": "^3.23.8",
+    "lucide-react": "^0.456.0",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^2.5.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.3",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "tailwindcss": "^4.0.0",
+    "@tailwindcss/vite": "^4.0.0",
+    "@tanstack/router-plugin": "^1.81.5",
+    "wrangler": "^3.84.0"
+  }
+}

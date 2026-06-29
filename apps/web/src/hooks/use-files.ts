@@ -1,0 +1,43 @@
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { fileService, type ListFilesParams } from "../services/file.service";
+import type { FileVisibility } from "@nqdrive/types";
+
+export const fileQueryKeys = {
+  list: (params: ListFilesParams) => ["files", "list", params] as const,
+};
+
+export function useFiles(params: ListFilesParams) {
+  return useQuery({
+    queryKey: fileQueryKeys.list(params),
+    queryFn: () => fileService.list(params),
+    placeholderData: (previousData) => previousData, // keeps the table from flashing empty between pages
+  });
+}
+
+export function useRenameFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, filename }: { id: number; filename: string }) => fileService.rename(id, filename),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["files"] }),
+  });
+}
+
+export function useUpdateFileVisibility() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, visibility }: { id: number; visibility: FileVisibility }) =>
+      fileService.updateVisibility(id, visibility),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["files"] }),
+  });
+}
+
+export function useDeleteFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => fileService.remove(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["files"] });
+      queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
+    },
+  });
+}

@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+.wrangler/
+
+# Environment / secrets — NEVER commit these
+.dev.vars
+.env.local
+.env.*.local
+
+# Wrangler generated types — run `wrangler types` to regenerate
+apps/worker/worker-configuration.d.ts
+
+# TanStack Router generated file — auto-regenerated on dev/build
+apps/web/src/routeTree.gen.ts
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
