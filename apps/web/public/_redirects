@@ -1,1 +1,13 @@
+# File download slugs → proxy ke Worker
+# Pola /:slug{.+\..+} = apapun yang mengandung titik (ada extension)
+# Ini harus di atas rule SPA agar tidak tertangkap duluan oleh index.html
+
+# Route /download/:slug → Worker
+/download/*  https://apiweb.fiqul.id/download/:splat  200
+
+# Route /:slug.ext (file dengan extension) → Worker
+# Regex: semua path yang mengandung titik dan bukan /dashboard /api /login dll
+/*.* https://apiweb.fiqul.id/:splat 200
+
+# SPA fallback — harus paling bawah
 /*  /index.html  200

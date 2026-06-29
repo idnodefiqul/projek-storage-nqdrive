@@ -15,7 +15,7 @@ const renameFolderSchema = z.object({ name: z.string().min(1).max(255) });
 /**
  * GET /api/folders
  * Lists folders under a parent — accepts ?parentFolderId=<id> (internal use only).
- * Frontend should prefer /api/folders/by-path for human-readable navigation.
+ * Frontend should prefer /api/folders/resolve for human-readable navigation.
  */
 folderRoutes.get("/", async (c) => {
   const parentFolderIdParam = c.req.query("parentFolderId");
@@ -28,18 +28,27 @@ folderRoutes.get("/", async (c) => {
 });
 
 /**
- * GET /api/folders/by-path?path=Dokumen/Proyek/2025
- * Resolves a human-readable slash-separated path to folder metadata + children.
- * This is the canonical way the frontend navigates nested folders without exposing IDs.
+ * GET /api/folders/resolve?folder=Windows/11
+ * GET /api/folders/resolve?folder=Scripts
+ * GET /api/folders/resolve                   (tanpa param = root)
  *
- * Response includes:
- *   - folder: the resolved folder (null if path is empty = root)
- *   - ancestors: ordered list [root → ... → direct parent] for breadcrumb rendering
- *   - children: sub-folders inside the resolved folder
- *   - folderId: the resolved integer ID (for internal API calls like /api/files)
+ * Resolves a human-readable slash-separated path to folder metadata + children.
+ * Menggunakan query param "folder" (bukan "path") agar konsisten dengan URL dashboard.
+ *
+ * Format path: nama folder dipisahkan dengan "/" — setiap segment sudah
+ * di-decode oleh backend secara individual (encodeURIComponent per segment
+ * dari frontend, bukan encode keseluruhan string).
+ *
+ * Response:
+ *   - folder: folder yang di-resolve (null jika path kosong = root)
+ *   - ancestors: ordered list [root → ... → direct parent] untuk breadcrumb
+ *   - children: sub-folder di dalam folder yang di-resolve
+ *   - folderId: integer ID yang di-resolve (untuk /api/files call)
  */
-folderRoutes.get("/by-path", async (c) => {
-  const rawPath = c.req.query("path") ?? "";
+folderRoutes.get("/resolve", async (c) => {
+  // Baca dari query param "folder" — fallback ke "path" untuk backward-compat
+  // selama masa transisi (hapus fallback setelah semua client sudah update).
+  const rawPath = c.req.query("folder") ?? c.req.query("path") ?? "";
   const repository = new FolderRepository(c.env.DB);
 
   // Empty path = root
@@ -51,7 +60,10 @@ folderRoutes.get("/by-path", async (c) => {
     });
   }
 
-  // Split and decode each segment
+  // Split per "/" dan decode setiap segment secara individual.
+  // Frontend mengirim: encodeURIComponent(segment).join("/")
+  // Jadi "Windows/11" diterima sebagai "Windows/11" (/ literal),
+  // "Folder Saya/Sub Folder" diterima sebagai "Folder%20Saya/Sub%20Folder"
   const segments = rawPath
     .split("/")
     .map((s) => decodeURIComponent(s.trim()))
@@ -76,7 +88,7 @@ folderRoutes.get("/by-path", async (c) => {
 
   const children = await repository.findByParent(resolved.id);
   const currentFolder = resolved.ancestors[resolved.ancestors.length - 1]!;
-  // ancestors for breadcrumb = all except the last (which is the current folder)
+  // ancestors untuk breadcrumb = semua kecuali yang terakhir (itu adalah folder saat ini)
   const ancestors = resolved.ancestors.slice(0, -1);
 
   return c.json({
@@ -93,7 +105,6 @@ folderRoutes.get("/by-path", async (c) => {
 /**
  * GET /api/folders/:id/ancestors
  * Returns the ancestor chain for a given folder ID, root → direct parent.
- * Used internally when a direct-ID navigation is needed (e.g. after creating a folder).
  */
 folderRoutes.get("/:id/ancestors", async (c) => {
   const id = Number(c.req.param("id"));

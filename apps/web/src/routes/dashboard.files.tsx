@@ -18,9 +18,14 @@ import { useFolderByPath, useCreateFolder, useDeleteFolder } from "../hooks/use-
 import { useUpload } from "../hooks/use-upload";
 import type { FileVisibility, FileWithAccount, Folder } from "@nqdrive/types";
 
-// ─── URL schema: ?path=Dokumen/Proyek/2025 ───────────────────────────────────
+// ─── URL schema: ?folder=Windows/11/subfolder ────────────────────────────────
+// Menggunakan "folder" sebagai nama param (bukan "path") agar URL lebih deskriptif.
+// Separator antar level folder adalah "/" literal — tidak di-encode jadi %2F.
+// Contoh: /dashboard/files?folder=Scripts
+//         /dashboard/files?folder=Windows/11
+//         /dashboard/files?folder=Windows/11/namafolder/namafolder
 const searchSchema = z.object({
-  path: z.string().optional().catch(undefined),
+  folder: z.string().optional().catch(undefined),
 });
 
 export const Route = createFileRoute("/dashboard/files")({
@@ -63,7 +68,7 @@ function EmailCell({ email }: { email: string }) {
 
 /**
  * Breadcrumb component — renders clickable path segments.
- * e.g.  Home / Dokumen / Proyek / 2025
+ * e.g.  Root / Windows / 11 / subfolder
  */
 function Breadcrumb({
   ancestors,
@@ -72,13 +77,15 @@ function Breadcrumb({
 }: {
   ancestors: Folder[];
   currentFolder: Folder | null;
-  onNavigate: (path: string) => void;
+  onNavigate: (folderPath: string) => void;
 }) {
-  // Build cumulative path for each segment
+  // Bangun path kumulatif untuk setiap segment.
+  // Format: nama folder bergabung dengan "/" — tidak perlu encode karena
+  // navigateTo() akan meneruskan nilai ini ke URL param "folder" secara langsung.
   const buildPath = (upTo: number) =>
     [...ancestors, currentFolder]
       .slice(0, upTo + 1)
-      .map((f) => encodeURIComponent(f!.name))
+      .map((f) => f!.name)
       .join("/");
 
   return (
@@ -125,13 +132,14 @@ function FilesPage() {
   const searchParams = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
 
-  // Current path string from URL, e.g. "Dokumen/Proyek/2025" or "" for root
-  const currentPath = searchParams.path ?? "";
+  // Path folder saat ini dari URL param "folder".
+  // Contoh: "" = root, "Scripts" = folder Scripts, "Windows/11" = subfolder 11 di dalam Windows
+  const currentFolderPath = searchParams.folder ?? "";
 
-  // Navigate to a new path — updates URL
+  // Navigasi ke folder path baru — mengupdate URL param "folder"
   const navigateTo = useCallback(
-    (path: string) => {
-      navigate({ search: path ? { path } : {} });
+    (folderPath: string) => {
+      navigate({ search: folderPath ? { folder: folderPath } : {} });
     },
     [navigate]
   );
@@ -142,8 +150,8 @@ function FilesPage() {
 
   const isSearching = !!search || !!visibilityFilter;
 
-  // Reset pagination when path changes
-  useEffect(() => { setPage(1); }, [currentPath]);
+  // Reset pagination saat path berubah
+  useEffect(() => { setPage(1); }, [currentFolderPath]);
 
   // Dialog states
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
@@ -155,13 +163,12 @@ function FilesPage() {
   const [folderToDelete, setFolderToDelete] = useState<Folder | null>(null);
 
   // ── Data fetching ───────────────────────────────────────────────────────────
-  // Primary: resolve the URL path → folderId + children + ancestors
   const {
     data: pathData,
     isLoading: isLoadingPath,
     isFetching: isFetchingPath,
     isError: isPathError,
-  } = useFolderByPath(isSearching ? "" : currentPath);
+  } = useFolderByPath(isSearching ? "" : currentFolderPath);
 
   const currentFolderId = isSearching ? null : (pathData?.folderId ?? null);
 
@@ -173,13 +180,13 @@ function FilesPage() {
     visibility: visibilityFilter || undefined,
   });
 
-  // If path from URL is not found after loading, reset to root
+  // Jika path dari URL tidak ditemukan, kembali ke root
   useEffect(() => {
-    if (isPathError && currentPath) {
+    if (isPathError && currentFolderPath) {
       toast({ title: "Folder tidak ditemukan", description: "Kembali ke root.", variant: "error" });
       navigateTo("");
     }
-  }, [isPathError, currentPath, navigateTo, toast]);
+  }, [isPathError, currentFolderPath, navigateTo, toast]);
 
   const isFetchingData = isLoadingPath || isLoadingFiles || isFetchingPath || isFetchingFiles;
 
@@ -192,10 +199,11 @@ function FilesPage() {
   // ── Handlers ───────────────────────────────────────────────────────────────
 
   const handleFolderClick = (folder: Folder) => {
-    // Build new path by appending folder name to current path
-    const newPath = currentPath
-      ? `${currentPath}/${encodeURIComponent(folder.name)}`
-      : encodeURIComponent(folder.name);
+    // Append nama folder ke path saat ini dengan separator "/"
+    // Tidak perlu encodeURIComponent — navigateTo akan meneruskan ke ?folder= param secara utuh
+    const newPath = currentFolderPath
+      ? `${currentFolderPath}/${folder.name}`
+      : folder.name;
     navigateTo(newPath);
   };
 
@@ -235,7 +243,9 @@ function FilesPage() {
   };
 
   const handleCopyLink = (file: FileWithAccount) => {
-    const url = `${window.location.origin}/${file.slug}`;
+    // Download URL harus ke Worker (apiweb.fiqul.id), bukan ke Pages (drive.fiqul.id)
+    const workerBase = (import.meta.env.VITE_WORKER_URL as string | undefined) ?? window.location.origin;
+    const url = `${workerBase}/${file.slug}`;
     navigator.clipboard.writeText(url);
     toast({ title: "Link disalin", description: url, variant: "success" });
   };
@@ -256,10 +266,32 @@ function FilesPage() {
     }
   };
 
+  const VISIBILITY_TOAST: Record<
+    FileVisibility,
+    { title: string; description: string; variant: "success" | "private" | "hidden" }
+  > = {
+    public:  {
+      title: "File is public",
+      description: "File dapat diakses dan didownload oleh siapapun.",
+      variant: "success",
+    },
+    private: {
+      title: "Private file",
+      description: "File hanya bisa diakses melalui dashboard (admin).",
+      variant: "private",
+    },
+    hidden:  {
+      title: "Hidden file",
+      description: "File tersembunyi dari listing publik.",
+      variant: "hidden",
+    },
+  };
+
   const handleVisibilityChange = async (file: FileWithAccount, visibility: FileVisibility) => {
     try {
       await updateVisibility.mutateAsync({ id: file.id, visibility });
-      toast({ title: "Visibilitas diperbarui", variant: "success" });
+      const { title, description, variant } = VISIBILITY_TOAST[visibility];
+      toast({ title, description, variant });
     } catch (error) {
       toast({
         title: "Gagal memperbarui visibilitas",
@@ -269,7 +301,6 @@ function FilesPage() {
     }
   };
 
-  // Folders to display — only show when not searching
   const foldersList = isSearching ? [] : (pathData?.children ?? []);
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -299,7 +330,7 @@ function FilesPage() {
       <Card className="flex flex-1 flex-col overflow-hidden shadow-sm">
         <CardContent className="flex flex-1 flex-col gap-4 overflow-hidden p-5">
 
-          {/* Breadcrumb — always visible, shows current path */}
+          {/* Breadcrumb */}
           {!isSearching && (
             <Breadcrumb
               ancestors={pathData?.ancestors ?? []}
@@ -431,15 +462,17 @@ function FilesPage() {
                     <td className="px-4 py-3 text-zinc-600 dark:text-zinc-400">{file.downloadCount}</td>
                     <td className="px-4 py-3">
                       <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleCopyLink(file)}
-                          title="Salin link publik"
-                          className="hover:bg-brand-50 hover:text-brand-600 dark:hover:bg-brand-900/30"
-                        >
-                          <Copy className="h-4 w-4" />
-                        </Button>
+                        {file.visibility === "public" && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleCopyLink(file)}
+                            title="Salin link publik"
+                            className="hover:bg-brand-50 hover:text-brand-600 dark:hover:bg-brand-900/30"
+                          >
+                            <Copy className="h-4 w-4" />
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -528,8 +561,8 @@ function FilesPage() {
         <DialogHeader>
           <DialogTitle>Buat Folder Baru</DialogTitle>
           <DialogDescription>
-            {currentPath
-              ? `Akan dibuat di: ${decodeURIComponent(currentPath)}`
+            {currentFolderPath
+              ? `Akan dibuat di: ${currentFolderPath}`
               : "Akan dibuat di root."}
           </DialogDescription>
         </DialogHeader>
@@ -552,7 +585,7 @@ function FilesPage() {
         open={isUploadOpen}
         onOpenChange={setIsUploadOpen}
         currentFolderId={currentFolderId}
-        currentPath={currentPath}
+        currentFolderPath={currentFolderPath}
       />
     </div>
   );
@@ -564,12 +597,12 @@ function UploadDialog({
   open,
   onOpenChange,
   currentFolderId,
-  currentPath,
+  currentFolderPath,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentFolderId: number | null;
-  currentPath: string;
+  currentFolderPath: string;
 }) {
   const { items, uploadFile, cancelUpload, removeItem } = useUpload();
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -608,8 +641,8 @@ function UploadDialog({
       <DialogHeader>
         <DialogTitle>Upload File</DialogTitle>
         <DialogDescription>
-          {currentPath
-            ? `Upload ke: ${decodeURIComponent(currentPath)}`
+          {currentFolderPath
+            ? `Upload ke: ${currentFolderPath}`
             : "Upload ke root."}
         </DialogDescription>
       </DialogHeader>

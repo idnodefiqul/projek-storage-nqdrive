@@ -12,17 +12,35 @@ export const folderService = {
     ),
 
   /**
-   * Resolve a slash-separated human-readable path to folder data + children.
-   * e.g. byPath("Dokumen/Proyek/2025") → { folder, folderId, ancestors, children }
+   * Resolve a slash-separated path ke folder data + children.
+   *
+   * Format URL: /api/folders/resolve?folder=Windows/11
+   *
+   * "/" dikirim sebagai literal — tidak di-encode jadi %2F.
+   * Encoding karakter khusus lain (spasi → %20, dll) tetap dilakukan
+   * via encodeURIComponent per segment.
+   *
    * byPath("") → root
+   * byPath("Scripts") → folder Scripts
+   * byPath("Windows/11") → subfolder 11 di dalam Windows
+   * byPath("A/B/C/D") → nested 4 level dalam
    */
-  byPath: (path: string) =>
-    apiRequest<FolderByPathResponse>(
-      path ? `/folders/by-path?path=${encodeURIComponent(path)}` : "/folders/by-path"
-    ),
+  byPath: (path: string) => {
+    if (!path) {
+      return apiRequest<FolderByPathResponse>("/folders/resolve");
+    }
+    // Encode setiap segment secara individual (handle spasi, #, ? dll),
+    // lalu gabung dengan "/" literal — bukan encodeURIComponent seluruh string
+    // karena itu akan encode "/" jadi %2F.
+    const encodedPath = path
+      .split("/")
+      .map((segment) => encodeURIComponent(segment))
+      .join("/");
+    return apiRequest<FolderByPathResponse>(`/folders/resolve?folder=${encodedPath}`);
+  },
 
   /**
-   * Get ancestor chain for a folder ID — used after creating a subfolder to rebuild path.
+   * Get ancestor chain for a folder ID.
    */
   ancestors: (id: number) =>
     apiRequest<{ folder: Folder; ancestors: Folder[] }>(`/folders/${id}/ancestors`),

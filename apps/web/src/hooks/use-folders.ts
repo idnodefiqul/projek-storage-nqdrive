@@ -7,7 +7,7 @@ import { folderService } from "../services/folder.service";
  */
 export function useFolderByPath(path: string) {
   return useQuery({
-    queryKey: ["folders", "by-path", path],
+    queryKey: ["folders", "resolve", path],
     queryFn: () => folderService.byPath(path),
     staleTime: 30_000,
   });
