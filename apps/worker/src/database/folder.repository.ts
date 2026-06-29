@@ -40,6 +40,61 @@ export class FolderRepository {
     return row ? rowToFolder(row) : null;
   }
 
+  /**
+   * Resolves a slash-separated path of folder names to a folder ID.
+   * e.g. "Dokumen/Proyek/2025" → folder with id=42
+   * Returns null if any segment in the path does not exist.
+   */
+  async resolvePathToId(pathSegments: string[]): Promise<{ id: number; ancestors: Folder[] } | null> {
+    if (pathSegments.length === 0) return null;
+
+    let currentParentId: number | null = null;
+    const ancestors: Folder[] = [];
+
+    for (const segment of pathSegments) {
+      const row = await this.db
+        .prepare(
+          currentParentId === null
+            ? "SELECT * FROM folders WHERE name = ? AND parent_folder_id IS NULL LIMIT 1"
+            : "SELECT * FROM folders WHERE name = ? AND parent_folder_id = ? LIMIT 1"
+        )
+        .bind(...(currentParentId === null ? [segment] : [segment, currentParentId]))
+        .first<FolderRow>();
+
+      if (!row) return null;
+      const folder = rowToFolder(row);
+      ancestors.push(folder);
+      currentParentId = folder.id;
+    }
+
+    const last = ancestors[ancestors.length - 1];
+    if (!last) return null;
+    return { id: last.id, ancestors };
+  }
+
+  /**
+   * Builds the full ancestor chain for a given folder ID.
+   * Returns ordered list from root → direct parent (not including the folder itself).
+   */
+  async getAncestors(folderId: number): Promise<Folder[]> {
+    const ancestors: Folder[] = [];
+    let currentId: number | null = folderId;
+
+    // Walk up via parent_folder_id (max 20 levels to prevent infinite loop on bad data)
+    for (let i = 0; i < 20; i++) {
+      if (currentId === null) break;
+      const row = await this.db
+        .prepare("SELECT * FROM folders WHERE id = ?")
+        .bind(currentId)
+        .first<FolderRow>();
+      if (!row) break;
+      ancestors.unshift(rowToFolder(row));
+      currentId = row.parent_folder_id;
+    }
+
+    return ancestors;
+  }
+
   async create(params: { name: string; parentFolderId: number | null }): Promise<Folder> {
     const row = await this.db
       .prepare("INSERT INTO folders (name, parent_folder_id) VALUES (?, ?) RETURNING *")
