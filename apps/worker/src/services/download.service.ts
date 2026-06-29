@@ -1,27 +1,28 @@
 import { StorageProviderFactory } from "@nqdrive/storage";
 import { FileRepository } from "../database/file.repository";
 import { DriveAccountRepository } from "../database/drive-account.repository";
+import { DownloadLogRepository } from "../database/download-log.repository";
 import { GoogleAccountConnectionService } from "./google-account-connection.service";
 import type { Env } from "../config/env";
 import type { ParsedRange } from "../utils/range-parser";
 import type { FileEntity } from "@nqdrive/types";
+import type { Context } from "hono";
 
 export class FileNotAccessibleError extends Error {}
 
 export interface StreamDownloadResult {
   file: FileEntity;
   stream: ReadableStream<Uint8Array>;
-  sizeBytes: number; // size of the bytes actually being streamed (full file or range slice)
-  totalFileSizeBytes: number; // true total size, needed for Content-Range header
+  sizeBytes: number;
+  totalFileSizeBytes: number;
   mimeType: string;
   isPartial: boolean;
+  /** Content-Range header langsung dari Google Drive response. */
+  contentRange: string | null;
+  /** Content-Length header langsung dari Google Drive response. */
+  contentLength: number | null;
 }
 
-/**
- * Orchestrates the public download flow: slug -> file metadata -> drive account ->
- * valid access token -> provider stream. Kept separate from the route handler so the
- * route stays focused purely on HTTP concerns (headers, status codes).
- */
 export class DownloadService {
   private readonly fileRepository: FileRepository;
   private readonly driveAccountRepository: DriveAccountRepository;
@@ -33,11 +34,6 @@ export class DownloadService {
     this.connectionService = new GoogleAccountConnectionService(env);
   }
 
-  /**
-   * Hanya ambil metadata file dari DB tanpa membuka stream ke provider.
-   * Dipakai oleh route handler untuk set Content-Length lebih awal
-   * menggunakan ukuran yang terpercaya dari DB (bukan dari provider yang bisa NaN/0).
-   */
   async getFileInfo(slug: string): Promise<FileEntity | null> {
     const file = await this.fileRepository.findBySlug(slug);
     if (!file || file.visibility !== "public") return null;
@@ -45,11 +41,79 @@ export class DownloadService {
   }
 
   /**
-   * Resolves a public slug to a streamable file.
-   * Throws FileNotAccessibleError for both "doesn't exist" and "exists but private/hidden" —
-   * callers must map this to a generic 404, never revealing which case it was (prevents
-   * leaking the existence of private files to someone probing slugs).
+   * FIX: Ambil ukuran file langsung dari Google Drive API (metadata only, bukan stream).
+   * Dipanggil hanya jika sizeBytes di DB = 0 atau tidak valid.
+   * Ini adalah 1 request ringan ke Drive API, tidak membuka stream file sama sekali.
    */
+  async getFileSizeFromProvider(slug: string): Promise<number | null> {
+    try {
+      const file = await this.fileRepository.findBySlug(slug);
+      if (!file || file.visibility !== "public") return null;
+
+      const account = await this.driveAccountRepository.findById(file.driveAccountId);
+      if (!account) return null;
+
+      const accessToken = await this.connectionService.getValidAccessToken(account);
+
+      // Hanya request metadata fields=size — sangat ringan, tidak membuka stream
+      const metaResponse = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${file.providerFileId}?fields=size`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      );
+
+      if (!metaResponse.ok) return null;
+
+      const meta = (await metaResponse.json()) as { size?: string };
+      const size = Number(meta.size ?? 0);
+      return size > 0 ? size : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * FIX: Update sizeBytes di DB supaya download berikutnya langsung dapat
+   * Content-Length yang benar tanpa perlu request extra ke Google Drive.
+   * Dipanggil fire-and-forget (void).
+   */
+  async fixFileSizeInDb(fileId: number, sizeBytes: number): Promise<void> {
+    try {
+      await this.fileRepository.updateSizeBytes(fileId, sizeBytes);
+    } catch {
+      // Jangan throw — ini background fix, jangan ganggu response utama
+    }
+  }
+
+  /**
+   * FIX: Fallback terakhir saat ukuran file benar-benar tidak bisa diketahui.
+   * Serve file tanpa Content-Length (chunked) — resume tidak bisa, tapi file tetap bisa didownload.
+   */
+  async streamWithoutSize(
+    c: Context<{ Bindings: Env }>,
+    slug: string,
+    downloadLogRepository: DownloadLogRepository,
+    fileInfo: FileEntity
+  ): Promise<Response> {
+    const result = await this.streamBySlug(slug, null);
+
+    void downloadLogRepository.create({
+      fileId: fileInfo.id,
+      ipAddress: c.req.header("CF-Connecting-IP") ?? "unknown",
+      userAgent: c.req.header("User-Agent") ?? null,
+      bytesServed: 0,
+      status: "completed",
+    });
+
+    const headers = new Headers();
+    headers.set("Content-Type", fileInfo.mimeType || result.mimeType);
+    // Tanpa Content-Length dan Content-Range — browser masih bisa download
+    // tapi tidak bisa pause/resume dan tidak tahu total ukuran
+    headers.set("Content-Disposition", `attachment; filename="${fileInfo.filename.replace(/"/g, "'")}"`);
+    headers.set("Cache-Control", "no-store"); // Jangan cache yang tidak punya size
+
+    return new Response(result.stream, { status: 200, headers });
+  }
+
   async streamBySlug(slug: string, range: ParsedRange | null): Promise<StreamDownloadResult> {
     const file = await this.fileRepository.findBySlug(slug);
     if (!file || file.visibility !== "public") {
@@ -71,18 +135,21 @@ export class DownloadService {
       rangeEnd: range?.end,
     });
 
-    // Fire-and-forget bookkeeping — never block the response on these.
     void this.fileRepository.incrementDownloadCount(file.id);
 
     return {
       file,
       stream: result.stream,
       sizeBytes: range ? range.end - range.start + 1 : result.sizeBytes,
-      // Prioritaskan sizeBytes dari DB karena lebih andal daripada provider
-      // (Google Drive kadang return undefined/NaN untuk file tertentu)
+      // Prioritas: ukuran dari DB (paling cepat, tidak perlu request extra).
+      // Fallback: ukuran dari Google Drive response (selalu akurat, tapi butuh request).
       totalFileSizeBytes: file.sizeBytes > 0 ? file.sizeBytes : result.sizeBytes,
       mimeType: file.mimeType || result.mimeType,
       isPartial: range !== null,
+      // Pass-through header langsung dari Google Drive — ini yang kita butuhkan
+      // di route handler agar Content-Length dan Content-Range 100% akurat.
+      contentRange: result.contentRange,
+      contentLength: result.contentLength,
     };
   }
 }

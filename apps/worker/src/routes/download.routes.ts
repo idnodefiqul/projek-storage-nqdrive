@@ -12,15 +12,9 @@ import type { Env } from "../config/env";
 const downloadRoutes = new Hono<{ Bindings: Env }>();
 
 // ─── SECURITY FIX #7: Content-Disposition header injection via filename ────
-// Sebelumnya: `attachment; filename="${file.filename}"` tanpa sanitasi.
-// Jika filename mengandung karakter seperti `"` atau newline, attacker bisa
-// inject header tambahan. Fix: encode filename dengan RFC 5987 (filename*=UTF-8).
 function safeContentDisposition(filename: string): string {
-  // Hapus karakter kontrol (termasuk \r, \n) yang bisa inject header baru
   const sanitized = filename.replace(/[\x00-\x1f\x7f]/g, "").replace(/"/g, "'");
-  // Encode filename dengan RFC 5987 untuk support non-ASCII
   const encoded = encodeURIComponent(filename);
-  // Kirim dua form: fallback ASCII + RFC5987 untuk browser modern
   return `attachment; filename="${sanitized}"; filename*=UTF-8''${encoded}`;
 }
 
@@ -36,21 +30,41 @@ async function handleDownload(c: Context<{ Bindings: Env }>) {
   const downloadLogRepository = new DownloadLogRepository(c.env.DB);
 
   try {
-    // Ambil metadata file dulu (ringan, tanpa stream)
+    // Ambil metadata file dulu (ringan, tanpa stream ke Google)
     const fileInfo = await downloadService.getFileInfo(slug);
     if (!fileInfo) {
       return c.text("Not Found", 404);
     }
 
-    // Gunakan sizeBytes dari DB sebagai sumber kebenaran ukuran file
-    // Ini memastikan Content-Length selalu ada dan benar meskipun provider
-    // gagal mengembalikan ukuran (misal Google Docs native files)
-    const totalSize = fileInfo.sizeBytes;
+    // Ukuran dari DB sebagai acuan awal untuk parseRangeHeader.
+    // Kalau 0/salah, kita akan overwrite dari Google Drive response nanti.
+    const dbSize = fileInfo.sizeBytes;
 
-    const range = parseRangeHeader(rangeHeader, totalSize);
+    const range = parseRangeHeader(rangeHeader, dbSize > 0 ? dbSize : Number.MAX_SAFE_INTEGER);
 
-    // Stream sekali saja — tidak perlu dua kali request ke Google Drive
+    // Stream file dari Google Drive (1 request saja — tidak ada lagi request metadata terpisah)
     const result = await downloadService.streamBySlug(slug, range);
+
+    // ── Sumber kebenaran ukuran file (prioritas dari tinggi ke rendah) ────────
+    // 1. Google Drive Content-Range header → paling akurat, langsung dari storage Google
+    // 2. Google Drive Content-Length header → fallback jika tidak ada Content-Range
+    // 3. DB sizeBytes → fallback terakhir jika Google tidak mengembalikan header size
+    // ─────────────────────────────────────────────────────────────────────────
+    let totalSize = dbSize;
+
+    // Parse total dari Content-Range Google: "bytes START-END/TOTAL" → TOTAL
+    if (result.contentRange) {
+      const match = result.contentRange.match(/\/(\d+)$/);
+      if (match) totalSize = Number(match[1]);
+    } else if (result.contentLength && !range) {
+      // Tidak ada Content-Range tapi ada Content-Length → ini ukuran full file
+      totalSize = result.contentLength;
+    }
+
+    // Jika DB masih 0 tapi kita sudah dapat ukuran dari Google, update DB async
+    if ((!dbSize || dbSize <= 0) && totalSize > 0) {
+      void downloadService.fixFileSizeInDb(fileInfo.id, totalSize);
+    }
 
     // Log download (fire-and-forget)
     void downloadLogRepository.create({
@@ -61,39 +75,31 @@ async function handleDownload(c: Context<{ Bindings: Env }>) {
       status: range ? "partial" : "completed",
     });
 
-    // ── Kenapa SELALU 206? ────────────────────────────────────────────────────
-    // Cloudflare CDN (edge layer di depan Worker) terkadang menghapus
-    // Content-Length dari response 200 streaming dan menggantinya dengan
-    // Transfer-Encoding: chunked. Ini yang menyebabkan browser Android
-    // menampilkan "? / ?" alih-alih ukuran file sebenarnya.
-    //
-    // Trik dari r2-hosting-fixed: selalu kembalikan 206 Partial Content +
-    // Content-Range, karena Cloudflare CDN TIDAK berani menghapus Content-Length
-    // dari response 206 (melanggar RFC 7233). IDM, Android browser, semua
-    // download manager menangani 206 dengan benar — bahkan untuk download penuh.
-    // ─────────────────────────────────────────────────────────────────────────
-
+    // ── Header response ───────────────────────────────────────────────────────
     const headers = new Headers();
     headers.set("Content-Type", fileInfo.mimeType || result.mimeType);
     headers.set("Accept-Ranges", "bytes");
     headers.set("Content-Disposition", safeContentDisposition(fileInfo.filename));
     headers.set("Cache-Control", "public, max-age=3600, no-transform");
 
-    if (range) {
-      // Client meminta range tertentu (resume/lanjut dari titik tertentu)
+    if (range && result.contentRange) {
+      // Resume download: gunakan Content-Range PERSIS dari Google (paling akurat)
+      const chunkSize = range.end - range.start + 1;
+      headers.set("Content-Length", String(result.contentLength ?? chunkSize));
+      headers.set("Content-Range", result.contentRange);
+    } else if (range) {
+      // Resume tapi Google tidak beri Content-Range — hitung manual
       const chunkSize = range.end - range.start + 1;
       headers.set("Content-Length", String(chunkSize));
       headers.set("Content-Range", `bytes ${range.start}-${range.end}/${totalSize}`);
     } else {
-      // Download penuh — tetap 206 dengan range 0 sampai akhir file
-      // agar Cloudflare CDN tidak menghapus Content-Length.
+      // Download penuh — selalu 206 agar Cloudflare CDN tidak strip Content-Length
       headers.set("Content-Length", String(totalSize));
       headers.set("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`);
     }
 
-    // encodeBody: "manual" = matikan chunked encoding di level Worker itu sendiri.
-    // Status 206 = matikan chunked encoding di level Cloudflare CDN.
-    // Keduanya diperlukan agar Content-Length sampai ke browser dengan utuh.
+    // encodeBody:"manual" → matikan chunked di Worker level
+    // status 206        → matikan chunked di Cloudflare CDN level
     return new Response(result.stream, {
       status: 206,
       headers,
@@ -111,8 +117,7 @@ async function handleDownload(c: Context<{ Bindings: Env }>) {
 
 // Route 1: explicit /download/:slug fallback
 downloadRoutes.get("/download/:slug{.+}", handleDownload);
-// Route 2: catch-all slug yang mengandung titik (ekstensi file) — misal /file.apk, /v1.2.3.zip
-// Pattern .+ menangkap semua karakter termasuk beberapa titik
+// Route 2: catch-all slug yang mengandung titik (ekstensi file)
 downloadRoutes.get("/:slug{[^/]+\\.[^/]+}", handleDownload);
 
 export { downloadRoutes };

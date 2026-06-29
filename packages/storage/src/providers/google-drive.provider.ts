@@ -125,58 +125,67 @@ export class GoogleDriveProvider implements StorageProvider {
     providerFileId: string;
     rangeStart?: number;
     rangeEnd?: number;
-  }): Promise<{ stream: ReadableStream<Uint8Array>; sizeBytes: number; mimeType: string }> {
+  }): Promise<{ stream: ReadableStream<Uint8Array>; sizeBytes: number; mimeType: string; contentRange: string | null; contentLength: number | null }> {
     const { credentials, providerFileId, rangeStart, rangeEnd } = params;
     const accessToken = credentials.accessToken;
     if (!accessToken) {
       throw new Error("Missing accessToken in credentials for Google Drive download");
     }
 
-    // Fetch metadata first to know the true size and mime type.
-    const metaResponse = await fetch(
-      `${GOOGLE_DRIVE_API_BASE}/files/${providerFileId}?fields=size,mimeType`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
-    );
-
-    if (!metaResponse.ok) {
-      throw new Error(
-        `Failed to fetch Google Drive file metadata: ${metaResponse.status} ${await metaResponse.text()}`
-      );
-    }
-
-    const meta = (await metaResponse.json()) as { size: string; mimeType: string };
-    const sizeBytes = Number(meta.size);
-
-    const headers: Record<string, string> = { 
+    const headers: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
-      "Accept-Encoding": "identity" 
+      // Paksa Google tidak mengompresi response (chunked gzip merusak Content-Length)
+      "Accept-Encoding": "identity",
     };
-    
-    // Trik spesifik Google Drive (diambil dari r2-hosting-fixed):
-    // Kalau request tanpa Range, Google Drive kadang membalas dengan Transfer-Encoding: chunked
-    // tanpa Content-Length. Kita paksa bytes=0- supaya Google Drive SELALU membalas 206 
-    // beserta Content-Length dan Content-Range yang valid.
+
+    // Trik kunci: selalu kirim Range header ke Google Drive.
+    // Tanpa Range, Google kadang membalas 200 + Transfer-Encoding: chunked TANPA Content-Length.
+    // Dengan Range: bytes=0-, Google SELALU membalas 206 + Content-Range + Content-Length yang valid.
+    // Ini sumber kebenaran ukuran file yang paling akurat — lebih andal dari metadata API terpisah.
     if (rangeStart !== undefined) {
-      headers.Range = `bytes=${rangeStart}-${rangeEnd ?? sizeBytes - 1}`;
+      // Client meminta sebagian file (resume download)
+      headers.Range = `bytes=${rangeStart}-${rangeEnd !== undefined ? rangeEnd : ""}`;
     } else {
+      // Download penuh — paksakan 206 agar Content-Length tidak dihapus Cloudflare CDN
       headers.Range = "bytes=0-";
     }
 
     const contentResponse = await fetch(
-      `${GOOGLE_DRIVE_API_BASE}/files/${providerFileId}?alt=media`,
+      `${GOOGLE_DRIVE_API_BASE}/files/${providerFileId}?alt=media&acknowledgeAbuse=true`,
       { headers }
     );
 
     if (!contentResponse.ok || !contentResponse.body) {
+      const errText = await contentResponse.text().catch(() => "");
       throw new Error(
-        `Failed to download Google Drive file content: ${contentResponse.status} ${await contentResponse.text()}`
+        `Failed to download Google Drive file content: ${contentResponse.status} ${errText.slice(0, 200)}`
       );
     }
+
+    // Ambil Content-Range dari response Google (misal: "bytes 0-149999999/150000000")
+    // Ini jauh lebih andal dari metadata API terpisah karena:
+    //   1. Tidak perlu request extra ke Google
+    //   2. Nilainya adalah ukuran byte aktual file di storage Google
+    //   3. Selalu ada karena kita memaksa Range: bytes=0-
+    const contentRange = contentResponse.headers.get("content-range");
+    const contentLengthStr = contentResponse.headers.get("content-length");
+    const contentLength = contentLengthStr ? Number(contentLengthStr) : null;
+
+    // Parse total file size dari Content-Range header: "bytes START-END/TOTAL"
+    let sizeBytes = 0;
+    if (contentRange) {
+      const totalMatch = contentRange.match(/\/(\d+)$/);
+      if (totalMatch) sizeBytes = Number(totalMatch[1]);
+    }
+    // Fallback ke Content-Length jika tidak ada Content-Range
+    if (!sizeBytes && contentLength) sizeBytes = contentLength;
 
     return {
       stream: contentResponse.body,
       sizeBytes,
-      mimeType: meta.mimeType,
+      mimeType: contentResponse.headers.get("content-type") ?? "application/octet-stream",
+      contentRange,
+      contentLength,
     };
   }
 

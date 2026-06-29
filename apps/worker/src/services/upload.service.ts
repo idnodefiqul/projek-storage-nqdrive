@@ -130,27 +130,40 @@ export class UploadService {
 
       const slug = await this.generateUniqueSlug(params.filename);
 
+      // FIX: Gunakan params.sizeBytes (dari header X-File-Size yang sudah divalidasi)
+      // sebagai sumber utama ukuran file yang disimpan ke DB.
+      // uploadResult.sizeBytes hanya fallback — GoogleDriveProvider meneruskannya dari params
+      // tapi jika ada bug atau edge case, kita tetap punya params.sizeBytes yang sudah tervalidasi.
+      // Guard: jangan simpan 0 ke DB — ini penyebab utama "? / ?" di download manager.
+      const definitveSizeBytes = (params.sizeBytes > 0)
+        ? params.sizeBytes
+        : (uploadResult.sizeBytes > 0 ? uploadResult.sizeBytes : 0);
+
+      if (definitveSizeBytes <= 0) {
+        throw new UploadValidationError("Ukuran file tidak bisa ditentukan setelah upload. Coba upload ulang.");
+      }
+
       const file = await this.fileRepository.create({
         filename: params.filename,
         slug,
         providerFileId: uploadResult.providerFileId,
         driveAccountId: account.id,
         folderId: params.folderId,
-        sizeBytes: uploadResult.sizeBytes,
+        sizeBytes: definitveSizeBytes,
         mimeType: uploadResult.mimeType,
         visibility: "private",
       });
 
       await this.driveAccountRepository.updateQuota(account.id, {
         totalBytes: account.totalStorageBytes,
-        usedBytes: account.usedStorageBytes + uploadResult.sizeBytes,
-        availableBytes: Math.max(0, account.availableStorageBytes - uploadResult.sizeBytes),
+        usedBytes: account.usedStorageBytes + definitveSizeBytes,
+        availableBytes: Math.max(0, account.availableStorageBytes - definitveSizeBytes),
       });
 
       void this.uploadLogRepository.create({
         fileId: file.id,
         filename: params.filename,
-        sizeBytes: uploadResult.sizeBytes,
+        sizeBytes: definitveSizeBytes,
         driveAccountId: account.id,
         durationMs: Date.now() - startedAt,
         status: "success",

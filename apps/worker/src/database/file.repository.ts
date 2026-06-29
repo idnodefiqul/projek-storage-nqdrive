@@ -184,4 +184,16 @@ export class FileRepository {
       .first<{ total: number }>();
     return row?.total ?? 0;
   }
+
+  /**
+   * FIX: Update sizeBytes untuk file yang tersimpan dengan ukuran 0/salah.
+   * Dipanggil oleh DownloadService saat mendeteksi sizeBytes = 0 di DB
+   * dan berhasil mendapatkan ukuran yang benar dari Google Drive API.
+   */
+  async updateSizeBytes(id: number, sizeBytes: number): Promise<void> {
+    await this.db
+      .prepare("UPDATE files SET size_bytes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND size_bytes = 0")
+      .bind(sizeBytes, id)
+      .run();
+  }
 }

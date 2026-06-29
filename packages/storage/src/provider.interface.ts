@@ -78,6 +78,12 @@ export interface StorageProvider {
     stream: ReadableStream<Uint8Array>;
     sizeBytes: number;
     mimeType: string;
+    /** Content-Range header dari provider (misal: "bytes 0-149999999/150000000").
+     *  Selalu ada karena kita memaksa Range: bytes=0- ke Google Drive.
+     *  Gunakan ini sebagai sumber kebenaran ukuran file — lebih akurat dari DB. */
+    contentRange: string | null;
+    /** Content-Length aktual yang dikembalikan provider untuk chunk ini. */
+    contentLength: number | null;
   }>;
 
   /** Permanently deletes a file from the provider. */
