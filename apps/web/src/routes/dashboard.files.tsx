@@ -243,9 +243,9 @@ function FilesPage() {
   };
 
   const handleCopyLink = (file: FileWithAccount) => {
-    // Download URL harus ke Worker (apiweb.fiqul.id), bukan ke Pages (drive.fiqul.id)
-    const workerBase = (import.meta.env.VITE_WORKER_URL as string | undefined) ?? window.location.origin;
-    const url = `${workerBase}/${file.slug}`;
+    // URL download menggunakan host web ini (drive.fiqul.id) sebagai perantara (proxy) ke Worker
+    const baseUrl = window.location.origin;
+    const url = `${baseUrl}/${file.slug}`;
     navigator.clipboard.writeText(url);
     toast({ title: "Link disalin", description: url, variant: "success" });
   };

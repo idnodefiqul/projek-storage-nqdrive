@@ -34,6 +34,17 @@ export class DownloadService {
   }
 
   /**
+   * Hanya ambil metadata file dari DB tanpa membuka stream ke provider.
+   * Dipakai oleh route handler untuk set Content-Length lebih awal
+   * menggunakan ukuran yang terpercaya dari DB (bukan dari provider yang bisa NaN/0).
+   */
+  async getFileInfo(slug: string): Promise<FileEntity | null> {
+    const file = await this.fileRepository.findBySlug(slug);
+    if (!file || file.visibility !== "public") return null;
+    return file;
+  }
+
+  /**
    * Resolves a public slug to a streamable file.
    * Throws FileNotAccessibleError for both "doesn't exist" and "exists but private/hidden" —
    * callers must map this to a generic 404, never revealing which case it was (prevents
@@ -67,7 +78,9 @@ export class DownloadService {
       file,
       stream: result.stream,
       sizeBytes: range ? range.end - range.start + 1 : result.sizeBytes,
-      totalFileSizeBytes: result.sizeBytes,
+      // Prioritaskan sizeBytes dari DB karena lebih andal daripada provider
+      // (Google Drive kadang return undefined/NaN untuk file tertentu)
+      totalFileSizeBytes: file.sizeBytes > 0 ? file.sizeBytes : result.sizeBytes,
       mimeType: file.mimeType || result.mimeType,
       isPartial: range !== null,
     };

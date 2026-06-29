@@ -1,13 +1,15 @@
-# File download slugs → proxy ke Worker
-# Pola /:slug{.+\..+} = apapun yang mengandung titik (ada extension)
-# Ini harus di atas rule SPA agar tidak tertangkap duluan oleh index.html
-
-# Route /download/:slug → Worker
-/download/*  https://apiweb.fiqul.id/download/:splat  200
-
-# Route /:slug.ext (file dengan extension) → Worker
-# Regex: semua path yang mengandung titik dan bukan /dashboard /api /login dll
-/*.* https://apiweb.fiqul.id/:splat 200
+# CATATAN PENTING (fix download bug):
+# Rule proxy ke Worker (https://apiweb.fiqul.id) yang dulu ada di sini SUDAH
+# DIHAPUS karena Cloudflare Pages _redirects TIDAK BISA proxy ke domain
+# eksternal (hanya redirect 3xx, bukan proxy 200 transparan) — rule lama
+# diam-diam diabaikan Cloudflare, makanya akses /namafile.ext selalu jatuh
+# ke fallback SPA index.html alih-alih download file.
+#
+# Proxy ke Worker sekarang ditangani oleh Pages Function di
+# apps/web/functions/[[catchall]].ts, yang SELALU dievaluasi lebih dulu
+# daripada file _redirects ini. Jadi urutannya:
+#   1. functions/[[catchall]].ts -> path file (.ext) atau /download/* -> proxy ke Worker.
+#   2. Bukan file -> next() -> lanjut ke rule SPA fallback di bawah.
 
 # SPA fallback — harus paling bawah
 /*  /index.html  200

@@ -147,9 +147,19 @@ export class GoogleDriveProvider implements StorageProvider {
     const meta = (await metaResponse.json()) as { size: string; mimeType: string };
     const sizeBytes = Number(meta.size);
 
-    const headers: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+    const headers: Record<string, string> = { 
+      Authorization: `Bearer ${accessToken}`,
+      "Accept-Encoding": "identity" 
+    };
+    
+    // Trik spesifik Google Drive (diambil dari r2-hosting-fixed):
+    // Kalau request tanpa Range, Google Drive kadang membalas dengan Transfer-Encoding: chunked
+    // tanpa Content-Length. Kita paksa bytes=0- supaya Google Drive SELALU membalas 206 
+    // beserta Content-Length dan Content-Range yang valid.
     if (rangeStart !== undefined) {
       headers.Range = `bytes=${rangeStart}-${rangeEnd ?? sizeBytes - 1}`;
+    } else {
+      headers.Range = "bytes=0-";
     }
 
     const contentResponse = await fetch(
