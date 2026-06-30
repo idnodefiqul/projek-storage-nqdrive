@@ -7,9 +7,19 @@ export const authQueryKeys = {
 };
 
 export function useSetupStatus() {
+  const isSetupCompleted = localStorage.getItem("nqdrive_setup_completed") === "true";
+  
   return useQuery({
     queryKey: authQueryKeys.setupStatus,
-    queryFn: authService.getSetupStatus,
+    queryFn: async () => {
+      const res = await authService.getSetupStatus();
+      if (res.setupCompleted) {
+        localStorage.setItem("nqdrive_setup_completed", "true");
+      }
+      return res;
+    },
+    initialData: isSetupCompleted ? { setupCompleted: true } : undefined,
+    staleTime: isSetupCompleted ? Infinity : 0,
   });
 }
 
@@ -27,6 +37,7 @@ export function useSetupAdmin() {
   return useMutation({
     mutationFn: authService.setupAdmin,
     onSuccess: () => {
+      localStorage.setItem("nqdrive_setup_completed", "true");
       queryClient.invalidateQueries({ queryKey: authQueryKeys.setupStatus });
     },
   });

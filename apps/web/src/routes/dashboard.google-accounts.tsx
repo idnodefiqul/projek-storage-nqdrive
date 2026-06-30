@@ -7,13 +7,17 @@ import {
 import {
   Card, CardContent, Button, Skeleton,
   Dialog, DialogHeader, DialogTitle, DialogDescription, useToast,
+  Badge, Progress, Avatar, AvatarImage, AvatarFallback,
+  TooltipProvider, Tooltip, TooltipTrigger, TooltipContent,
 } from "@nqdrive/ui";
 import { formatBytes } from "@nqdrive/shared";
-import {
-  useDriveAccounts, useDeleteDriveAccount,
+import { useDriveAccounts, useDeleteDriveAccount,
   useConnectGoogleAccountViaToken, useValidateRefreshToken,
 } from "../hooks/use-drive-accounts";
+import { useMinLoading } from "../hooks/use-min-loading";
 import { ApiClientError } from "../lib/api-client";
+import { PageTransition } from "../components/page-transition";
+import { CardGridSkeleton } from "../components/skeletons";
 
 export const Route = createFileRoute("/dashboard/google-accounts")({
   component: GoogleAccountsPage,
@@ -27,11 +31,21 @@ function maskEmail(email: string): string {
 
 function EmailCell({ email }: { email: string }) {
   const [shown, setShown] = useState(false);
+  
+  const displayEmail = shown ? email : maskEmail(email);
+
   return (
-    <div className="flex items-center gap-1.5">
-      <span className="font-mono text-sm font-medium text-zinc-900 dark:text-zinc-100">
-        {shown ? email : maskEmail(email)}
-      </span>
+    <div className="flex min-w-0 items-center gap-1.5">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="truncate font-medium text-sm text-zinc-900 dark:text-zinc-100">
+            {displayEmail}
+          </span>
+        </TooltipTrigger>
+        <TooltipContent side="top">
+          <p>{email}</p>
+        </TooltipContent>
+      </Tooltip>
       <button type="button" onClick={() => setShown((v) => !v)}
         className="shrink-0 text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
         title={shown ? "Sembunyikan email" : "Tampilkan email"}>
@@ -175,7 +189,8 @@ function AddAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
 function GoogleAccountsPage() {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const { data, isLoading } = useDriveAccounts();
+  const { data, isLoading: isQueryLoading } = useDriveAccounts();
+  const isLoading = useMinLoading(isQueryLoading, 600);
   const deleteAccount = useDeleteDriveAccount();
 
   const handleDelete = async (id: number, email: string) => {
@@ -190,7 +205,8 @@ function GoogleAccountsPage() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <PageTransition>
+      <div className="flex h-full flex-col gap-4">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Google Accounts</h1>
@@ -204,83 +220,84 @@ function GoogleAccountsPage() {
         </Button>
       </div>
 
-      <Card className="flex flex-1 flex-col overflow-hidden">
-        <CardContent className="flex flex-1 flex-col overflow-hidden p-0">
-          {isLoading ? (
-            <div className="flex flex-col gap-2 p-5">
-              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}
-            </div>
-          ) : (
-            <div className="flex-1 overflow-auto">
-              <table className="w-full caption-bottom text-sm">
-                <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/60">
-                  <tr>
-                    <th className="h-10 w-[35%] px-4 text-left align-middle text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">Email</th>
-                    <th className="h-10 w-[15%] px-4 text-left align-middle text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">Status</th>
-                    <th className="h-10 w-[38%] px-4 text-left align-middle text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">Storage Terpakai</th>
-                    <th className="h-10 w-[12%] px-4 text-right align-middle text-xs font-semibold uppercase tracking-wide text-zinc-600 dark:text-zinc-400">Aksi</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {data?.accounts.map((account) => (
-                    <tr key={account.id} className="transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50">
-                      <td className="px-4 py-4"><EmailCell email={account.email} /></td>
-                      <td className="px-4 py-4">
-                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${
-                          account.status === "online"
-                            ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300"
-                            : "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300"}`}>
-                          <span className={`h-1.5 w-1.5 rounded-full ${account.status === "online" ? "bg-green-500" : "bg-red-500"}`} />
-                          {account.status === "online" ? "Online" : "Offline"}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex flex-col gap-1.5">
-                          <div className="flex items-center justify-between text-xs text-zinc-500">
-                            <span>{formatBytes(account.usedStorageBytes)}</span>
-                            <span>{formatBytes(account.totalStorageBytes)}</span>
-                          </div>
-                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-                            <div className="h-full rounded-full bg-brand-500 transition-all"
-                              style={{ width: `${Math.min(100, account.totalStorageBytes > 0 ? (account.usedStorageBytes / account.totalStorageBytes) * 100 : 0)}%` }} />
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex justify-end">
-                          <button type="button" onClick={() => handleDelete(account.id, account.email)}
-                            disabled={deleteAccount.isPending} title="Hapus akun"
-                            className="rounded-lg p-2 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-900/20">
-                            <Trash2 className="h-4 w-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                  {data?.accounts.length === 0 && (
-                    <tr>
-                      <td colSpan={4} className="py-20 text-center">
-                        <div className="flex flex-col items-center gap-3">
-                          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100 dark:bg-zinc-800">
-                            <KeyRound className="h-7 w-7 text-zinc-400 opacity-50" />
-                          </div>
-                          <div>
-                            <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">Belum ada akun Google Drive</p>
-                            <p className="mt-0.5 text-xs text-zinc-400 dark:text-zinc-500">Klik tombol "Tambah Akun" di kanan atas untuk mulai.</p>
-                          </div>
-                          {/* FIX: hapus tombol "Tambah Akun Sekarang" dari dalam tabel */}
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {isLoading ? (
+        <CardGridSkeleton count={4} />
+      ) : data?.accounts.length === 0 ? (
+        <div className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white/50 py-16 dark:border-zinc-800 dark:bg-zinc-900/50">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100 dark:bg-zinc-800">
+            <KeyRound className="h-7 w-7 text-zinc-400 opacity-50" />
+          </div>
+          <p className="mt-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">Belum ada akun Google Drive</p>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Klik tombol "Tambah Akun" di kanan atas untuk mulai.</p>
+        </div>
+      ) : (
+        <TooltipProvider delayDuration={300}>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {data?.accounts.map((account) => {
+              const usagePercent = account.totalStorageBytes > 0 
+                ? (account.usedStorageBytes / account.totalStorageBytes) * 100 
+                : 0;
+              const isDanger = usagePercent > 90;
+
+                return (
+                <Card 
+                  key={account.id} 
+                  className="flex flex-col overflow-hidden transition-all hover:shadow-md dark:hover:shadow-xl dark:hover:ring-1 dark:hover:ring-white/10"
+                >
+                  <div className="flex items-start justify-between p-5 pb-4">
+                    <div className="flex min-w-0 flex-1 items-center gap-3">
+                      <Avatar className="h-10 w-10 shrink-0 ring-1 ring-zinc-200 dark:ring-zinc-800">
+                        <AvatarImage src={`https://avatar.vercel.sh/${account.email}?size=80`} alt={account.email} />
+                        <AvatarFallback className="bg-brand-100 font-semibold text-brand-700 dark:bg-brand-900/50 dark:text-brand-300">
+                          {account.email.charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex min-w-0 flex-col">
+                        <EmailCell email={account.email} />
+                        <span className="text-[11px] text-zinc-500">Google Drive Storage</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-auto flex flex-col gap-4 px-5 pb-5">
+                    <div className="flex items-center justify-between">
+                      <Badge variant={account.status === "online" ? "success" : "destructive"} className="px-2 py-0.5 text-[10px]">
+                        <span className={`mr-1.5 h-1.5 w-1.5 rounded-full ${account.status === "online" ? "bg-emerald-500" : "bg-red-500"}`} />
+                        {account.status === "online" ? "Online" : "Offline"}
+                      </Badge>
+                      <button 
+                        type="button" 
+                        onClick={() => handleDelete(account.id, account.email)}
+                        disabled={deleteAccount.isPending}
+                        className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-950/50"
+                        title="Hapus Akun"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                        <span>{formatBytes(account.usedStorageBytes)}</span>
+                        <span>{formatBytes(account.totalStorageBytes)}</span>
+                      </div>
+                      <Progress 
+                        value={usagePercent} 
+                        className="h-1.5 bg-zinc-200 dark:bg-zinc-800"
+                        indicatorClassName={isDanger ? "bg-red-500" : "bg-brand-500"}
+                      />
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        </TooltipProvider>
+      )}
 
       <AddAccountDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
     </div>
+  </PageTransition>
   );
 }
+

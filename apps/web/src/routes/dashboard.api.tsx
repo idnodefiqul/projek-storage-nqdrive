@@ -3,6 +3,8 @@ import { useState } from "react";
 import { Plus, Trash2, Copy, Key } from "lucide-react";
 import { Badge, Skeleton, useToast } from "@nqdrive/ui";
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from "../hooks/use-logs-and-api-keys";
+import { useMinLoading } from "../hooks/use-min-loading";
+import { PageTransition } from "../components/page-transition";
 
 export const Route = createFileRoute("/dashboard/api")({
   component: ApiKeysPage,
@@ -88,7 +90,8 @@ function CreateKeyDialog({ open, onClose }: { open: boolean; onClose: () => void
 
 function ApiKeysPage() {
   const { toast } = useToast();
-  const { data, isLoading } = useApiKeys();
+  const { data, isLoading: isQueryLoading } = useApiKeys();
+  const isLoading = useMinLoading(isQueryLoading, 600);
   const revokeKey = useRevokeApiKey();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
@@ -103,7 +106,8 @@ function ApiKeysPage() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <PageTransition>
+      <div className="flex h-full flex-col gap-4">
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -189,5 +193,6 @@ function ApiKeysPage() {
 
       <CreateKeyDialog open={isCreateOpen} onClose={() => setIsCreateOpen(false)} />
     </div>
+  </PageTransition>
   );
 }

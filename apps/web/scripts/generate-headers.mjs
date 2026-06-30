@@ -39,10 +39,9 @@ const workerUrl    = env.VITE_WORKER_URL          ?? "";
 const appUrl       = env.VITE_APP_URL             ?? "";
 const extraOrigins = env.VITE_ALLOWED_API_ORIGINS ?? "";
 
-// Bangun daftar connect-src
+// Bangun daftar connect-src — tanpa *.workers.dev (terlalu lebar, bisa ke subdomain siapapun)
 const connectOrigins = [
   "'self'",
-  "https://*.workers.dev",
   workerUrl,
   appUrl,
   ...extraOrigins.split(",").map((s) => s.trim()),
@@ -58,13 +57,25 @@ const headersContent = `# ======================================================
 #  JANGAN edit manual — edit .env.production lalu build ulang
 # ============================================================
 
+# ── Security headers untuk semua path ──────────────────────
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src ${connectOrigins}; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
-  Strict-Transport-Security: max-age=31536000; includeSubDomains
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+
+# ── index.html: JANGAN DI-CACHE — selalu ambil versi terbaru ──
+# Ini mencegah error "failed to fetch dynamically imported module"
+# setelah deploy baru (JS hash berubah tapi HTML lama masih di cache)
+/index.html
+  Cache-Control: no-cache, no-store, must-revalidate
+  Pragma: no-cache
+
+# ── Hashed JS/CSS assets: cache permanen (safe, nama berisi hash) ──
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
 
 # Google Fonts
 https://fonts.googleapis.com/*

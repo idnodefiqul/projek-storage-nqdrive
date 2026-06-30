@@ -205,6 +205,46 @@ storageAccountRoutes.onError((err, c) => {
   );
 });
 
+// ─── POST /api/storage/accounts/sync-all ──────────────────────────────────
+/**
+ * Trigger sync manual semua akun Google Drive.
+ * Menggunakan logika yang sama dengan cron job otomatis (setiap 10 menit),
+ * tapi bisa dipanggil kapan saja dari dashboard Storage Manager.
+ */
+storageAccountRoutes.post("/accounts/sync-all", async (c) => {
+  const driveAccountRepository = new DriveAccountRepository(c.env.DB);
+  const { GoogleAccountConnectionService } = await import("../services/google-account-connection.service");
+  const { StorageProviderFactory } = await import("@nqdrive/storage");
+
+  const accounts = await driveAccountRepository.findAll();
+  const results: { id: number; email: string; status: "ok" | "error"; error?: string }[] = [];
+
+  for (const account of accounts) {
+    try {
+      const connectionService = new GoogleAccountConnectionService(c.env);
+      const accessToken = await connectionService.getValidAccessToken(account);
+      const provider = StorageProviderFactory.resolve(account.provider);
+      const quota = await provider.getQuota({ credentials: { accessToken } });
+      await driveAccountRepository.updateQuota(account.id, quota);
+      await driveAccountRepository.updateStatus(account.id, "online");
+      results.push({ id: account.id, email: account.email, status: "ok" });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      await driveAccountRepository.updateStatus(account.id, "error");
+      results.push({ id: account.id, email: account.email, status: "error", error: msg });
+    }
+  }
+
+  const failed = results.filter((r) => r.status === "error").length;
+  return c.json({
+    success: true,
+    data: {
+      message: `Sync selesai. ${results.length - failed}/${results.length} akun berhasil disync.`,
+      results,
+    },
+  });
+});
+
 // ─── GET /api/storage/summary ─────────────────────────────────────────────
 storageAccountRoutes.get("/summary", async (c) => {
   const driveAccountRepository = new DriveAccountRepository(c.env.DB);

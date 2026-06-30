@@ -3,11 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NQDRIVE — Unified Cloud Storage</title>
+    <title>NQDRIVE — Unified Cloud Storage Platform</title>
     <meta
       name="description"
-      content="NQDRIVE menggabungkan banyak akun Google Drive menjadi satu virtual storage."
+      content="NQDRIVE is a powerful unified cloud storage manager that lets you connect and manage multiple cloud accounts in one fast, secure, and intuitive interface."
     />
+    <!-- Open Graph SEO -->
+    <meta property="og:title" content="NQDRIVE — Unified Cloud Storage Platform" />
+    <meta property="og:description" content="Manage and expand your storage capacity by connecting multiple cloud accounts seamlessly." />
+    <meta property="og:type" content="website" />
     <!-- Inter font — matches --font-sans defined in globals.css -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -17,7 +21,39 @@
     />
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <style>
+        .app-loader {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          height: 100vh;
+          width: 100vw;
+          background-color: #f4f4f5;
+          font-family: 'Inter', sans-serif;
+        }
+        @media (prefers-color-scheme: dark) {
+          .app-loader {
+            background-color: #09090b;
+          }
+        }
+        .app-loader-spinner {
+          width: 40px;
+          height: 40px;
+          border: 3px solid rgba(16, 185, 129, 0.2);
+          border-top-color: #10b981;
+          border-radius: 50%;
+          animation: app-loader-spin 1s linear infinite;
+        }
+        @keyframes app-loader-spin {
+          to { transform: rotate(360deg); }
+        }
+      </style>
+      <div class="app-loader">
+        <div class="app-loader-spinner"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

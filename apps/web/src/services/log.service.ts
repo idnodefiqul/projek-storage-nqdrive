@@ -15,6 +15,7 @@ export interface DownloadLogEntry {
   file_id: number | null;
   filename: string | null;
   ip_address: string;
+  country: string | null;
   bytes_served: number;
   status: string;
   created_at: string;

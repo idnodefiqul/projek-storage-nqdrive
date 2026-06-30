@@ -25,4 +25,5 @@ export interface StorageManagerSummary {
 
 export const storageManagerService = {
   getSummary: () => apiRequest<StorageManagerSummary>("/storage/summary"),
+  syncAll: () => apiRequest<{ message: string }>("/storage/accounts/sync-all", { method: "POST" }),
 };

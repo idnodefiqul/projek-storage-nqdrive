@@ -10,6 +10,7 @@ import { uploadRoutes } from "./routes/upload.routes";
 import { downloadRoutes } from "./routes/download.routes";
 import { logRoutes } from "./routes/log.routes";
 import { apiKeyRoutes } from "./routes/api-key.routes";
+import { dashboardRoutes } from "./routes/dashboard.routes";
 import { syncDriveAccounts } from "./cron/sync-drive-accounts";
 
 /**
@@ -73,6 +74,7 @@ app.route("/api/files", fileRoutes);
 app.route("/api/files", uploadRoutes);
 app.route("/api/logs", logRoutes);
 app.route("/api/api-keys", apiKeyRoutes);
+app.route("/api/dashboard", dashboardRoutes);
 
 // Public download routes — mounted WITHOUT /api prefix on purpose.
 // Mounted LAST so it never shadows /api/* routes.

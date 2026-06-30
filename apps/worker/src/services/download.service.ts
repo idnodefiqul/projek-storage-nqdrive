@@ -5,6 +5,8 @@ import { DownloadLogRepository } from "../database/download-log.repository";
 import { GoogleAccountConnectionService } from "./google-account-connection.service";
 import type { Env } from "../config/env";
 import type { ParsedRange } from "../utils/range-parser";
+import { extractRealIp } from "../utils/ip-parser";
+import { resolveCountry } from "../utils/geo-resolver";
 import type { FileEntity } from "@nqdrive/types";
 import type { Context } from "hono";
 
@@ -96,13 +98,21 @@ export class DownloadService {
   ): Promise<Response> {
     const result = await this.streamBySlug(slug, null);
 
-    void downloadLogRepository.create({
-      fileId: fileInfo.id,
-      ipAddress: c.req.header("CF-Connecting-IP") ?? "unknown",
-      userAgent: c.req.header("User-Agent") ?? null,
-      bytesServed: 0,
-      status: "completed",
-    });
+    const ipAddress = extractRealIp(c);
+    const cfCountry = (c.req.raw.cf?.country as string) || null;
+
+    c.executionCtx.waitUntil(
+      resolveCountry(ipAddress, cfCountry).then((country) =>
+        downloadLogRepository.create({
+          fileId: fileInfo.id,
+          ipAddress,
+          country,
+          userAgent: c.req.header("User-Agent") ?? null,
+          bytesServed: 0,
+          status: "completed",
+        })
+      )
+    );
 
     const headers = new Headers();
     headers.set("Content-Type", fileInfo.mimeType || result.mimeType);
@@ -135,7 +145,12 @@ export class DownloadService {
       rangeEnd: range?.end,
     });
 
-    void this.fileRepository.incrementDownloadCount(file.id);
+    // Increment download count hanya untuk request pertama (bukan Range chunk lanjutan).
+    // Range start = 0 = awal file (download baru), null = full download tanpa range header.
+    // Jika range.start > 0 = resume/chunk berikutnya, jangan increment lagi.
+    if (!range || range.start === 0) {
+      await this.fileRepository.incrementDownloadCount(file.id).catch(console.error);
+    }
 
     return {
       file,

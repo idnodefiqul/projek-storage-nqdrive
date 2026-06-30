@@ -1,0 +1,328 @@
+# NQDrive - Welcome Page
+
+## Overview
+
+Buat halaman utama (Welcome Page) sederhana untuk **NQDrive**.
+
+Halaman ini hanya ditampilkan sebelum pengguna login.
+
+Fokus pada desain yang bersih, modern, profesional, dan memberikan kesan premium tanpa terlalu banyak informasi.
+
+Inspirasi desain:
+
+* Vercel
+* Dropbox
+* Cloudflare
+* GitHub
+* Linear
+
+---
+
+# Tech Stack
+
+* React + Vite
+* Tailwind CSS
+* Shadcn UI
+* Motion (Framer Motion)
+* Lucide React
+
+---
+
+# Theme
+
+**Default Theme**
+
+* Light Mode
+
+Support Dark Mode melalui Theme Toggle.
+
+Gunakan warna yang bersih dan modern.
+
+Background:
+
+White (#FFFFFF)
+
+Primary:
+
+ikuti warna dashboard atau login saat ini
+
+Border:
+
+Gray-200
+
+Card:
+
+White
+
+Text:
+
+Gray-900
+
+Secondary Text:
+
+Gray-600
+
+---
+
+# Layout
+
+Landing Page hanya terdiri dari:
+
+* Navbar
+* Welcome Hero
+* Features
+* Footer
+
+Tidak perlu:
+
+* Pricing
+* Testimonials
+* FAQ
+* Blog
+* Dashboard Preview
+* Statistics
+* Screenshots
+
+---
+
+# Navbar
+
+Kiri
+
+Logo NQDrive
+
+Kanan
+
+* Theme Toggle
+* Login Button
+
+Navbar sticky.
+
+Saat halaman di-scroll:
+
+* Background berubah menjadi sedikit blur.
+* Tambahkan border bawah tipis.
+* Animasi transisi halus menggunakan Motion.
+
+---
+
+# Hero Section
+
+Posisi di tengah layar.
+
+Badge
+
+Cloud Storage Manager
+
+Heading
+
+Welcome to NQDrive
+
+Description
+
+A modern platform for managing cloud storage with a fast, secure, and intuitive experience.
+
+Button Primary
+
+Login
+
+Button Secondary
+
+Learn More
+
+Tambahkan background gradient yang sangat halus.
+
+Hero menggunakan animasi:
+
+* Fade In
+* Fade Up
+* Scale
+* Stagger Text
+
+---
+
+# Features
+
+Grid 3 × 2.
+
+Gunakan **Shadcn Card**.
+
+Gunakan icon dari **Lucide React**.
+
+### Card 1
+
+Icon
+
+Zap
+
+Title
+
+Fast Upload
+
+Description
+
+Upload files quickly with optimized transfer performance.
+
+---
+
+### Card 2
+
+Icon
+
+ShieldCheck
+
+Title
+
+Secure
+
+Description
+
+Protected authentication and secure access to your storage.
+
+---
+
+### Card 3
+
+Icon
+
+Database
+
+Title
+
+Unlimited Storage
+
+Description
+
+Expand your storage capacity by connecting multiple cloud accounts.
+
+---
+
+### Card 4
+
+Icon
+
+FolderOpen
+
+Title
+
+Unified File Manager
+
+Description
+
+Manage files and folders from one clean, organized interface.
+
+---
+
+### Card 5
+
+Icon
+
+ChartColumn
+
+Title
+
+Storage Analytics
+
+Description
+
+Monitor storage usage and capacity with real-time insights.
+
+---
+
+### Card 6
+
+Icon
+
+RefreshCw
+
+Title
+
+Automatic Balancing
+
+Description
+
+Automatically distribute files across available storage.
+
+---
+
+# Motion
+
+Seluruh halaman menggunakan Motion.
+
+Animasi:
+
+* Smooth Page Transition
+* Fade Up
+* Fade In
+* Stagger Animation
+* Hover Lift
+* Hover Scale
+* Hover Shadow
+* Navbar Blur on Scroll
+* Button Hover Animation
+
+Durasi animasi:
+
+0.2–0.4 detik
+
+Gunakan easing yang halus.
+
+Jangan menggunakan animasi berlebihan.
+
+---
+
+# Footer
+
+Sederhana.
+
+Kiri
+
+NQDrive
+
+Kanan
+
+* Login
+* Documentation
+* GitHub
+
+Copyright
+
+© 2026 NQDrive. All Rights Reserved.
+
+---
+
+# Responsive
+
+Desktop
+
+1440px
+
+Laptop
+
+1024px
+
+Tablet
+
+768px
+
+Mobile
+
+390px
+
+Pada Mobile:
+
+* Hero menjadi satu kolom.
+* Features menjadi 2 kolom atau 1 kolom.
+* Navbar tetap sederhana.
+
+---
+
+# Design Goal
+
+Welcome Page harus memberikan kesan profesional sejak pertama kali dibuka.
+
+Tampilan bersih, ringan, cepat, dan modern.
+
+Animasi harus terasa halus menggunakan Motion tanpa mengganggu performa atau pengalaman pengguna.
+
+Gunakan komponen Shadcn UI dan icon Lucide React secara konsisten di seluruh halaman.

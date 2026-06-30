@@ -44,3 +44,15 @@ export function useStorageManagerSummary() {
     refetchInterval: 30_000,
   });
 }
+
+export function useSyncAllAccounts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => storageManagerService.syncAll(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
+      queryClient.invalidateQueries({ queryKey: ["drive-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+}

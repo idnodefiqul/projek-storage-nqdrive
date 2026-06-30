@@ -196,4 +196,20 @@ export class FileRepository {
       .bind(sizeBytes, id)
       .run();
   }
+
+  async getTopDownloaded(limit: number): Promise<FileEntity[]> {
+    const { results } = await this.db
+      .prepare("SELECT * FROM files ORDER BY download_count DESC LIMIT ?")
+      .bind(limit)
+      .all<FileRow>();
+    return results.map(rowToFile);
+  }
+
+  async getRecent(limit: number): Promise<FileEntity[]> {
+    const { results } = await this.db
+      .prepare("SELECT * FROM files ORDER BY created_at DESC LIMIT ?")
+      .bind(limit)
+      .all<FileRow>();
+    return results.map(rowToFile);
+  }
 }

@@ -1,8 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Eye, EyeOff, Lock, User } from "lucide-react";
-import { NqdriveLogo } from "@nqdrive/ui";
-import { useLogin } from "../hooks/use-auth";
+import { useLogin, useMe } from "../hooks/use-auth";
+import { Particles } from "@nqdrive/ui";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
@@ -11,11 +11,28 @@ export const Route = createFileRoute("/login")({
 function LoginPage() {
   const navigate = useNavigate();
   const login = useLogin();
+  const { data: user, isLoading: isCheckingAuth } = useMe();
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  // If already logged in, redirect to dashboard immediately
+  useEffect(() => {
+    if (!isCheckingAuth && user) {
+      navigate({ to: "/dashboard", replace: true });
+    }
+  }, [isCheckingAuth, user, navigate]);
+
+  // Show spinner while checking auth
+  if (isCheckingAuth || user) {
+    return (
+      <div className="flex h-screen w-full flex-col items-center justify-center bg-zinc-100 dark:bg-zinc-950">
+        <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-brand-500/20 border-t-brand-500" />
+      </div>
+    );
+  }
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -33,28 +50,34 @@ function LoginPage() {
   };
 
   return (
-    /* Light mode: abu muda. Dark mode: zinc-950. Ikut tema sistem. */
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-zinc-100 px-4 dark:bg-zinc-950">
 
-      {/* Blob dekoratif — subtle di light, lebih jelas di dark */}
+      {/* ── Magic UI Particles Background ── */}
+      <Particles
+        className="absolute inset-0 z-0"
+        quantity={300}
+        ease={80}
+        color="#10b981"
+        refresh
+      />
+
+      {/* Gradient blobs */}
       <div
-        className="pointer-events-none absolute -top-40 -left-40 h-[480px] w-[480px] rounded-full opacity-30 dark:opacity-20"
-        style={{ background: "radial-gradient(circle, #10b981 0%, transparent 70%)" }}
+        className="pointer-events-none absolute -top-60 -left-60 h-[600px] w-[600px] rounded-full opacity-30 dark:opacity-100"
+        style={{ background: "radial-gradient(circle, rgba(16,185,129,0.12) 0%, transparent 65%)" }}
       />
       <div
-        className="pointer-events-none absolute -bottom-40 -right-20 h-[380px] w-[380px] rounded-full opacity-20 dark:opacity-10"
-        style={{ background: "radial-gradient(circle, #059669 0%, transparent 70%)" }}
+        className="pointer-events-none absolute -bottom-40 -right-20 h-[400px] w-[400px] rounded-full opacity-20 dark:opacity-100"
+        style={{ background: "radial-gradient(circle, rgba(5,150,105,0.08) 0%, transparent 65%)" }}
       />
 
       {/* Card */}
       <div className="relative z-10 w-full max-w-sm">
-        <div className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-xl dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-xl dark:border-white/10 dark:bg-white/5 dark:shadow-2xl dark:backdrop-blur-xl dark:ring-1 dark:ring-white/5">
 
           {/* Logo + branding */}
           <div className="mb-8 flex flex-col items-center gap-3">
-            {/* Container icon — brand-500 bg agar logo kontras di semua tema */}
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-500 shadow-lg shadow-brand-500/30">
-              {/* Logo dengan warna putih eksplisit agar kontras di atas brand-500 */}
+            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-500 shadow-lg shadow-brand-500/30 dark:shadow-brand-500/40 ring-1 ring-brand-400/30">
               <svg
                 viewBox="0 0 40 40"
                 fill="none"
@@ -77,9 +100,9 @@ function LoginPage() {
 
           {/* Divider */}
           <div className="mb-6 flex items-center gap-3">
-            <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+            <div className="h-px flex-1 bg-zinc-200 dark:bg-white/10" />
             <span className="text-xs text-zinc-400 dark:text-zinc-500">Masuk ke akun Anda</span>
-            <div className="h-px flex-1 bg-zinc-200 dark:bg-zinc-700" />
+            <div className="h-px flex-1 bg-zinc-200 dark:bg-white/10" />
           </div>
 
           {/* Form */}
@@ -93,7 +116,7 @@ function LoginPage() {
                 Username
               </label>
               <div className="relative">
-                <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" />
                 <input
                   id="username"
                   type="text"
@@ -108,8 +131,8 @@ function LoginPage() {
                     pl-10 pr-4 text-sm text-zinc-900 placeholder-zinc-400
                     outline-none transition-all
                     focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-500/20
-                    dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100
-                    dark:placeholder-zinc-500 dark:focus:border-brand-500 dark:focus:bg-zinc-800
+                    dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 dark:placeholder-zinc-600
+                    dark:focus:border-brand-500/60 dark:focus:bg-white/8
                   "
                 />
               </div>
@@ -124,7 +147,7 @@ function LoginPage() {
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 dark:text-zinc-500" />
                 <input
                   id="password"
                   type={showPassword ? "text" : "password"}
@@ -138,14 +161,14 @@ function LoginPage() {
                     pl-10 pr-11 text-sm text-zinc-900 placeholder-zinc-400
                     outline-none transition-all
                     focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-500/20
-                    dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100
-                    dark:placeholder-zinc-500 dark:focus:border-brand-500 dark:focus:bg-zinc-800
+                    dark:border-white/10 dark:bg-white/5 dark:text-zinc-100 dark:placeholder-zinc-600
+                    dark:focus:border-brand-500/60 dark:focus:bg-white/8
                   "
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 transition-colors hover:text-zinc-600 dark:hover:text-zinc-300"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 transition-colors hover:text-zinc-600 dark:text-zinc-500 dark:hover:text-zinc-300"
                   tabIndex={-1}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
@@ -155,7 +178,7 @@ function LoginPage() {
 
             {/* Error */}
             {formError && (
-              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800 dark:bg-red-950">
+              <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-500/20 dark:bg-red-500/10">
                 <p className="text-sm text-red-600 dark:text-red-400">{formError}</p>
               </div>
             )}
@@ -166,8 +189,8 @@ function LoginPage() {
               disabled={login.isPending}
               className="
                 mt-1 h-11 w-full rounded-xl bg-brand-500 text-sm font-semibold text-white
-                shadow-md shadow-brand-500/25 transition-all
-                hover:bg-brand-600 hover:shadow-brand-600/30
+                shadow-lg shadow-brand-500/25 transition-all
+                hover:bg-brand-400 hover:shadow-brand-500/40
                 active:scale-[0.98]
                 disabled:cursor-not-allowed disabled:opacity-60
               "

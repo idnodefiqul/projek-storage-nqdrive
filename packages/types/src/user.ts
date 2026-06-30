@@ -5,6 +5,7 @@
 export interface User {
   id: number;
   username: string;
+  email: string;
   passwordHash: string;
   createdAt: string;
   updatedAt: string;
@@ -22,6 +23,7 @@ export type PublicUser = Omit<User, "passwordHash">;
 export interface JwtPayload {
   sub: number; // user id
   username: string;
+  email: string;
   iat: number;
   exp: number;
 }

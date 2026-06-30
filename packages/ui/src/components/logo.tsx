@@ -1,10 +1,12 @@
 import { type SVGProps } from "react";
 
 /**
- * NQDRIVE logo mark — three overlapping rounded shapes converging into one, representing
- * multiple Google Drive accounts being unified into a single virtual storage pool. Built as
- * a plain SVG (no icon font, no emoji) so it stays crisp at any size and themeable via the
- * brand color tokens, consistent with the rest of the design system.
+ * NQDRIVE logo mark — tiga kotak rounded yang overlap, melambangkan
+ * multiple Google Drive accounts yang digabung ke satu virtual storage.
+ *
+ * PENTING: Pakai fill inline (bukan Tailwind fill-brand-* class) karena
+ * Tailwind v4 tidak otomatis generate utility fill-* untuk custom colors.
+ * CSS var --color-brand-* tersedia global dari globals.css @theme.
  */
 export function NqdriveLogo({ className, ...props }: SVGProps<SVGSVGElement>) {
   return (
@@ -15,9 +17,9 @@ export function NqdriveLogo({ className, ...props }: SVGProps<SVGSVGElement>) {
       className={className}
       {...props}
     >
-      <rect x="2" y="14" width="16" height="16" rx="5" className="fill-brand-200 dark:fill-brand-800" />
-      <rect x="12" y="8" width="16" height="16" rx="5" className="fill-brand-400 dark:fill-brand-600" />
-      <rect x="22" y="14" width="16" height="16" rx="5" className="fill-brand-600 dark:fill-brand-400" />
+      <rect x="2"  y="14" width="16" height="16" rx="5" fill="var(--color-brand-200)" />
+      <rect x="12" y="8"  width="16" height="16" rx="5" fill="var(--color-brand-400)" />
+      <rect x="22" y="14" width="16" height="16" rx="5" fill="var(--color-brand-600)" />
     </svg>
   );
 }

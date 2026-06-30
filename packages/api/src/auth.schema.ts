@@ -10,6 +10,10 @@ export const setupAdminSchema = z.object({
     .min(3, "Username minimal 3 karakter")
     .max(32, "Username maksimal 32 karakter")
     .regex(/^[a-zA-Z0-9_]+$/, "Username hanya boleh huruf, angka, dan underscore"),
+  email: z
+    .string()
+    .email("Email tidak valid")
+    .max(255, "Email maksimal 255 karakter"),
   password: z
     .string()
     .min(8, "Password minimal 8 karakter")

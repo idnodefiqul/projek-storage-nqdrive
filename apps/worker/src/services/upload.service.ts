@@ -160,7 +160,7 @@ export class UploadService {
         availableBytes: Math.max(0, account.availableStorageBytes - definitveSizeBytes),
       });
 
-      void this.uploadLogRepository.create({
+      await this.uploadLogRepository.create({
         fileId: file.id,
         filename: params.filename,
         sizeBytes: definitveSizeBytes,
@@ -168,13 +168,13 @@ export class UploadService {
         durationMs: Date.now() - startedAt,
         status: "success",
         errorMessage: null,
-      });
+      }).catch(console.error);
 
       return file;
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown upload error";
 
-      void this.uploadLogRepository.create({
+      await this.uploadLogRepository.create({
         fileId: null,
         filename: params.filename,
         sizeBytes: params.sizeBytes,
@@ -182,7 +182,7 @@ export class UploadService {
         durationMs: Date.now() - startedAt,
         status: "failed",
         errorMessage: message,
-      });
+      }).catch(console.error);
 
       throw error;
     }

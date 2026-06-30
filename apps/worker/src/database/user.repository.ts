@@ -3,6 +3,7 @@ import type { User } from "@nqdrive/types";
 interface UserRow {
   id: number;
   username: string;
+  email: string;
   password_hash: string;
   created_at: string;
   updated_at: string;
@@ -12,6 +13,7 @@ function rowToUser(row: UserRow): User {
   return {
     id: row.id,
     username: row.username,
+    email: row.email,
     passwordHash: row.password_hash,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -40,12 +42,12 @@ export class UserRepository {
     return row ? rowToUser(row) : null;
   }
 
-  async create(params: { username: string; passwordHash: string }): Promise<User> {
+  async create(params: { username: string; email: string; passwordHash: string }): Promise<User> {
     const row = await this.db
       .prepare(
-        `INSERT INTO users (username, password_hash) VALUES (?, ?) RETURNING *`
+        `INSERT INTO users (username, email, password_hash) VALUES (?, ?, ?) RETURNING *`
       )
-      .bind(params.username, params.passwordHash)
+      .bind(params.username, params.email, params.passwordHash)
       .first<UserRow>();
 
     if (!row) throw new Error("Failed to create user: no row returned");

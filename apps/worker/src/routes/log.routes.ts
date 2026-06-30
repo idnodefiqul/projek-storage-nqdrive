@@ -21,6 +21,7 @@ interface DownloadLogRow {
   file_id: number | null;
   filename: string | null;
   ip_address: string;
+  country: string | null;
   bytes_served: number;
   status: string;
   created_at: string;
@@ -42,7 +43,7 @@ logRoutes.get("/uploads", async (c) => {
 logRoutes.get("/downloads", async (c) => {
   const limit = Math.min(100, Number(c.req.query("limit") ?? 50));
   const { results } = await c.env.DB.prepare(
-    `SELECT dl.id, dl.file_id, f.filename, dl.ip_address, dl.bytes_served, dl.status, dl.created_at
+    `SELECT dl.id, dl.file_id, f.filename, dl.ip_address, dl.country, dl.bytes_served, dl.status, dl.created_at
      FROM download_logs dl
      LEFT JOIN files f ON f.id = dl.file_id
      ORDER BY dl.created_at DESC LIMIT ?`

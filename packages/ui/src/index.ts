@@ -9,3 +9,7 @@ export * from "./components/dialog";
 export * from "./components/toast";
 export * from "./components/table";
 export * from "./components/logo";
+export * from "./components/particles";
+export * from "./components/meteors";
+export * from "./components/avatar";
+export * from "./components/tooltip";

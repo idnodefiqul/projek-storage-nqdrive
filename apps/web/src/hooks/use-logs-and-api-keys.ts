@@ -3,11 +3,21 @@ import { logService } from "../services/log.service";
 import { apiKeyService } from "../services/api-key.service";
 
 export function useUploadLogs() {
-  return useQuery({ queryKey: ["logs", "uploads"], queryFn: logService.listUploads });
+  return useQuery({
+    queryKey: ["logs", "uploads"],
+    queryFn: logService.listUploads,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
+  });
 }
 
 export function useDownloadLogs() {
-  return useQuery({ queryKey: ["logs", "downloads"], queryFn: logService.listDownloads });
+  return useQuery({
+    queryKey: ["logs", "downloads"],
+    queryFn: logService.listDownloads,
+    staleTime: 15_000,
+    refetchInterval: 15_000,
+  });
 }
 
 export function useApiKeys() {

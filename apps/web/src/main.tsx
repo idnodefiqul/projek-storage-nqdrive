@@ -8,6 +8,24 @@ import { routeTree } from "./routeTree.gen";
 import { ThemeProvider } from "./stores/theme-provider";
 import "./styles/globals.css";
 
+/**
+ * Safety net untuk error "failed to fetch dynamically imported module".
+ * Terjadi setelah deploy baru — HTML lama (dari cache) masih merefer ke
+ * JS chunk lama yang sudah tidak ada. Solusi: hard reload sekali.
+ *
+ * Menggunakan URL param ?_cr=1 (chunk-reloaded) sebagai flag agar tidak
+ * terjadi infinite reload loop. URL param lebih andal dari sessionStorage
+ * karena beberapa browser mobile menghapus sessionStorage saat reload.
+ */
+window.addEventListener("vite:preloadError", () => {
+  const url = new URL(window.location.href);
+  if (!url.searchParams.has("_cr")) {
+    url.searchParams.set("_cr", "1");
+    window.location.replace(url.toString());
+  }
+});
+
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

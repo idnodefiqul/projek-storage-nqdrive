@@ -4,6 +4,7 @@ import { Lock, User, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useToast } from "@nqdrive/ui";
 import { useChangePassword } from "../hooks/use-auth";
 import { useAuthContext } from "../stores/auth-provider";
+import { PageTransition } from "../components/page-transition";
 
 export const Route = createFileRoute("/dashboard/settings")({
   component: SettingsPage,
@@ -43,7 +44,8 @@ function SettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <PageTransition>
+      <div className="flex flex-col gap-6">
       <div>
         <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Settings</h1>
         <p className="text-sm text-zinc-500 dark:text-zinc-400">Kelola pengaturan akun admin Anda.</p>
@@ -51,13 +53,26 @@ function SettingsPage() {
 
       {/* Card info akun */}
       <div className="max-w-lg rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-full bg-brand-100 dark:bg-brand-900/30">
-            <User className="h-5 w-5 text-brand-600 dark:text-brand-400" />
+        <div className="flex items-start gap-4">
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-brand-100 dark:bg-brand-900/30">
+            <User className="h-6 w-6 text-brand-600 dark:text-brand-400" />
           </div>
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Admin</p>
-            <p className="text-base font-semibold text-zinc-900 dark:text-zinc-100">{user?.username}</p>
+          <div className="flex-1 space-y-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500 mb-0.5">Username</p>
+              <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">{user?.username ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500 mb-0.5">Email</p>
+              <p className="text-sm text-zinc-700 dark:text-zinc-300">
+                {user?.email ? (
+                  user.email
+                ) : (
+                  <span className="italic text-zinc-400 dark:text-zinc-500">Belum diisi — update via database</span>
+                )}
+              </p>
+            </div>
+            <p className="text-xs text-zinc-400 dark:text-zinc-600">Username dan email tidak dapat diubah dari sini.</p>
           </div>
         </div>
       </div>
@@ -180,6 +195,7 @@ function SettingsPage() {
           </button>
         </form>
       </div>
-    </div>
+      </div>
+    </PageTransition>
   );
 }

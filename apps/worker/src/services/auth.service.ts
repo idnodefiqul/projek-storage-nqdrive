@@ -41,14 +41,14 @@ export class AuthService {
    * this is the "aman" (safe) behavior agreed on: /setup must never be re-enterable once
    * an admin exists.
    */
-  async setupAdmin(params: { username: string; password: string }): Promise<PublicUser> {
+  async setupAdmin(params: { username: string; email: string; password: string }): Promise<PublicUser> {
     const alreadyCompleted = await this.isSetupCompleted();
     if (alreadyCompleted) {
       throw new AuthError("Setup sudah pernah dilakukan. Halaman ini tidak dapat diakses lagi.", 403);
     }
 
     const passwordHash = await hashPassword(params.password);
-    const user = await this.userRepository.create({ username: params.username, passwordHash });
+    const user = await this.userRepository.create({ username: params.username, email: params.email, passwordHash });
 
     await this.settingsRepository.set(SETTINGS_KEYS.SETUP_COMPLETED, "true");
 
@@ -71,7 +71,7 @@ export class AuthService {
     }
 
     const token = await signJwt(
-      { sub: user.id, username: user.username },
+      { sub: user.id, username: user.username, email: user.email },
       this.env.JWT_SECRET,
       JWT_EXPIRY_SECONDS
     );
@@ -95,10 +95,11 @@ export class AuthService {
   }
 }
 
-function toPublicUser(user: { id: number; username: string; createdAt: string; updatedAt: string }): PublicUser {
+function toPublicUser(user: { id: number; username: string; email: string; createdAt: string; updatedAt: string }): PublicUser {
   return {
     id: user.id,
     username: user.username,
+    email: user.email,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };

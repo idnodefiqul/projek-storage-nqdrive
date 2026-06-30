@@ -116,4 +116,12 @@ export class FolderRepository {
   async delete(id: number): Promise<void> {
     await this.db.prepare("DELETE FROM folders WHERE id = ?").bind(id).run();
   }
+
+  async getRecent(limit: number): Promise<Folder[]> {
+    const { results } = await this.db
+      .prepare("SELECT * FROM folders ORDER BY created_at DESC LIMIT ?")
+      .bind(limit)
+      .all<FolderRow>();
+    return results.map(rowToFolder);
+  }
 }

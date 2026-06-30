@@ -1,5 +1,7 @@
 import { Hono, type Context } from "hono";
 import { parseRangeHeader } from "../utils/range-parser";
+import { extractRealIp } from "../utils/ip-parser";
+import { resolveCountry } from "../utils/geo-resolver";
 import { DownloadService, FileNotAccessibleError } from "../services/download.service";
 import { DownloadLogRepository } from "../database/download-log.repository";
 import type { Env } from "../config/env";
@@ -63,17 +65,31 @@ async function handleDownload(c: Context<{ Bindings: Env }>) {
 
     // Jika DB masih 0 tapi kita sudah dapat ukuran dari Google, update DB async
     if ((!dbSize || dbSize <= 0) && totalSize > 0) {
-      void downloadService.fixFileSizeInDb(fileInfo.id, totalSize);
+      c.executionCtx.waitUntil(downloadService.fixFileSizeInDb(fileInfo.id, totalSize));
     }
 
-    // Log download (fire-and-forget)
-    void downloadLogRepository.create({
-      fileId: fileInfo.id,
-      ipAddress: c.req.header("CF-Connecting-IP") ?? "unknown",
-      userAgent: c.req.header("User-Agent") ?? null,
-      bytesServed: range ? (range.end - range.start + 1) : totalSize,
-      status: range ? "partial" : "completed",
-    });
+    const ipAddress = extractRealIp(c);
+    const cfCountry = (c.req.raw.cf?.country as string) || null;
+    const userAgent = c.req.header("User-Agent") ?? null;
+
+    // ── Log hanya saat request pertama (byte 0 atau tanpa Range header) ───────
+    // Dikombinasikan dengan createIfNotDuplicate (window 5 menit per file+IP)
+    // ini memastikan 1 download = 1 log, tanpa mengubah cara streaming.
+    const isFirstRequest = !range || range.start === 0;
+    if (isFirstRequest) {
+      c.executionCtx.waitUntil(
+        resolveCountry(ipAddress, cfCountry).then((country) =>
+          downloadLogRepository.createIfNotDuplicate({
+            fileId: fileInfo.id,
+            ipAddress,
+            country,
+            userAgent,
+            bytesServed: totalSize,
+            status: "completed",
+          })
+        )
+      );
+    }
 
     // ── Header response ───────────────────────────────────────────────────────
     const headers = new Headers();
@@ -106,6 +122,7 @@ async function handleDownload(c: Context<{ Bindings: Env }>) {
       // @ts-ignore — Cloudflare Workers specific flag
       encodeBody: "manual",
     });
+
 
   } catch (error) {
     if (error instanceof FileNotAccessibleError) {

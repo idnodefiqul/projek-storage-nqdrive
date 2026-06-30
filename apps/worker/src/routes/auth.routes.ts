@@ -125,7 +125,7 @@ authRoutes.post("/logout", requireAuth, (c) => {
 /** GET /api/auth/me */
 authRoutes.get("/me", requireAuth, (c) => {
   const payload = getAuthPayload(c);
-  return c.json({ success: true, data: { id: payload.sub, username: payload.username } });
+  return c.json({ success: true, data: { id: payload.sub, username: payload.username, email: payload.email } });
 });
 
 /**
