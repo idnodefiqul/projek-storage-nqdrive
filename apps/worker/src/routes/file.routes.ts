@@ -18,6 +18,7 @@ fileRoutes.use("*", requireAuth);
  * GET /api/files
  * Paginated, searchable, filterable listing for the dashboard's Files page.
  * Query params validated by listFilesQuerySchema (page, pageSize, search, folderId, visibility).
+ * Hanya menampilkan file yang TIDAK di-trash (deleted_at IS NULL) — dihandle oleh repository.
  */
 fileRoutes.get("/", zValidator("query", listFilesQuerySchema), async (c) => {
   const query = c.req.valid("query");
@@ -85,36 +86,23 @@ fileRoutes.patch("/:id/visibility", zValidator("json", updateFileVisibilitySchem
 
 /**
  * DELETE /api/files/:id
- * Deletes both the D1 metadata row AND the underlying provider file (Google Drive),
- * in that order reversed: provider first, then DB — if provider deletion fails, we keep
- * the metadata row so the file isn't "lost" from the dashboard while still occupying space.
+ * Memindahkan file ke Trash (soft delete) — TIDAK menghapus dari Google Drive.
+ * File public otomatis diubah ke private saat masuk Trash.
+ * Penghapusan fisik dari Google Drive terjadi saat hapus permanen dari Trash.
  */
 fileRoutes.delete("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const fileRepository = new FileRepository(c.env.DB);
-  const driveAccountRepository = new DriveAccountRepository(c.env.DB);
 
   const file = await fileRepository.findById(id);
   if (!file) {
     return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
   }
 
-  const account = await driveAccountRepository.findById(file.driveAccountId);
-  if (!account) {
-    return c.json(
-      { success: false, error: { code: "ACCOUNT_NOT_FOUND", message: "Akun penyimpanan untuk file ini tidak ditemukan." } },
-      500
-    );
-  }
+  // Soft delete: set deleted_at, simpan original_folder_id, ubah public → private
+  await fileRepository.softDelete(id);
 
-  const connectionService = new GoogleAccountConnectionService(c.env);
-  const accessToken = await connectionService.getValidAccessToken(account);
-  const provider = StorageProviderFactory.resolve(account.provider);
-
-  await provider.delete({ credentials: { accessToken }, providerFileId: file.providerFileId });
-  await fileRepository.delete(id);
-
-  return c.json({ success: true, data: { message: "File berhasil dihapus." } });
+  return c.json({ success: true, data: { message: "File dipindahkan ke Trash." } });
 });
 
 export { fileRoutes };

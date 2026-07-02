@@ -4,6 +4,7 @@ import { createFolderSchema } from "@nqdrive/api";
 import { z } from "zod";
 import { requireAuth } from "../middleware/require-auth.middleware";
 import { FolderRepository } from "../database/folder.repository";
+import { FileRepository } from "../database/file.repository";
 import type { Env } from "../config/env";
 
 const folderRoutes = new Hono<{ Bindings: Env }>();
@@ -16,6 +17,7 @@ const renameFolderSchema = z.object({ name: z.string().min(1).max(255) });
  * GET /api/folders
  * Lists folders under a parent — accepts ?parentFolderId=<id> (internal use only).
  * Frontend should prefer /api/folders/resolve for human-readable navigation.
+ * Hanya menampilkan folder yang TIDAK di-trash (deleted_at IS NULL) — dihandle oleh repository.
  */
 folderRoutes.get("/", async (c) => {
   const parentFolderIdParam = c.req.query("parentFolderId");
@@ -34,20 +36,9 @@ folderRoutes.get("/", async (c) => {
  *
  * Resolves a human-readable slash-separated path to folder metadata + children.
  * Menggunakan query param "folder" (bukan "path") agar konsisten dengan URL dashboard.
- *
- * Format path: nama folder dipisahkan dengan "/" — setiap segment sudah
- * di-decode oleh backend secara individual (encodeURIComponent per segment
- * dari frontend, bukan encode keseluruhan string).
- *
- * Response:
- *   - folder: folder yang di-resolve (null jika path kosong = root)
- *   - ancestors: ordered list [root → ... → direct parent] untuk breadcrumb
- *   - children: sub-folder di dalam folder yang di-resolve
- *   - folderId: integer ID yang di-resolve (untuk /api/files call)
  */
 folderRoutes.get("/resolve", async (c) => {
   // Baca dari query param "folder" — fallback ke "path" untuk backward-compat
-  // selama masa transisi (hapus fallback setelah semua client sudah update).
   const rawPath = c.req.query("folder") ?? c.req.query("path") ?? "";
   const repository = new FolderRepository(c.env.DB);
 
@@ -60,10 +51,6 @@ folderRoutes.get("/resolve", async (c) => {
     });
   }
 
-  // Split per "/" dan decode setiap segment secara individual.
-  // Frontend mengirim: encodeURIComponent(segment).join("/")
-  // Jadi "Windows/11" diterima sebagai "Windows/11" (/ literal),
-  // "Folder Saya/Sub Folder" diterima sebagai "Folder%20Saya/Sub%20Folder"
   const segments = rawPath
     .split("/")
     .map((s) => decodeURIComponent(s.trim()))
@@ -159,18 +146,46 @@ folderRoutes.patch("/:id", zValidator("json", renameFolderSchema), async (c) => 
   return c.json({ success: true, data: { message: "Folder berhasil diganti nama." } });
 });
 
-/** DELETE /api/folders/:id — cascades to sub-folders automatically (FK ON DELETE CASCADE). */
+/**
+ * DELETE /api/folders/:id
+ * Memindahkan folder ke Trash (soft delete).
+ * - Folder itu sendiri + semua sub-folder ikut di-soft-delete
+ * - Semua file di dalam folder (termasuk sub-folder) ikut di-soft-delete
+ * - File public otomatis diubah ke private
+ */
 folderRoutes.delete("/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  const repository = new FolderRepository(c.env.DB);
+  const folderRepository = new FolderRepository(c.env.DB);
+  const fileRepository = new FileRepository(c.env.DB);
 
-  const existing = await repository.findById(id);
+  const existing = await folderRepository.findById(id);
   if (!existing) {
     return c.json({ success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan." } }, 404);
   }
 
-  await repository.delete(id);
-  return c.json({ success: true, data: { message: "Folder berhasil dihapus." } });
+  // Soft delete folder utama
+  await folderRepository.softDelete(id);
+
+  // Soft delete semua sub-folder secara rekursif
+  await folderRepository.softDeleteDescendants(id);
+
+  // Soft delete semua file langsung dalam folder ini
+  await fileRepository.softDeleteByFolderId(id);
+
+  // Soft delete file di sub-folder secara rekursif
+  const softDeleteFilesRecursive = async (parentId: number) => {
+    const { results: subFolders } = await c.env.DB
+      .prepare("SELECT id FROM folders WHERE parent_folder_id = ? AND deleted_at IS NOT NULL")
+      .bind(parentId)
+      .all<{ id: number }>();
+    for (const sub of subFolders) {
+      await fileRepository.softDeleteByFolderId(sub.id);
+      await softDeleteFilesRecursive(sub.id);
+    }
+  };
+  await softDeleteFilesRecursive(id);
+
+  return c.json({ success: true, data: { message: "Folder dipindahkan ke Trash." } });
 });
 
 export { folderRoutes };

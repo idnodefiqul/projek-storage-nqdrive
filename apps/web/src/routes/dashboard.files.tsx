@@ -24,6 +24,10 @@ import { useFiles, useDeleteFile, useUpdateFileVisibility } from "../hooks/use-f
 import { useFolderByPath, useCreateFolder, useDeleteFolder } from "../hooks/use-folders";
 import { useUpload } from "../hooks/use-upload";
 import { useMinLoading } from "../hooks/use-min-loading";
+import { useSettings } from "../hooks/use-settings";
+import { buildDownloadPath } from "../services/settings.service";
+
+
 import type { FileVisibility, FileWithAccount, Folder } from "@nqdrive/types";
 import { PageTransition } from "../components/page-transition";
 import { FilesTableSkeleton } from "../components/skeletons";
@@ -212,7 +216,7 @@ function ActionDropdown({
                   className="group flex w-full items-center px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                 >
                   <Trash2 className="mr-2 h-4 w-4" />
-                  Hapus File
+                  Pindahkan ke Trash
                 </button>
               </>
             )}
@@ -222,7 +226,7 @@ function ActionDropdown({
                 className="group flex w-full items-center px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
               >
                 <Trash2 className="mr-2 h-4 w-4" />
-                Hapus Folder
+                Pindahkan ke Trash
               </button>
             )}
           </div>
@@ -269,7 +273,7 @@ function Pagination({
 
       <div className="flex items-center gap-3">
         <span className="text-xs text-zinc-400">
-          {from}–{to} dari {total}
+          {from}—{to} dari {total}
         </span>
         <div className="flex items-center gap-1">
           <PagBtn onClick={() => onPage(1)} disabled={page === 1} title="Halaman pertama">
@@ -312,6 +316,7 @@ function FilesPage() {
   const { toast } = useToast();
   const searchParams = Route.useSearch();
   const navigate = useNavigate({ from: Route.fullPath });
+  const { data: settings } = useSettings();
 
   // Path folder saat ini dari URL param "folder".
   // Contoh: "" = root, "Scripts" = folder Scripts, "Windows/11" = subfolder 11 di dalam Windows
@@ -416,10 +421,10 @@ function FilesPage() {
     if (!folderToDelete) return;
     try {
       await deleteFolder.mutateAsync(folderToDelete.id);
-      toast({ title: "Folder berhasil dihapus", variant: "success" });
+      toast({ title: "Folder dipindahkan ke Trash", variant: "success" });
     } catch (error) {
       toast({
-        title: "Gagal menghapus folder",
+        title: "Gagal memindahkan folder",
         description: error instanceof Error ? error.message : undefined,
         variant: "error",
       });
@@ -429,21 +434,22 @@ function FilesPage() {
   };
 
   const handleCopyLink = useCallback((file: FileWithAccount) => {
-    // URL download menggunakan host web ini (drive.fiqul.id) sebagai perantara (proxy) ke Worker
     const baseUrl = window.location.origin;
-    const url = `${baseUrl}/${file.slug}`;
+    const endpoint = settings?.download_endpoint ?? "default";
+    const path = buildDownloadPath(file.slug, file.shareCode, endpoint);
+    const url = `${baseUrl}${path}`;
     navigator.clipboard.writeText(url);
     toast({ title: "Link disalin", description: url, variant: "success" });
-  }, [toast]);
+  }, [toast, settings]);
 
   const handleDeleteFile = async () => {
     if (!fileToDelete) return;
     try {
       await deleteFile.mutateAsync(fileToDelete.id);
-      toast({ title: "File berhasil dihapus", variant: "success" });
+      toast({ title: "File dipindahkan ke Trash", variant: "success" });
     } catch (error) {
       toast({
-        title: "Gagal menghapus file",
+        title: "Gagal memindahkan file",
         description: error instanceof Error ? error.message : undefined,
         variant: "error",
       });
@@ -607,7 +613,7 @@ function FilesPage() {
         </div>
       </div>
 
-      <Card className="flex flex-1 flex-col overflow-hidden shadow-sm">
+      <Card className="flex flex-1 flex-col overflow-hidden shadow-sm min-h-[600px] md:min-h-0">
         <CardContent className="flex flex-1 flex-col gap-4 overflow-hidden p-5">
 
           {/* Breadcrumb */}
@@ -643,7 +649,7 @@ function FilesPage() {
           </div>
 
           {/* Table */}
-          <div className="flex-1 overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 relative">
+          <div className="flex-1 overflow-auto rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 relative">
             <table className="w-full caption-bottom text-sm">
               <thead className="border-b border-zinc-200 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-900/60 sticky top-0 z-10 backdrop-blur-sm">
                 {table.getHeaderGroups().map((headerGroup) => (
@@ -680,7 +686,7 @@ function FilesPage() {
                         <td
                           key={cell.id}
                           className={cn(
-                            "px-4 py-3 min-w-0 align-middle",
+                            "px-4 py-4 md:py-3 min-w-0 align-middle",
                             cell.column.id === "downloads" ? "hidden sm:table-cell text-right" : "",
                             cell.column.id === "actions" ? "text-right" : ""
                           )}
@@ -725,30 +731,30 @@ function FilesPage() {
 
       <Dialog open={!!fileToDelete} onOpenChange={(open) => !open && setFileToDelete(null)}>
         <DialogHeader>
-          <DialogTitle>Hapus file?</DialogTitle>
+          <DialogTitle>Pindahkan ke Trash?</DialogTitle>
           <DialogDescription>
-            File "{fileToDelete?.filename}" akan dihapus permanen dari Google Drive dan tidak dapat dikembalikan.
+            File "{fileToDelete?.filename}" akan dipindahkan ke Trash. Anda dapat memulihkannya kembali dalam waktu 30 hari.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setFileToDelete(null)}>Batal</Button>
-          <Button variant="destructive" onClick={handleDeleteFile} disabled={deleteFile.isPending}>
-            {deleteFile.isPending ? "Menghapus..." : "Hapus"}
+          <Button variant="outline" className="border-brand-500 text-brand-600 hover:bg-brand-50 dark:border-brand-500 dark:text-brand-400 dark:hover:bg-brand-500/10 hover:text-brand-700 shrink-0" onClick={() => setFileToDelete(null)}>Batal</Button>
+          <Button variant="destructive" className="bg-red-600 text-white hover:bg-red-700 hover:text-white" onClick={handleDeleteFile} disabled={deleteFile.isPending}>
+            {deleteFile.isPending ? "Memindahkan..." : "Pindahkan ke Trash"}
           </Button>
         </DialogFooter>
       </Dialog>
 
       <Dialog open={!!folderToDelete} onOpenChange={(open) => !open && setFolderToDelete(null)}>
         <DialogHeader>
-          <DialogTitle>Hapus folder?</DialogTitle>
+          <DialogTitle>Pindahkan ke Trash?</DialogTitle>
           <DialogDescription>
-            Folder "{folderToDelete?.name}" dan seluruh sub-folder di dalamnya akan dihapus. File di dalamnya akan dipindahkan ke root.
+            Folder "{folderToDelete?.name}" beserta seluruh sub-folder dan file di dalamnya akan dipindahkan ke Trash. Anda dapat memulihkannya kembali dalam waktu 30 hari.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={() => setFolderToDelete(null)}>Batal</Button>
-          <Button variant="destructive" onClick={handleDeleteFolder} disabled={deleteFolder.isPending}>
-            {deleteFolder.isPending ? "Menghapus..." : "Hapus"}
+          <Button variant="outline" className="border-brand-500 text-brand-600 hover:bg-brand-50 dark:border-brand-500 dark:text-brand-400 dark:hover:bg-brand-500/10 hover:text-brand-700 shrink-0" onClick={() => setFolderToDelete(null)}>Batal</Button>
+          <Button variant="destructive" className="bg-red-600 text-white hover:bg-red-700 hover:text-white" onClick={handleDeleteFolder} disabled={deleteFolder.isPending}>
+            {deleteFolder.isPending ? "Memindahkan..." : "Pindahkan ke Trash"}
           </Button>
         </DialogFooter>
       </Dialog>
@@ -770,7 +776,7 @@ function FilesPage() {
           onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
         />
         <DialogFooter>
-          <Button variant="outline" onClick={() => setIsCreateFolderOpen(false)}>Batal</Button>
+          <Button variant="outline" className="border-brand-500 text-brand-600 hover:bg-brand-50 dark:border-brand-500 dark:text-brand-400 dark:hover:bg-brand-500/10 hover:text-brand-700 shrink-0" onClick={() => setIsCreateFolderOpen(false)}>Batal</Button>
           <Button onClick={handleCreateFolder} disabled={createFolder.isPending}>
             {createFolder.isPending ? "Membuat..." : "Buat Folder"}
           </Button>
@@ -890,6 +896,9 @@ function UploadDialog({
                     {item.status === "success" && <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />}
                     {item.status === "error" && <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />}
                   </div>
+                  {(item.status === "hashing") && (
+                    <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">Menghitung checksum SHA-256…</p>
+                  )}
                   {item.status === "uploading" && (
                     <div className="mt-1.5">
                       <Progress value={item.progress.percentage} className="h-1.5" />

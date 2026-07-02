@@ -1,0 +1,17 @@
+﻿{
+  "version": 1,
+  "include": ["/*"],
+  "exclude": [
+    "/",
+    "/assets/*",
+    "/login",
+    "/setup",
+    "/docs",
+    "/dashboard",
+    "/dashboard/*",
+    "/favicon.png",
+    "/iconside.png",
+    "/logopage.png",
+    "/logologon.png"
+  ]
+}

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "../lib/api-client";
+import { apiRequest } from "../lib/client";
 import type { FileEntity, Folder } from "@nqdrive/types";
 
 export interface DashboardSummary {

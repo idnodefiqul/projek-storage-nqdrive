@@ -1,4 +1,4 @@
-import { StorageProviderFactory } from "@nqdrive/storage";
+﻿import { StorageProviderFactory } from "@nqdrive/storage";
 import { FileRepository } from "../database/file.repository";
 import { DriveAccountRepository } from "../database/drive-account.repository";
 import { UploadLogRepository } from "../database/upload-log.repository";
@@ -12,7 +12,7 @@ import type { FileEntity } from "@nqdrive/types";
 export class UploadValidationError extends Error {}
 export class NoStorageAvailableError extends Error {}
 
-// ─── SECURITY FIX #9: Perluas daftar MIME type yang diblokir ─────────────
+// â”€â”€â”€ SECURITY FIX #9: Perluas daftar MIME type yang diblokir â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Sebelumnya hanya memblokir 2 MIME type. Banyak format executable lain yang
 // perlu diblokir untuk mencegah NQDRIVE jadi hosting malware.
 // Catatan: ini bukan pengganti file extension check, karena MIME bisa di-spoof
@@ -36,9 +36,9 @@ const BLOCKED_MIME_TYPES = new Set([
   "application/x-dosexec",
 ]);
 
-// ─── SECURITY FIX #10: Blokir ekstensi berbahaya terlepas dari MIME type ──
+// â”€â”€â”€ SECURITY FIX #10: Blokir ekstensi berbahaya terlepas dari MIME type â”€â”€
 // Attacker bisa upload file dengan Content-Type: application/octet-stream
-// tapi nama file .exe — ekstensi check adalah lapisan pertahanan tambahan.
+// tapi nama file .exe â€” ekstensi check adalah lapisan pertahanan tambahan.
 const BLOCKED_EXTENSIONS = new Set([
   ".exe", ".dll", ".bat", ".cmd", ".com", ".msi", ".vbs", ".js", ".jse",
   ".wsf", ".wsh", ".ps1", ".ps2", ".psc1", ".psc2", ".scr", ".hta",
@@ -88,7 +88,7 @@ export class UploadService {
       throw new UploadValidationError(`File dengan ekstensi ${ext} tidak diizinkan untuk diupload.`);
     }
 
-    // FIX #11: filename sanitization — cegah path traversal & null byte injection
+    // FIX #11: filename sanitization â€” cegah path traversal & null byte injection
     if (params.filename.includes("..") || params.filename.includes("/") || params.filename.includes("\0")) {
       throw new UploadValidationError("Nama file mengandung karakter yang tidak diizinkan.");
     }
@@ -104,6 +104,7 @@ export class UploadService {
     sizeBytes: number;
     folderId: number | null;
     stream: ReadableStream<Uint8Array>;
+    sha256Hash: string | null;
   }): Promise<FileEntity> {
     this.validate(params);
 
@@ -132,15 +133,30 @@ export class UploadService {
 
       // FIX: Gunakan params.sizeBytes (dari header X-File-Size yang sudah divalidasi)
       // sebagai sumber utama ukuran file yang disimpan ke DB.
-      // uploadResult.sizeBytes hanya fallback — GoogleDriveProvider meneruskannya dari params
+      // uploadResult.sizeBytes hanya fallback â€” GoogleDriveProvider meneruskannya dari params
       // tapi jika ada bug atau edge case, kita tetap punya params.sizeBytes yang sudah tervalidasi.
-      // Guard: jangan simpan 0 ke DB — ini penyebab utama "? / ?" di download manager.
+      // Guard: jangan simpan 0 ke DB â€” ini penyebab utama "? / ?" di download manager.
       const definitveSizeBytes = (params.sizeBytes > 0)
         ? params.sizeBytes
         : (uploadResult.sizeBytes > 0 ? uploadResult.sizeBytes : 0);
 
       if (definitveSizeBytes <= 0) {
         throw new UploadValidationError("Ukuran file tidak bisa ditentukan setelah upload. Coba upload ulang.");
+      }
+
+      // Generate a 23-character random share code for direct-link protection.
+      // Biased toward letters over digits, and mixes lower- & upper-case so the
+      // code reads like a random slug (e.g. "aK7fbQ...") instead of a numeric ID.
+      // Letters are weighted 2x heavier than digits, so a code has clearly more
+      // letters than numbers while still reliably containing a few digits (~2/23).
+      const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      const digits = "0123456789";
+      const charset = letters + letters + digits;
+      let shareCode = "";
+      const randomValues = new Uint32Array(23);
+      crypto.getRandomValues(randomValues);
+      for (let i = 0; i < 23; i++) {
+        shareCode += charset[(randomValues[i]!) % charset.length];
       }
 
       const file = await this.fileRepository.create({
@@ -152,6 +168,8 @@ export class UploadService {
         sizeBytes: definitveSizeBytes,
         mimeType: uploadResult.mimeType,
         visibility: "private",
+        shareCode,
+        sha256Hash: params.sha256Hash,
       });
 
       await this.driveAccountRepository.updateQuota(account.id, {

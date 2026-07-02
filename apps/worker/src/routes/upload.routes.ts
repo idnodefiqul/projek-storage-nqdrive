@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+﻿import { Hono } from "hono";
 import { requireAuth } from "../middleware/require-auth.middleware";
 import { UploadService, UploadValidationError, NoStorageAvailableError } from "../services/upload.service";
 import type { Env } from "../config/env";
@@ -16,15 +16,13 @@ uploadRoutes.use("*", requireAuth);
  *   X-File-Size  - total size in bytes
  *   Content-Type - file's mime type
  *   X-Folder-Id  - optional, target folder id
+ *   X-File-SHA256      - optional, SHA-256 hex checksum (64 chars, computed by browser)
  */
 uploadRoutes.post("/upload", async (c) => {
   const filenameHeader = c.req.header("X-Filename");
   const sizeHeader = c.req.header("X-File-Size");
   const folderIdHeader = c.req.header("X-Folder-Id");
 
-  // SECURITY FIX #12: Content-Type yang dipakai untuk validasi HARUS dari header,
-  // bukan fallback ke application/octet-stream mentah. Jika client tidak kirim
-  // Content-Type, tolak request (jangan silent fallback).
   const mimeType = c.req.header("Content-Type");
   if (!mimeType) {
     return c.json(
@@ -33,7 +31,6 @@ uploadRoutes.post("/upload", async (c) => {
     );
   }
 
-  // Strip parameters dari Content-Type (misal "text/plain; charset=utf-8" -> "text/plain")
   const mimeTypeClean = mimeType.split(";")[0]?.trim() ?? mimeType;
 
   if (!filenameHeader || !sizeHeader) {
@@ -55,7 +52,6 @@ uploadRoutes.post("/upload", async (c) => {
 
   const sizeBytes = Number(sizeHeader);
 
-  // SECURITY FIX #13: validasi sizeBytes lebih ketat
   if (!Number.isInteger(sizeBytes) || sizeBytes <= 0) {
     return c.json(
       { success: false, error: { code: "INVALID_SIZE", message: "X-File-Size harus berupa angka bulat positif." } },
@@ -65,7 +61,6 @@ uploadRoutes.post("/upload", async (c) => {
 
   const folderId = folderIdHeader ? Number(folderIdHeader) : null;
 
-  // SECURITY FIX #14: validasi folderId jika dikirim
   if (folderIdHeader !== undefined && folderIdHeader !== null && (!Number.isInteger(folderId) || (folderId as number) <= 0)) {
     return c.json(
       { success: false, error: { code: "INVALID_FOLDER_ID", message: "X-Folder-Id tidak valid." } },
@@ -77,6 +72,18 @@ uploadRoutes.post("/upload", async (c) => {
     return c.json({ success: false, error: { code: "EMPTY_BODY", message: "Request tidak memiliki isi file." } }, 400);
   }
 
+  const sha256Header = c.req.header("X-File-SHA256");
+  let sha256Hash: string | null = null;
+  if (sha256Header) {
+    if (!/^[a-fA-F0-9]{64}$/.test(sha256Header)) {
+      return c.json(
+        { success: false, error: { code: "INVALID_SHA256", message: "X-File-SHA256 harus berupa 64 karakter hex." } },
+        400
+      );
+    }
+    sha256Hash = sha256Header.toLowerCase();
+  }
+
   const uploadService = new UploadService(c.env);
 
   try {
@@ -86,6 +93,7 @@ uploadRoutes.post("/upload", async (c) => {
       sizeBytes,
       folderId,
       stream: c.req.raw.body,
+      sha256Hash,
     });
 
     return c.json({ success: true, data: { file } }, 201);

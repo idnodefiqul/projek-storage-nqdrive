@@ -87,7 +87,7 @@ function DashboardOverviewPage() {
       >
       <motion.div variants={itemVariants}>
         <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">Dashboard</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Ringkasan penggunaan dan metrik NQDRIVE Anda.</p>
+        <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Ringkasan penggunaan dan metrik {import.meta.env.VITE_SITE_NAME || "NQDRIVE"} Anda.</p>
       </motion.div>
 
       {/* Analytics Chart */}
@@ -132,7 +132,7 @@ function DashboardOverviewPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md border dark:border-zinc-800">
+            <div className="rounded-2xl border dark:border-zinc-800 overflow-hidden">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -158,7 +158,9 @@ function DashboardOverviewPage() {
                         </TableCell>
                         <TableCell className="text-zinc-500 whitespace-nowrap">{formatBytes(file.sizeBytes)}</TableCell>
                         <TableCell className="text-right">
-                          <Badge variant="neutral">{file.downloadCount}</Badge>
+                          <span className="font-semibold text-zinc-700 dark:text-zinc-300">
+                            {file.downloadCount}
+                          </span>
                         </TableCell>
                       </TableRow>
                     ))
@@ -209,13 +211,13 @@ function DashboardOverviewPage() {
                 </div>
                 <Progress value={summary.usedPercentage} className="h-3 mt-2" />
                 <div className="grid grid-cols-2 gap-4 mt-4">
-                  <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
+                  <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4">
                     <div className="text-sm font-medium text-zinc-500">Kapasitas Sisa</div>
                     <div className="mt-2 text-xl font-semibold text-emerald-600 dark:text-emerald-400">
                       {formatBytes(summary.availableStorageBytes)}
                     </div>
                   </div>
-                  <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 p-4">
+                  <div className="rounded-2xl border border-zinc-200 dark:border-zinc-800 p-4">
                     <div className="text-sm font-medium text-zinc-500">Total File</div>
                     <div className="mt-2 text-xl font-semibold text-zinc-900 dark:text-zinc-50">
                       {summary.totalFiles}

@@ -114,9 +114,9 @@ function StorageManagerPage() {
                       Terpakai dari {formatBytes(summary.totalStorageBytes)}
                     </span>
                   </div>
-                  <Badge variant="neutral" className="text-sm px-3 py-1">
+                  <span className="text-sm px-3 py-1 rounded-full font-semibold bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100 ring-1 ring-zinc-200 dark:ring-zinc-700">
                     {summary.usedPercentage.toFixed(1)}% Terpakai
-                  </Badge>
+                  </span>
                 </div>
                 <Progress 
                   value={summary.usedPercentage} 

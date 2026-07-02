@@ -8,7 +8,22 @@ import { type SVGProps } from "react";
  * Tailwind v4 tidak otomatis generate utility fill-* untuk custom colors.
  * CSS var --color-brand-* tersedia global dari globals.css @theme.
  */
-export function NqdriveLogo({ className, ...props }: SVGProps<SVGSVGElement>) {
+export interface NqdriveLogoProps extends SVGProps<SVGSVGElement> {
+  customLogo?: string;
+}
+
+export function NqdriveLogo({ className, customLogo, ...props }: NqdriveLogoProps) {
+  if (customLogo) {
+    return (
+      <img
+        src={customLogo}
+        alt="Site Logo"
+        className={className}
+        style={{ objectFit: "contain" }}
+      />
+    );
+  }
+
   return (
     <svg
       viewBox="0 0 40 40"
@@ -17,9 +32,38 @@ export function NqdriveLogo({ className, ...props }: SVGProps<SVGSVGElement>) {
       className={className}
       {...props}
     >
-      <rect x="2"  y="14" width="16" height="16" rx="5" fill="var(--color-brand-200)" />
-      <rect x="12" y="8"  width="16" height="16" rx="5" fill="var(--color-brand-400)" />
-      <rect x="22" y="14" width="16" height="16" rx="5" fill="var(--color-brand-600)" />
+      <defs>
+        <linearGradient id="nq-logo-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%" stopColor="var(--color-brand-500, #10b981)" />
+          <stop offset="100%" stopColor="var(--color-brand-600, #3b82f6)" />
+        </linearGradient>
+      </defs>
+      
+      {/* Huruf N */}
+      <path
+        d="M10 28V12L20 28V12"
+        stroke="url(#nq-logo-grad)"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      
+      {/* Huruf Q */}
+      <circle
+        cx="25"
+        cy="20"
+        r="7"
+        stroke="url(#nq-logo-grad)"
+        strokeWidth="4"
+        strokeLinecap="round"
+      />
+      <path
+        d="M30 25L35 30"
+        stroke="url(#nq-logo-grad)"
+        strokeWidth="4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

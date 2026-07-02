@@ -112,7 +112,7 @@ function ApiKeysPage() {
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">API</h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">Kelola API key untuk akses programatik ke NQDRIVE.</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">Kelola API key untuk akses programatik ke {import.meta.env.VITE_SITE_NAME || "NQDRIVE"}.</p>
         </div>
         {/* FIX: tombol brand-500 agar kelihatan di light mode */}
         <button type="button" onClick={() => setIsCreateOpen(true)}
@@ -125,7 +125,7 @@ function ApiKeysPage() {
       </div>
 
       {/* Tabel — full screen card */}
-      <div className="flex flex-1 flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         {isLoading ? (
           <div className="flex flex-col gap-2 p-5">
             {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}

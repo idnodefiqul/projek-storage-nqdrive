@@ -25,7 +25,7 @@ function DocsPage() {
             <h1 className="text-3xl md:text-4xl font-bold tracking-tight">Documentation</h1>
           </div>
           <p className="text-lg text-zinc-600 dark:text-zinc-400">
-            Welcome to the NQDRIVE documentation. Learn how to unify and manage your cloud storage architecture effectively.
+            Welcome to the {import.meta.env.VITE_SITE_NAME || "NQDRIVE"} documentation. Learn how to unify and manage your cloud storage architecture effectively.
           </p>
         </div>
 
@@ -38,7 +38,7 @@ function DocsPage() {
               <h2 className="text-2xl font-semibold">Multi-Account Architecture</h2>
             </div>
             <p className="text-zinc-600 dark:text-zinc-400 leading-relaxed mb-4">
-              NQDRIVE operates on a modern multi-account unification model. Instead of relying on a single centralized storage node, our platform allows you to bridge multiple cloud storage nodes into a single, cohesive virtual drive.
+              {import.meta.env.VITE_SITE_NAME || "NQDRIVE"} operates on a modern multi-account unification model. Instead of relying on a single centralized storage node, our platform allows you to bridge multiple cloud storage nodes into a single, cohesive virtual drive.
             </p>
             <ul className="list-disc list-inside space-y-2 text-zinc-600 dark:text-zinc-400 ml-2">
               <li>Seamlessly pool storage capacity across different nodes.</li>
@@ -53,7 +53,7 @@ function DocsPage() {
               <h2 className="text-2xl font-semibold">Node Authentication</h2>
             </div>
             <p className="text-zinc-600 dark:text-zinc-400 leading-relaxed mb-4">
-              To add a new storage node to your unified pool, you must provide the necessary service authentication keys. NQDRIVE uses secure OAuth and Service Account token standards to maintain a persistent and safe connection to your nodes without storing user passwords.
+              To add a new storage node to your unified pool, you must provide the necessary service authentication keys. {import.meta.env.VITE_SITE_NAME || "NQDRIVE"} uses secure OAuth and Service Account token standards to maintain a persistent and safe connection to your nodes without storing user passwords.
             </p>
             <div className="bg-zinc-100 dark:bg-zinc-900 rounded-lg p-4 border border-zinc-200 dark:border-white/10 text-sm font-mono text-zinc-600 dark:text-zinc-400">
               1. Navigate to Dashboard {'>'} Accounts<br/>
@@ -69,7 +69,7 @@ function DocsPage() {
               <h2 className="text-2xl font-semibold">Security & Privacy</h2>
             </div>
             <p className="text-zinc-600 dark:text-zinc-400 leading-relaxed">
-              Security is at the core of NQDRIVE. All data transfers between the unified manager and your cloud nodes occur over encrypted TLS connections. We ensure that file metadata is synchronized securely, while actual file streams are piped directly to maintain strict privacy standards.
+              Security is at the core of {import.meta.env.VITE_SITE_NAME || "NQDRIVE"}. All data transfers between the unified manager and your cloud nodes occur over encrypted TLS connections. We ensure that file metadata is synchronized securely, while actual file streams are piped directly to maintain strict privacy standards.
             </p>
           </section>
 

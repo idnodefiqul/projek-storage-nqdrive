@@ -8,7 +8,7 @@ import { GoogleAccountConnectionService } from "../services/google-account-conne
 import { exchangeRefreshToken, fetchGoogleAccountInfo } from "../services/google-oauth.service";
 import { calculatePercentage } from "@nqdrive/shared";
 import type { Env } from "../config/env";
-import type { PublicDriveAccount } from "@nqdrive/types";
+import type { PublicDriveAccount, DriveAccount } from "@nqdrive/types";
 
 const storageAccountRoutes = new Hono<{ Bindings: Env }>();
 

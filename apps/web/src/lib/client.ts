@@ -48,6 +48,7 @@ export async function apiRequest<T>(
     method: options.method ?? "GET",
     credentials: "include",
     headers: {
+      "X-App-Client": "nqdrive-web",
       ...(options.body ? { "Content-Type": "application/json" } : {}),
       ...options.headers,
     },
@@ -58,6 +59,9 @@ export async function apiRequest<T>(
   const json = (await response.json()) as ApiResponse<T>;
 
   if (!json.success) {
+    if (response.status === 401) {
+      localStorage.setItem("nqdrive_is_logged_in", "false");
+    }
     throw new ApiClientError(json.error.message, json.error.code, response.status);
   }
 

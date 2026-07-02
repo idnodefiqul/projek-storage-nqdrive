@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { Eye, EyeOff, Lock, User, ShieldCheck } from "lucide-react";
-import { useSetupAdmin, useSetupStatus } from "../hooks/use-auth";
+import { useSetupAdmin, useSetupStatus } from "../hooks/auth";
 import { Particles } from "@nqdrive/ui";
 import { motion } from "framer-motion";
 
@@ -126,8 +126,8 @@ function SetupPage() {
             </div>
 
             <div className="text-center mt-2">
-              <h1 className="text-2xl font-extrabold tracking-tight text-zinc-900 dark:text-white">
-                Welcome to <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-emerald-500 dark:from-brand-400 dark:to-emerald-400">NQDrive Setup</span>
+              <h1 className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-white">
+                Welcome to <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-emerald-500 dark:from-brand-400 dark:to-emerald-400">{import.meta.env.VITE_SITE_NAME || "NQDRIVE"} Setup</span>
               </h1>
               <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Let's get your unified storage ready</p>
             </div>
@@ -137,7 +137,7 @@ function SetupPage() {
           <div className="mb-6 flex items-start gap-3 rounded-xl border border-brand-200 bg-brand-50 p-3 dark:border-brand-500/20 dark:bg-brand-500/10">
             <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-brand-600 dark:text-brand-400" />
             <p className="text-xs leading-relaxed text-brand-700 dark:text-brand-300">
-              Buat akun admin pertama untuk mengelola NQDRIVE. Halaman ini hanya muncul sekali.
+              Buat akun admin pertama untuk mengelola {import.meta.env.VITE_SITE_NAME || "NQDRIVE"}. Halaman ini hanya muncul sekali.
             </p>
           </div>
 
@@ -279,7 +279,7 @@ function SetupPage() {
 
         {/* Footer */}
         <p className="mt-6 text-center text-xs text-zinc-400 dark:text-zinc-600">
-          NQDRIVE &copy; {new Date().getFullYear()} — Secure Cloud Storage
+          Secure Cloud Storage &copy; {new Date().getFullYear()}
         </p>
       </motion.div>
     </div>

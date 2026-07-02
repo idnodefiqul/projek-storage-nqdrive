@@ -42,6 +42,7 @@ export function useDeleteFile() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["files"] });
       queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
+      queryClient.invalidateQueries({ queryKey: ["trash"] });
     },
   });
 }

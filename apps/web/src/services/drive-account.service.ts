@@ -1,4 +1,4 @@
-import { apiRequest } from "../lib/api-client";
+import { apiRequest } from "../lib/client";
 import type { PublicDriveAccount } from "@nqdrive/types";
 
 export const driveAccountService = {

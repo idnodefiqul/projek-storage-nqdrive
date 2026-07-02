@@ -4,7 +4,8 @@
 #  JANGAN edit manual — edit .env.production lalu build ulang
 # ============================================================
 
-# ── Security headers untuk semua path ──────────────────────
+# ── Security & Caching headers untuk semua path ──────────────────────
+# Default: JANGAN DI-CACHE untuk index.html pada route SPA (/, /dashboard, dll)
 /*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
@@ -12,16 +13,34 @@
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self' https://apiweb.fiqul.id https://drive.fiqul.id; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
-
-# ── index.html: JANGAN DI-CACHE — selalu ambil versi terbaru ──
-# Ini mencegah error "failed to fetch dynamically imported module"
-# setelah deploy baru (JS hash berubah tapi HTML lama masih di cache)
-/index.html
   Cache-Control: no-cache, no-store, must-revalidate
   Pragma: no-cache
 
 # ── Hashed JS/CSS assets: cache permanen (safe, nama berisi hash) ──
 /assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# ── Static images di /public/ — cache 30 hari + revalidate ──────────
+# File PNG/SVG/ICO/WEBP/JPG tidak punya hash di nama, jadi pakai
+# stale-while-revalidate agar browser bisa pakai cache lama sambil
+# fetch versi baru di background. Ini menghilangkan delay logo.
+/*.png
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+/*.svg
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+/*.ico
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+/*.webp
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+/*.jpg
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+/*.jpeg
+  Cache-Control: public, max-age=2592000, stale-while-revalidate=86400
+
+# ── Fonts (woff2/woff) — cache 1 tahun ─────────────────────────────
+/*.woff2
+  Cache-Control: public, max-age=31536000, immutable
+/*.woff
   Cache-Control: public, max-age=31536000, immutable
 
 # Google Fonts

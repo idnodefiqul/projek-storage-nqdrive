@@ -35,11 +35,25 @@ function checkLoginRateLimit(ip: string): boolean {
 }
 
 /**
- * GET /api/auth/setup-status
+ * GET /system/state (sebelumnya /api/auth/setup-status)
  */
-authRoutes.get("/setup-status", async (c) => {
+export const systemStateRoutes = new Hono<{ Bindings: Env }>();
+export const meRoutes = new Hono<{ Bindings: Env }>();
+
+systemStateRoutes.get("/state", async (c) => {
+  // Anti-direct browsing protection
+  const clientHeader = c.req.header("X-App-Client");
+  if (clientHeader !== "nqdrive-web") {
+    return c.text("Forbidden: Direct browser access to this API endpoint is disabled.", 403);
+  }
+
   const authService = new AuthService(c.env);
   const completed = await authService.isSetupCompleted();
+  
+  // Header ini memastikan browser/CDN tidak meng-cache status setup yang usang, 
+  // karena bergantung sepenuhnya ke DB.
+  c.header("Cache-Control", "no-store, no-cache, must-revalidate");
+  
   return c.json({ success: true, data: { setupCompleted: completed } });
 });
 
@@ -122,8 +136,8 @@ authRoutes.post("/logout", requireAuth, (c) => {
   return c.json({ success: true, data: { message: "Logout berhasil." } });
 });
 
-/** GET /api/auth/me */
-authRoutes.get("/me", requireAuth, (c) => {
+/** GET /api/me */
+meRoutes.get("/", requireAuth, (c) => {
   const payload = getAuthPayload(c);
   return c.json({ success: true, data: { id: payload.sub, username: payload.username, email: payload.email } });
 });

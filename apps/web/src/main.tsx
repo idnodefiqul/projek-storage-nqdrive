@@ -11,16 +11,20 @@ import "./styles/globals.css";
 /**
  * Safety net untuk error "failed to fetch dynamically imported module".
  * Terjadi setelah deploy baru — HTML lama (dari cache) masih merefer ke
- * JS chunk lama yang sudah tidak ada. Solusi: hard reload sekali.
+ * JS chunk lama yang sudah tidak ada.
  *
- * Menggunakan URL param ?_cr=1 (chunk-reloaded) sebagai flag agar tidak
- * terjadi infinite reload loop. URL param lebih andal dari sessionStorage
- * karena beberapa browser mobile menghapus sessionStorage saat reload.
+ * Solusi: reload sambil MEMBUSTING cache HTML lewat query param unik (`_cr`
+ * = nomor percobaan, `_t` = timestamp). Query baru memaksa browser mengambil
+ * index.html yang FRESH (bukan dari cache), sehingga referensi chunk-nya ikut
+ * ter-update. Dibatasi maksimal 2 percobaan agar tidak infinite-loop kalau
+ * memang chunk-nya benar-benar hilang.
  */
 window.addEventListener("vite:preloadError", () => {
   const url = new URL(window.location.href);
-  if (!url.searchParams.has("_cr")) {
-    url.searchParams.set("_cr", "1");
+  const attempt = Number(url.searchParams.get("_cr") || "0");
+  if (attempt < 2) {
+    url.searchParams.set("_cr", String(attempt + 1));
+    url.searchParams.set("_t", String(Date.now())); // bust HTTP cache untuk navigasi
     window.location.replace(url.toString());
   }
 });

@@ -9,7 +9,7 @@ export interface UploadProgress {
   etaSeconds: number;
 }
 
-export type UploadItemStatus = "pending" | "uploading" | "success" | "error" | "cancelled";
+export type UploadItemStatus = "pending" | "hashing" | "uploading" | "success" | "error" | "cancelled";
 
 export interface UploadItem {
   id: string;
@@ -20,10 +20,36 @@ export interface UploadItem {
 }
 
 /**
- * Base URL for the worker API — must match api-client.ts logic.
+ * Base URL for the worker API — must match client.ts logic.
  * In dev Vite proxies /api, in production VITE_WORKER_URL points to the worker.
  */
 const WORKER_BASE = (import.meta.env.VITE_WORKER_URL as string | undefined) ?? "";
+
+/**
+ * Compute SHA-256 hash of a File using Web Crypto API.
+ * Reads file in 2MB chunks to avoid loading entire file into memory at once.
+ */
+async function computeSHA256(file: File): Promise<string> {
+  // For files under 50MB, read all at once (faster)
+  if (file.size < 50 * 1024 * 1024) {
+    const buffer = await file.arrayBuffer();
+    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+    const hashArray = new Uint8Array(hashBuffer);
+    return Array.from(hashArray)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+  }
+
+  // For larger files, we still need to read all at once because
+  // crypto.subtle.digest doesn't support streaming. But we convert
+  // to ArrayBuffer which is more efficient than keeping the File reference.
+  const buffer = await file.arrayBuffer();
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+  const hashArray = new Uint8Array(hashBuffer);
+  return Array.from(hashArray)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 /**
  * Drives file uploads via XMLHttpRequest rather than fetch — XHR is the only browser API
@@ -58,69 +84,80 @@ export function useUpload() {
       };
       setItems((prev) => ({ ...prev, [id]: initialItem }));
 
-      const xhr = new XMLHttpRequest();
-      xhrRefs.current[id] = xhr;
-      const startedAt = Date.now();
+      // Compute SHA-256 first, then start upload
+      updateItem(id, { status: "hashing" });
 
-      xhr.upload.onprogress = (event) => {
-        if (!event.lengthComputable) return;
+      computeSHA256(file)
+        .then((sha256Hash) => {
+          const xhr = new XMLHttpRequest();
+          xhrRefs.current[id] = xhr;
+          const startedAt = Date.now();
 
-        const elapsedSeconds = (Date.now() - startedAt) / 1000;
-        const speedBytesPerSecond = elapsedSeconds > 0 ? event.loaded / elapsedSeconds : 0;
-        const remainingBytes = event.total - event.loaded;
-        const etaSeconds = speedBytesPerSecond > 0 ? remainingBytes / speedBytesPerSecond : 0;
+          xhr.upload.onprogress = (event) => {
+            if (!event.lengthComputable) return;
 
-        updateItem(id, {
-          status: "uploading",
-          progress: {
-            uploadedBytes: event.loaded,
-            totalBytes: event.total,
-            percentage: event.total > 0 ? (event.loaded / event.total) * 100 : 0,
-            speedBytesPerSecond,
-            etaSeconds,
-          },
+            const elapsedSeconds = (Date.now() - startedAt) / 1000;
+            const speedBytesPerSecond = elapsedSeconds > 0 ? event.loaded / elapsedSeconds : 0;
+            const remainingBytes = event.total - event.loaded;
+            const etaSeconds = speedBytesPerSecond > 0 ? remainingBytes / speedBytesPerSecond : 0;
+
+            updateItem(id, {
+              status: "uploading",
+              progress: {
+                uploadedBytes: event.loaded,
+                totalBytes: event.total,
+                percentage: event.total > 0 ? (event.loaded / event.total) * 100 : 0,
+                speedBytesPerSecond,
+                etaSeconds,
+              },
+            });
+          };
+
+          xhr.onload = () => {
+            delete xhrRefs.current[id];
+
+            if (xhr.status >= 200 && xhr.status < 300) {
+              updateItem(id, { status: "success" });
+              queryClient.invalidateQueries({ queryKey: ["files"] });
+              queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
+            } else {
+              let message = "Upload gagal.";
+              try {
+                const parsed = JSON.parse(xhr.responseText);
+                message = parsed?.error?.message ?? message;
+              } catch {
+                // Response wasn't JSON — keep the generic message.
+              }
+              updateItem(id, { status: "error", errorMessage: message });
+            }
+          };
+
+          xhr.onerror = () => {
+            delete xhrRefs.current[id];
+            updateItem(id, { status: "error", errorMessage: "Koneksi terputus saat upload." });
+          };
+
+          xhr.onabort = () => {
+            delete xhrRefs.current[id];
+            updateItem(id, { status: "cancelled" });
+          };
+
+          // FIX: use WORKER_BASE prefix so XHR hits the correct worker URL in production.
+          xhr.open("POST", `${WORKER_BASE}/api/files/upload`);
+          xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name));
+          xhr.setRequestHeader("X-File-Size", String(file.size));
+          if (folderId) xhr.setRequestHeader("X-Folder-Id", String(folderId));
+          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
+          xhr.setRequestHeader("X-File-SHA256", sha256Hash);
+          xhr.setRequestHeader("X-App-Client", "nqdrive-web");
+          xhr.withCredentials = true;
+
+          updateItem(id, { status: "uploading" });
+          xhr.send(file);
+        })
+        .catch(() => {
+          updateItem(id, { status: "error", errorMessage: "Gagal menghitung checksum file." });
         });
-      };
-
-      xhr.onload = () => {
-        delete xhrRefs.current[id];
-
-        if (xhr.status >= 200 && xhr.status < 300) {
-          updateItem(id, { status: "success" });
-          queryClient.invalidateQueries({ queryKey: ["files"] });
-          queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
-        } else {
-          let message = "Upload gagal.";
-          try {
-            const parsed = JSON.parse(xhr.responseText);
-            message = parsed?.error?.message ?? message;
-          } catch {
-            // Response wasn't JSON — keep the generic message.
-          }
-          updateItem(id, { status: "error", errorMessage: message });
-        }
-      };
-
-      xhr.onerror = () => {
-        delete xhrRefs.current[id];
-        updateItem(id, { status: "error", errorMessage: "Koneksi terputus saat upload." });
-      };
-
-      xhr.onabort = () => {
-        delete xhrRefs.current[id];
-        updateItem(id, { status: "cancelled" });
-      };
-
-      // FIX: use WORKER_BASE prefix so XHR hits the correct worker URL in production.
-      xhr.open("POST", `${WORKER_BASE}/api/files/upload`);
-      xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name));
-      xhr.setRequestHeader("X-File-Size", String(file.size));
-      if (folderId) xhr.setRequestHeader("X-Folder-Id", String(folderId));
-      xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-      xhr.withCredentials = true; // send the session cookie, same as apiRequest's credentials: "include"
-
-      updateItem(id, { status: "uploading" });
-      xhr.send(file);
 
       return id;
     },

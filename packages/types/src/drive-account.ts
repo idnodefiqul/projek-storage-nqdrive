@@ -36,8 +36,7 @@ export interface DriveAccount {
   updatedAt: string;
 }
 
-/** Safe shape for client consumption — excludes tokens entirely. */
 export type PublicDriveAccount = Omit<
   DriveAccount,
-  "refreshTokenEncrypted" | "accessToken"
+  "refreshTokenEncrypted" | "accessToken" | "accessTokenExpiresAt"
 >;

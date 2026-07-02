@@ -439,7 +439,7 @@ function LogsPage() {
       </div>
 
       {/* Table card — fills remaining screen height */}
-      <div className="flex-1 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden shadow-sm flex flex-col min-h-[calc(100vh-16rem)]">
+      <div className="flex-1 rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 overflow-hidden shadow-sm flex flex-col min-h-[calc(100vh-16rem)]">
         <AnimatePresence mode="wait">
           {tab === "uploads" ? <UploadTable key="uploads" /> : <DownloadTable key="downloads" />}
         </AnimatePresence>

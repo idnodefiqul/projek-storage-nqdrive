@@ -125,13 +125,15 @@ dashboardRoutes.get("/analytics", async (c) => {
   }
 
   for (const row of downloadRows.results) {
-    if (dateMap[row.date]) {
-      dateMap[row.date].downloads = row.count;
+    const entry = dateMap[row.date];
+    if (entry) {
+      entry.downloads = row.count;
     }
   }
   for (const row of uploadRows.results) {
-    if (dateMap[row.date]) {
-      dateMap[row.date].uploads = row.count;
+    const entry = dateMap[row.date];
+    if (entry) {
+      entry.uploads = row.count;
     }
   }
 

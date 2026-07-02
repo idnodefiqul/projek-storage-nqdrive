@@ -1,4 +1,4 @@
-import type { FileEntity, FileVisibility, FileWithAccount } from "@nqdrive/types";
+﻿import type { FileEntity, FileVisibility, FileWithAccount } from "@nqdrive/types";
 
 interface FileRow {
   id: number;
@@ -11,8 +11,12 @@ interface FileRow {
   mime_type: string;
   visibility: string;
   download_count: number;
+  share_code: string;
   created_at: string;
   updated_at: string;
+  sha256_hash: string | null;
+  deleted_at: string | null;
+  original_folder_id: number | null;
 }
 
 interface FileWithAccountRow extends FileRow {
@@ -31,8 +35,12 @@ function rowToFile(row: FileRow): FileEntity {
     mimeType: row.mime_type,
     visibility: row.visibility as FileVisibility,
     downloadCount: row.download_count,
+    shareCode: row.share_code,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    sha256Hash: row.sha256_hash ?? null,
+    deletedAt: row.deleted_at ?? undefined,
+    originalFolderId: row.original_folder_id ?? undefined,
   };
 }
 
@@ -54,9 +62,10 @@ export class FileRepository {
   /**
    * Paginated, searchable, filterable file listing for the dashboard's Files page.
    * Joins drive_accounts to surface which account a file lives on without a second round-trip.
+   * Hanya menampilkan file yang TIDAK di-trash (deleted_at IS NULL).
    */
   async list(params: ListFilesParams): Promise<{ items: FileWithAccount[]; totalItems: number }> {
-    const conditions: string[] = [];
+    const conditions: string[] = ["f.deleted_at IS NULL"];
     const bindings: unknown[] = [];
 
     if (params.search) {
@@ -76,7 +85,7 @@ export class FileRepository {
       bindings.push(params.visibility);
     }
 
-    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const whereClause = `WHERE ${conditions.join(" AND ")}`;
     const offset = (params.page - 1) * params.pageSize;
 
     const countRow = await this.db
@@ -103,12 +112,27 @@ export class FileRepository {
   }
 
   async findById(id: number): Promise<FileEntity | null> {
-    const row = await this.db.prepare("SELECT * FROM files WHERE id = ?").bind(id).first<FileRow>();
+    const row = await this.db
+      .prepare("SELECT * FROM files WHERE id = ? AND deleted_at IS NULL")
+      .bind(id)
+      .first<FileRow>();
+    return row ? rowToFile(row) : null;
+  }
+
+  /** Untuk keperluan Trash restore/delete â€” mencari file meski sudah di-trash. */
+  async findByIdIncludingTrashed(id: number): Promise<FileEntity | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM files WHERE id = ?")
+      .bind(id)
+      .first<FileRow>();
     return row ? rowToFile(row) : null;
   }
 
   async findBySlug(slug: string): Promise<FileEntity | null> {
-    const row = await this.db.prepare("SELECT * FROM files WHERE slug = ?").bind(slug).first<FileRow>();
+    const row = await this.db
+      .prepare("SELECT * FROM files WHERE slug = ? AND deleted_at IS NULL")
+      .bind(slug)
+      .first<FileRow>();
     return row ? rowToFile(row) : null;
   }
 
@@ -121,13 +145,15 @@ export class FileRepository {
     sizeBytes: number;
     mimeType: string;
     visibility: FileVisibility;
+    shareCode: string;
+    sha256Hash: string | null;
   }): Promise<FileEntity> {
     const row = await this.db
       .prepare(
         `INSERT INTO files (
            filename, slug, provider_file_id, drive_account_id, folder_id,
-           size_bytes, mime_type, visibility
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           size_bytes, mime_type, visibility, share_code, sha256_hash
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING *`
       )
       .bind(
@@ -138,7 +164,9 @@ export class FileRepository {
         params.folderId,
         params.sizeBytes,
         params.mimeType,
-        params.visibility
+        params.visibility,
+        params.shareCode,
+        params.sha256Hash,
       )
       .first<FileRow>();
 
@@ -148,14 +176,14 @@ export class FileRepository {
 
   async rename(id: number, filename: string): Promise<void> {
     await this.db
-      .prepare("UPDATE files SET filename = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .prepare("UPDATE files SET filename = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL")
       .bind(filename, id)
       .run();
   }
 
   async updateVisibility(id: number, visibility: FileVisibility): Promise<void> {
     await this.db
-      .prepare("UPDATE files SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .prepare("UPDATE files SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL")
       .bind(visibility, id)
       .run();
   }
@@ -167,20 +195,115 @@ export class FileRepository {
       .run();
   }
 
+  /**
+   * Soft delete: pindahkan file ke Trash.
+   * - Set deleted_at = sekarang
+   * - Simpan original_folder_id agar bisa di-restore
+   * - Jika file berstatus public â†’ otomatis ganti ke private (keamanan)
+   */
+  async softDelete(id: number): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE files
+         SET deleted_at = CURRENT_TIMESTAMP,
+             original_folder_id = folder_id,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND deleted_at IS NULL`
+      )
+      .bind(id)
+      .run();
+  }
+
+  /**
+   * Soft delete untuk semua file dalam sebuah folder (saat folder di-trash).
+   * File-file tersebut akan masuk Trash bersama foldernya.
+   */
+  async softDeleteByFolderId(folderId: number): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE files
+         SET deleted_at = CURRENT_TIMESTAMP,
+             original_folder_id = folder_id,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE folder_id = ? AND deleted_at IS NULL`
+      )
+      .bind(folderId)
+      .run();
+  }
+
+  /** Restore file dari Trash â€” kembalikan ke folder asal. */
+  async restore(id: number): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE files
+         SET deleted_at = NULL,
+             folder_id = original_folder_id,
+             original_folder_id = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      )
+      .bind(id)
+      .run();
+  }
+
+  /** Hapus permanen dari DB (setelah file fisik di Google Drive sudah dihapus). */
   async delete(id: number): Promise<void> {
     await this.db.prepare("DELETE FROM files WHERE id = ?").bind(id).run();
   }
 
+  /**
+   * List semua file yang sedang di Trash (deleted_at IS NOT NULL).
+   * Digunakan untuk halaman Trash dashboard.
+   */
+  async listTrashed(): Promise<FileWithAccount[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT f.*, d.email as drive_account_email
+         FROM files f
+         JOIN drive_accounts d ON d.id = f.drive_account_id
+         WHERE f.deleted_at IS NOT NULL
+         ORDER BY f.deleted_at DESC`
+      )
+      .all<FileWithAccountRow>();
+    return results.map(rowToFileWithAccount);
+  }
+
+  /**
+   * Mengembalikan semua file yang sudah kadaluarsa di Trash (>= daysOld hari).
+   * Digunakan oleh cron job auto-purge.
+   */
+  async findExpiredTrash(daysOld: number): Promise<FileEntity[]> {
+    const { results } = await this.db
+      .prepare(
+        `SELECT * FROM files
+         WHERE deleted_at IS NOT NULL
+           AND deleted_at < datetime('now', '-' || ? || ' days')`
+      )
+      .bind(daysOld)
+      .all<FileRow>();
+    return results.map(rowToFile);
+  }
+
   /** Used by the Storage Manager dashboard to show total file count. */
   async countAll(): Promise<number> {
-    const row = await this.db.prepare("SELECT COUNT(*) as count FROM files").first<{ count: number }>();
+    const row = await this.db
+      .prepare("SELECT COUNT(*) as count FROM files WHERE deleted_at IS NULL")
+      .first<{ count: number }>();
+    return row?.count ?? 0;
+  }
+
+  /** Count trash items */
+  async countTrashed(): Promise<number> {
+    const row = await this.db
+      .prepare("SELECT COUNT(*) as count FROM files WHERE deleted_at IS NOT NULL")
+      .first<{ count: number }>();
     return row?.count ?? 0;
   }
 
   /** Used by the Storage Manager dashboard to show total download count across all files. */
   async sumDownloadCount(): Promise<number> {
     const row = await this.db
-      .prepare("SELECT COALESCE(SUM(download_count), 0) as total FROM files")
+      .prepare("SELECT COALESCE(SUM(download_count), 0) as total FROM files WHERE deleted_at IS NULL")
       .first<{ total: number }>();
     return row?.total ?? 0;
   }
@@ -199,7 +322,7 @@ export class FileRepository {
 
   async getTopDownloaded(limit: number): Promise<FileEntity[]> {
     const { results } = await this.db
-      .prepare("SELECT * FROM files ORDER BY download_count DESC LIMIT ?")
+      .prepare("SELECT * FROM files WHERE deleted_at IS NULL ORDER BY download_count DESC LIMIT ?")
       .bind(limit)
       .all<FileRow>();
     return results.map(rowToFile);
@@ -207,7 +330,7 @@ export class FileRepository {
 
   async getRecent(limit: number): Promise<FileEntity[]> {
     const { results } = await this.db
-      .prepare("SELECT * FROM files ORDER BY created_at DESC LIMIT ?")
+      .prepare("SELECT * FROM files WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?")
       .bind(limit)
       .all<FileRow>();
     return results.map(rowToFile);

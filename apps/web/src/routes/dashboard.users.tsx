@@ -5,6 +5,7 @@ import { Badge, Skeleton } from "@nqdrive/ui";
 import { useAuthContext } from "../stores/auth-provider";
 import { PageTransition } from "../components/page-transition";
 import { useMinLoading } from "../hooks/use-min-loading";
+import { getAvatarSvg } from "../lib/avatar";
 
 export const Route = createFileRoute("/dashboard/users")({
   component: UsersPage,
@@ -64,7 +65,7 @@ function UsersPage() {
           <div>
             <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Users</h1>
             <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Kelola akses pengguna untuk aplikasi NQDRIVE.
+              Kelola akses pengguna untuk aplikasi {import.meta.env.VITE_SITE_NAME || "NQDRIVE"}.
             </p>
           </div>
           <button
@@ -79,7 +80,7 @@ function UsersPage() {
         {/* Data Table Container */}
         <div className="flex flex-1 flex-col">
           {/* Table Container with Border */}
-          <div className="flex-1 flex flex-col rounded-md border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 overflow-hidden">
+          <div className="flex-1 flex flex-col rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 overflow-hidden">
             
             {/* Table Toolbar (Inside Card) */}
             <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800">
@@ -147,8 +148,12 @@ function UsersPage() {
                   <tr className="transition-colors hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50">
                     <td className="px-4 py-4 font-medium text-zinc-900 dark:text-zinc-100 align-top md:align-middle">
                       <div className="flex items-start md:items-center gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-400 mt-0.5 md:mt-0">
-                          <UserCircle2 className="h-5 w-5" />
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 border border-brand-200 dark:border-brand-800 dark:bg-brand-900/30 mt-0.5 md:mt-0 overflow-hidden">
+                          <img 
+                            src={getAvatarSvg(user?.username || user?.email || "User")} 
+                            alt={user?.username || "Avatar"} 
+                            className="h-full w-full object-cover"
+                          />
                         </div>
                         <div className="flex flex-col">
                           <span className="font-semibold text-base">{user?.username}</span>

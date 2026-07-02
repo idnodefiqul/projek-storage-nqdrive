@@ -1,4 +1,4 @@
-import { apiRequest } from "../lib/api-client";
+import { apiRequest } from "../lib/client";
 
 export interface StorageManagerSummary {
   totalStorageBytes: number;

@@ -15,7 +15,7 @@ import { useDriveAccounts, useDeleteDriveAccount,
   useConnectGoogleAccountViaToken, useValidateRefreshToken,
 } from "../hooks/use-drive-accounts";
 import { useMinLoading } from "../hooks/use-min-loading";
-import { ApiClientError } from "../lib/api-client";
+import { ApiClientError } from "../lib/client";
 import { PageTransition } from "../components/page-transition";
 import { CardGridSkeleton } from "../components/skeletons";
 

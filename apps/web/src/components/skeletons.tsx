@@ -255,3 +255,92 @@ export function AnimatedRow({ children, className }: { children: React.ReactNode
     </motion.tr>
   );
 }
+
+export function SettingsSkeleton() {
+  return (
+    <motion.div
+      variants={containerVariants}
+      initial="hidden"
+      animate="show"
+      className="flex flex-col gap-8 pb-10"
+    >
+      {/* Heading */}
+      <motion.div variants={itemVariants} className="flex flex-col gap-2">
+        <Skeleton className="h-9 w-32 rounded-lg" />
+        <Skeleton className="h-4 w-60 rounded-md" />
+      </motion.div>
+
+      {/* Single Unified Container */}
+      <motion.div variants={itemVariants} className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 overflow-hidden shadow-sm">
+        <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+          
+          {/* Row 1 */}
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 px-5 sm:px-6 py-5">
+            <div className="flex flex-1 items-start gap-3.5">
+              <Skeleton className="h-9 w-9 rounded-xl shrink-0" />
+              <div className="space-y-2 w-full">
+                <Skeleton className="h-4 w-32 rounded" />
+                <Skeleton className="h-3 w-3/4 rounded" />
+                <Skeleton className="h-4 w-24 rounded mt-4" />
+              </div>
+            </div>
+            <div className="sm:w-[320px] shrink-0">
+              <Skeleton className="h-10 w-full rounded-lg" />
+              <div className="flex justify-end mt-2">
+                <Skeleton className="h-9 w-28 rounded-lg" />
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2 */}
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 px-5 sm:px-6 py-5 bg-zinc-50/30 dark:bg-zinc-900/10">
+            <div className="flex flex-1 items-start gap-3.5">
+              <Skeleton className="h-9 w-9 rounded-xl shrink-0" />
+              <div className="space-y-2 w-full">
+                <Skeleton className="h-4 w-40 rounded" />
+                <Skeleton className="h-3 w-5/6 rounded" />
+                <Skeleton className="h-5 w-48 rounded mt-4" />
+              </div>
+            </div>
+            <div className="sm:w-[320px] shrink-0">
+              <Skeleton className="h-10 w-full rounded-lg" />
+              <div className="flex justify-end mt-1">
+                <Skeleton className="h-9 w-36 rounded-lg" />
+              </div>
+            </div>
+          </div>
+
+          {/* Row 3 */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 px-5 sm:px-6 py-5">
+            <div className="flex flex-1 items-center gap-3.5">
+              <Skeleton className="h-9 w-9 rounded-xl shrink-0" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-4 w-24 rounded" />
+                <Skeleton className="h-3 w-32 rounded" />
+              </div>
+            </div>
+            <div className="sm:w-[320px] shrink-0">
+              <Skeleton className="h-6 w-24 rounded-full" />
+            </div>
+          </div>
+
+          {/* Row 4 */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 px-5 sm:px-6 py-5">
+            <div className="flex flex-1 items-center gap-3.5">
+              <Skeleton className="h-9 w-9 rounded-xl shrink-0" />
+              <div className="space-y-1.5">
+                <Skeleton className="h-4 w-32 rounded" />
+                <Skeleton className="h-3 w-2/3 rounded" />
+              </div>
+            </div>
+            <div className="sm:w-[320px] shrink-0 flex justify-end">
+              <Skeleton className="h-5 w-32 rounded" />
+            </div>
+          </div>
+
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+

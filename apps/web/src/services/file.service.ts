@@ -1,4 +1,4 @@
-import { apiRequest } from "../lib/api-client";
+import { apiRequest } from "../lib/client";
 import type { FileVisibility, FileWithAccount, PaginatedData } from "@nqdrive/types";
 
 export interface ListFilesParams {

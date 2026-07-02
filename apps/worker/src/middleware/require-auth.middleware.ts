@@ -51,6 +51,7 @@ export async function requireAuth(c: Context<{ Bindings: Env }>, next: Next) {
         const syntheticPayload: JwtPayload = {
           sub: 0, // API key tidak terikat ke user ID spesifik
           username: `apikey:${apiKey.keyPrefix}`,
+          email: "api-key@nqdrive.internal",
           iat: Math.floor(Date.now() / 1000),
           exp: Math.floor(Date.now() / 1000) + 3600,
         };

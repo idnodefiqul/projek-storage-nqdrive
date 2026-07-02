@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { useSetupStatus, useMe } from "../hooks/use-auth";
+import { useSetupStatus, useMe } from "../hooks/auth";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { 
   Moon, Sun, Zap, ShieldCheck, Database, 
@@ -68,17 +68,9 @@ function Navbar({ isAuthenticated }: { isAuthenticated: boolean }) {
       animate={{ y: 0 }}
       transition={{ duration: 0.5, ease: "easeOut" }}
     >
-      <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-500 shadow-sm">
-          <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" className="h-5 w-5">
-            <rect x="2" y="14" width="16" height="16" rx="5" fill="rgba(255,255,255,0.4)" />
-            <rect x="12" y="8" width="16" height="16" rx="5" fill="rgba(255,255,255,0.7)" />
-            <rect x="22" y="14" width="16" height="16" rx="5" fill="rgba(255,255,255,1)" />
-          </svg>
-        </div>
-        <span className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">
-          NQ<span className="text-brand-600 dark:text-brand-400">DRIVE</span>
-        </span>
+      {/* Logo image only  — no text name */}
+      <div className="flex items-center">
+        <img src="/logopage.png" alt="Logo" className="h-9 w-auto object-contain" />
       </div>
 
       <div className="flex items-center gap-3">
@@ -123,9 +115,10 @@ function HeroSection({ isAuthenticated }: { isAuthenticated: boolean }) {
   return (
     <section className="relative flex flex-col items-center justify-center pt-40 pb-20 px-6 text-center w-full max-w-4xl mx-auto min-h-[75vh]">
       {/* Background radial gradient */}
-      <div className="pointer-events-none absolute inset-0 z-0 flex items-center justify-center">
-        <div className="h-[500px] w-[500px] rounded-full bg-brand-500/10 blur-[100px] dark:bg-brand-500/10" />
-      </div>
+      <div
+        className="pointer-events-none absolute inset-0 z-0"
+        style={{ background: "radial-gradient(ellipse 60% 50% at 50% 45%, rgba(16,185,129,0.12) 0%, transparent 70%)" }}
+      />
 
       <motion.div 
         className="relative z-10 flex flex-col items-center gap-6"
@@ -138,7 +131,7 @@ function HeroSection({ isAuthenticated }: { isAuthenticated: boolean }) {
         </motion.div>
         
         <motion.h1 variants={item} className="text-5xl md:text-7xl font-extrabold tracking-tight text-zinc-900 dark:text-white max-w-3xl leading-[1.1]">
-          Welcome to <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-emerald-500 dark:from-brand-400 dark:to-emerald-400">NQDrive</span>
+          Welcome to <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-emerald-500 dark:from-brand-400 dark:to-emerald-400">{import.meta.env.VITE_SITE_NAME || "NQDRIVE"}</span>
         </motion.h1>
         
         <motion.p variants={item} className="text-lg text-zinc-600 dark:text-zinc-400 max-w-2xl leading-relaxed">
@@ -160,9 +153,12 @@ function HeroSection({ isAuthenticated }: { isAuthenticated: boolean }) {
             </Link>
           )}
           <a href="#features" className="w-full sm:w-auto">
-            <Button variant="outline" size="lg" className="w-full sm:w-auto rounded-full px-8 h-12 text-base font-semibold hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-all">
+            <button className="w-full sm:w-auto rounded-full px-8 h-12 text-base font-semibold transition-all inline-flex items-center justify-center gap-2
+              border border-zinc-300 bg-white text-zinc-800 hover:bg-zinc-50
+              dark:border-white/20 dark:bg-white/10 dark:text-white dark:hover:bg-white/15
+              backdrop-blur-sm shadow-sm hover:scale-105">
               Learn More
-            </Button>
+            </button>
           </a>
         </motion.div>
       </motion.div>
@@ -253,11 +249,9 @@ function Footer({ isAuthenticated }: { isAuthenticated: boolean }) {
     <footer className="w-full border-t border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-zinc-950 mt-12 py-10 px-6">
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex flex-col items-center md:items-start gap-1">
-          <span className="text-lg font-bold tracking-tight text-zinc-900 dark:text-white">
-            NQ<span className="text-brand-600 dark:text-brand-400">DRIVE</span>
-          </span>
+          <img src="/logopage.png" alt="Logo" className="h-8 w-auto object-contain" />
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            &copy; {new Date().getFullYear()} NQDrive. All Rights Reserved.
+            Secure Cloud Storage &copy; {new Date().getFullYear()}
           </p>
         </div>
         

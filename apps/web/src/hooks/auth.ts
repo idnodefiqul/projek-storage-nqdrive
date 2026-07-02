@@ -7,19 +7,14 @@ export const authQueryKeys = {
 };
 
 export function useSetupStatus() {
-  const isSetupCompleted = localStorage.getItem("nqdrive_setup_completed") === "true";
-  
   return useQuery({
     queryKey: authQueryKeys.setupStatus,
     queryFn: async () => {
-      const res = await authService.getSetupStatus();
-      if (res.setupCompleted) {
-        localStorage.setItem("nqdrive_setup_completed", "true");
-      }
-      return res;
+      return await authService.getSetupStatus();
     },
-    initialData: isSetupCompleted ? { setupCompleted: true } : undefined,
-    staleTime: isSetupCompleted ? Infinity : 0,
+    // Jika sudah setup, cache di memory Infinity agar tidak spam backend, 
+    // tapi TIDAK simpan di localStorage.
+    staleTime: 60_000, 
   });
 }
 
@@ -27,8 +22,9 @@ export function useMe(enabled = true) {
   return useQuery({
     queryKey: authQueryKeys.me,
     queryFn: authService.me,
-    enabled,
+    enabled: enabled && localStorage.getItem("nqdrive_is_logged_in") !== "false",
     retry: false,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -48,6 +44,7 @@ export function useLogin() {
   return useMutation({
     mutationFn: authService.login,
     onSuccess: () => {
+      localStorage.setItem("nqdrive_is_logged_in", "true");
       queryClient.invalidateQueries({ queryKey: authQueryKeys.me });
     },
   });
@@ -58,8 +55,8 @@ export function useLogout() {
   return useMutation({
     mutationFn: authService.logout,
     onSuccess: () => {
-      queryClient.setQueryData(authQueryKeys.me, undefined);
-      queryClient.invalidateQueries({ queryKey: authQueryKeys.me });
+      localStorage.setItem("nqdrive_is_logged_in", "false");
+      queryClient.clear();
     },
   });
 }
