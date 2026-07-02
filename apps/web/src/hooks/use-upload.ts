@@ -9,56 +9,35 @@ export interface UploadProgress {
   etaSeconds: number;
 }
 
-export type UploadItemStatus = "pending" | "hashing" | "uploading" | "success" | "error" | "cancelled";
+export type UploadItemStatus = "queued" | "hashing" | "uploading" | "success" | "error" | "cancelled";
 
 export interface UploadItem {
   id: string;
   file: File;
+  folderId: number | null;
   status: UploadItemStatus;
   progress: UploadProgress;
   errorMessage?: string;
+  sha256Hash?: string;
 }
 
-/**
- * Base URL for the worker API — must match client.ts logic.
- * In dev Vite proxies /api, in production VITE_WORKER_URL points to the worker.
- */
 const WORKER_BASE = (import.meta.env.VITE_WORKER_URL as string | undefined) ?? "";
+const CHUNK_SIZE = 30 * 1024 * 1024; // 30MB
 
-/**
- * Compute SHA-256 hash of a File using Web Crypto API.
- * Reads file in 2MB chunks to avoid loading entire file into memory at once.
- */
 async function computeSHA256(file: File): Promise<string> {
-  // For files under 50MB, read all at once (faster)
   if (file.size < 50 * 1024 * 1024) {
     const buffer = await file.arrayBuffer();
     const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
     const hashArray = new Uint8Array(hashBuffer);
-    return Array.from(hashArray)
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+    return Array.from(hashArray).map((b) => b.toString(16).padStart(2, "0")).join("");
   }
-
-  // For larger files, we still need to read all at once because
-  // crypto.subtle.digest doesn't support streaming. But we convert
-  // to ArrayBuffer which is more efficient than keeping the File reference.
-  const buffer = await file.arrayBuffer();
+  const slice = file.slice(0, 50 * 1024 * 1024);
+  const buffer = await slice.arrayBuffer();
   const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
   const hashArray = new Uint8Array(hashBuffer);
-  return Array.from(hashArray)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  return "partial-" + Array.from(hashArray).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/**
- * Drives file uploads via XMLHttpRequest rather than fetch — XHR is the only browser API
- * that exposes `upload.onprogress`, which is what makes real-time speed/ETA/percentage
- * possible. This measures progress at the browser-to-Worker hop, which is the hop that
- * actually reflects "the user's own internet speed" as required by the brief — the
- * Worker-to-Google-Drive hop happens server-side afterwards and isn't something the
- * user's connection speed affects.
- */
 export function useUpload() {
   const queryClient = useQueryClient();
   const [items, setItems] = useState<Record<string, UploadItem>>({});
@@ -67,106 +46,141 @@ export function useUpload() {
   const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
     setItems((prev) => {
       const existing = prev[id];
-      if (!existing) return prev; // Item not tracked (e.g. already removed) — no-op.
+      if (!existing) return prev;
       return { ...prev, [id]: { ...existing, ...patch } };
     });
   }, []);
 
-  const uploadFile = useCallback(
-    (file: File, folderId: number | null = null) => {
+  const addFilesToQueue = useCallback((files: FileList | File[], folderId: number | null = null) => {
+    Array.from(files).forEach((file) => {
       const id = `${file.name}-${file.size}-${Date.now()}`;
-
       const initialItem: UploadItem = {
         id,
         file,
-        status: "pending",
+        folderId,
+        status: "queued",
         progress: { uploadedBytes: 0, totalBytes: file.size, percentage: 0, speedBytesPerSecond: 0, etaSeconds: 0 },
       };
       setItems((prev) => ({ ...prev, [id]: initialItem }));
+    });
+  }, []);
 
-      // Compute SHA-256 first, then start upload
+  const startUpload = useCallback(
+    async (id: string, currentItems: Record<string, UploadItem>) => {
+      const item = currentItems[id];
+      if (!item || (item.status !== "queued" && item.status !== "error")) return;
+      
       updateItem(id, { status: "hashing" });
+      
+      try {
+        const sha256Hash = await computeSHA256(item.file);
+        updateItem(id, { sha256Hash });
+        updateItem(id, { status: "uploading" });
 
-      computeSHA256(file)
-        .then((sha256Hash) => {
-          const xhr = new XMLHttpRequest();
-          xhrRefs.current[id] = xhr;
-          const startedAt = Date.now();
+        const sessionRes = await fetch(`${WORKER_BASE}/api/upload/session`, {
+          method: "POST",
+          headers: {
+            "X-Filename": encodeURIComponent(item.file.name),
+            "X-File-Size": String(item.file.size),
+            "Content-Type": item.file.type || "application/octet-stream",
+            "X-App-Client": "nqdrive-web",
+          },
+          credentials: "include",
+        });
 
-          xhr.upload.onprogress = (event) => {
-            if (!event.lengthComputable) return;
+        if (!sessionRes.ok) throw new Error("Gagal memulai sesi upload");
+        const sessionData = await sessionRes.json();
+        const uploadUrl = sessionData.data.uploadUrl;
+        const accountId = sessionData.data.accountId;
 
+        const fileSize = item.file.size;
+        let uploadedBytes = 0;
+        const startedAt = Date.now();
+
+        for (let start = 0; start < fileSize; start += CHUNK_SIZE) {
+          const end = Math.min(start + CHUNK_SIZE, fileSize);
+          const chunk = item.file.slice(start, end);
+          
+          const chunkRes = await fetch(uploadUrl, {
+            method: "PUT",
+            headers: {
+              "Content-Range": `bytes ${start}-${end - 1}/${fileSize}`,
+            },
+            body: chunk,
+          });
+          
+          if (chunkRes.status === 308 || chunkRes.status === 200 || chunkRes.status === 201) {
+            uploadedBytes = end;
             const elapsedSeconds = (Date.now() - startedAt) / 1000;
-            const speedBytesPerSecond = elapsedSeconds > 0 ? event.loaded / elapsedSeconds : 0;
-            const remainingBytes = event.total - event.loaded;
+            const speedBytesPerSecond = elapsedSeconds > 0 ? uploadedBytes / elapsedSeconds : 0;
+            const remainingBytes = fileSize - uploadedBytes;
             const etaSeconds = speedBytesPerSecond > 0 ? remainingBytes / speedBytesPerSecond : 0;
 
             updateItem(id, {
-              status: "uploading",
               progress: {
-                uploadedBytes: event.loaded,
-                totalBytes: event.total,
-                percentage: event.total > 0 ? (event.loaded / event.total) * 100 : 0,
+                uploadedBytes,
+                totalBytes: fileSize,
+                percentage: (uploadedBytes / fileSize) * 100,
                 speedBytesPerSecond,
                 etaSeconds,
               },
             });
-          };
-
-          xhr.onload = () => {
-            delete xhrRefs.current[id];
-
-            if (xhr.status >= 200 && xhr.status < 300) {
+            
+            if (chunkRes.status === 200 || chunkRes.status === 201) {
+              const resultData = await chunkRes.json();
+              const providerFileId = resultData.id;
+              
+              const finalizeRes = await fetch(`${WORKER_BASE}/api/upload/finalize`, {
+                method: "POST",
+                headers: { 
+                  "Content-Type": "application/json",
+                  "X-App-Client": "nqdrive-web"
+                },
+                credentials: "include",
+                body: JSON.stringify({
+                  providerFileId,
+                  accountId,
+                  filename: item.file.name,
+                  mimeType: item.file.type || "application/octet-stream",
+                  sizeBytes: item.file.size,
+                  folderId: item.folderId,
+                  sha256Hash
+                })
+              });
+              
+              if (!finalizeRes.ok) throw new Error("Gagal menyimpan metadata");
+              
               updateItem(id, { status: "success" });
               queryClient.invalidateQueries({ queryKey: ["files"] });
               queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
-            } else {
-              let message = "Upload gagal.";
-              try {
-                const parsed = JSON.parse(xhr.responseText);
-                message = parsed?.error?.message ?? message;
-              } catch {
-                // Response wasn't JSON — keep the generic message.
-              }
-              updateItem(id, { status: "error", errorMessage: message });
+              return;
             }
-          };
-
-          xhr.onerror = () => {
-            delete xhrRefs.current[id];
-            updateItem(id, { status: "error", errorMessage: "Koneksi terputus saat upload." });
-          };
-
-          xhr.onabort = () => {
-            delete xhrRefs.current[id];
-            updateItem(id, { status: "cancelled" });
-          };
-
-          // FIX: use WORKER_BASE prefix so XHR hits the correct worker URL in production.
-          xhr.open("POST", `${WORKER_BASE}/api/files/upload`);
-          xhr.setRequestHeader("X-Filename", encodeURIComponent(file.name));
-          xhr.setRequestHeader("X-File-Size", String(file.size));
-          if (folderId) xhr.setRequestHeader("X-Folder-Id", String(folderId));
-          xhr.setRequestHeader("Content-Type", file.type || "application/octet-stream");
-          xhr.setRequestHeader("X-File-SHA256", sha256Hash);
-          xhr.setRequestHeader("X-App-Client", "nqdrive-web");
-          xhr.withCredentials = true;
-
-          updateItem(id, { status: "uploading" });
-          xhr.send(file);
-        })
-        .catch(() => {
-          updateItem(id, { status: "error", errorMessage: "Gagal menghitung checksum file." });
-        });
-
-      return id;
+          } else {
+             throw new Error("Upload chunk gagal");
+          }
+        }
+      } catch (error: any) {
+        updateItem(id, { status: "error", errorMessage: error.message || "Upload gagal." });
+      }
     },
     [queryClient, updateItem]
   );
+  
+  const startAllUploads = useCallback(() => {
+    setItems((currentItems) => {
+      Object.values(currentItems).forEach((item) => {
+        if (item.status === "queued" || item.status === "error") {
+          startUpload(item.id, currentItems);
+        }
+      });
+      return currentItems;
+    });
+  }, [startUpload]);
 
   const cancelUpload = useCallback((id: string) => {
     xhrRefs.current[id]?.abort();
-  }, []);
+    updateItem(id, { status: "cancelled" });
+  }, [updateItem]);
 
   const removeItem = useCallback((id: string) => {
     setItems((prev) => {
@@ -175,11 +189,26 @@ export function useUpload() {
       return next;
     });
   }, []);
+  
+  const clearFinished = useCallback(() => {
+    setItems((prev) => {
+      const next = { ...prev };
+      Object.keys(next).forEach((key) => {
+        if (next[key]?.status === "success" || next[key]?.status === "cancelled") {
+          delete next[key];
+        }
+      });
+      return next;
+    });
+  }, []);
 
   return {
     items: Object.values(items).sort((a, b) => Number(b.id.split("-").pop()) - Number(a.id.split("-").pop())),
-    uploadFile,
+    addFilesToQueue,
+    startUpload: (id: string) => startUpload(id, items),
+    startAllUploads,
     cancelUpload,
     removeItem,
+    clearFinished,
   };
 }

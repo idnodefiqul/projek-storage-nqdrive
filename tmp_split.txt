@@ -1,0 +1,142 @@
+
+  open,
+  onOpenChange,
+  currentFolderId,
+  currentFolderPath,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  currentFolderId: number | null;
+  currentFolderPath: string;
+}) {
+  const { items, uploadFile, cancelUpload, removeItem } = useUpload();
+  const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFiles = useCallback(
+    (files: FileList | null) => {
+      if (!files) return;
+      Array.from(files).forEach((file) => uploadFile(file, currentFolderId));
+    },
+    [uploadFile, currentFolderId]
+  );
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDraggingOver(false);
+    handleFiles(event.dataTransfer.files);
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    if (items.length > 0) {
+      const allFinished = items.every(
+        (i) => i.status === "success" || i.status === "error" || i.status === "cancelled"
+      );
+      const hasSuccess = items.some((i) => i.status === "success");
+      if (allFinished && hasSuccess) {
+        const timer = setTimeout(() => onOpenChange(false), 1500);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [items, open, onOpenChange]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogHeader>
+        <DialogTitle>Upload File</DialogTitle>
+        <DialogDescription>
+          {currentFolderPath
+            ? `Upload ke: ${currentFolderPath}`
+            : "Upload ke root."}
+        </DialogDescription>
+      </DialogHeader>
+
+      <div className="flex flex-col gap-4">
+        <div
+          onDragOver={(e) => { e.preventDefault(); setIsDraggingOver(true); }}
+          onDragLeave={() => setIsDraggingOver(false)}
+          onDrop={handleDrop}
+          onClick={() => fileInputRef.current?.click()}
+          className={cn(
+            "flex cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed py-10 transition-colors",
+            isDraggingOver
+              ? "border-brand-500 bg-brand-50 dark:bg-brand-900/20"
+              : "border-zinc-300 dark:border-zinc-700 hover:bg-zinc-50 dark:hover:bg-zinc-900"
+          )}
+        >
+          <UploadCloud className="h-8 w-8 text-zinc-400" />
+          <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300 text-center px-4">
+            Seret file ke sini, atau{" "}
+            <span className="text-brand-600 dark:text-brand-400">klik untuk memilih</span>
+          </p>
+          <p className="text-xs text-zinc-400">Maksimal 15 GB per file</p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            className="hidden"
+            onChange={(e) => handleFiles(e.target.files)}
+          />
+        </div>
+
+        {items.length > 0 && (
+          <div className="flex flex-col gap-2 max-h-[40vh] overflow-y-auto pr-1">
+            {items.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center gap-3 rounded-md border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/50 dark:bg-zinc-900/50"
+              >
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded bg-white dark:bg-zinc-800 shadow-sm border border-zinc-100 dark:border-zinc-700">
+                  <FileIcon className="h-4 w-4 text-zinc-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                      {item.file.name}
+                    </p>
+                    {item.status === "success" && <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />}
+                    {item.status === "error" && <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />}
+                  </div>
+                  {(item.status === "hashing") && (
+                    <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">Menghitung checksum SHA-256…</p>
+                  )}
+                  {item.status === "uploading" && (
+                    <div className="mt-1.5">
+                      <Progress value={item.progress.percentage} className="h-1.5" />
+                      <div className="mt-1 flex justify-between text-[10px] text-zinc-500">
+                        <span>{item.progress.percentage.toFixed(0)}%</span>
+                        <span>{formatSpeed(item.progress.speedBytesPerSecond)}</span>
+                      </div>
+                    </div>
+                  )}
+                  {item.status === "error" && (
+                    <p className="mt-0.5 text-xs text-red-600 dark:text-red-400 truncate">
+                      {item.errorMessage ?? "Upload gagal."}
+                    </p>
+                  )}
+                </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 shrink-0 text-zinc-400"
+                  onClick={() =>
+                    item.status === "uploading" ? cancelUpload(item.id) : removeItem(item.id)
+                  }
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <DialogFooter>
+        <Button variant="outline" onClick={() => onOpenChange(false)}>
+          Tutup
+        </Button>
+      </DialogFooter>
+    </Dialog>
+  );
+}

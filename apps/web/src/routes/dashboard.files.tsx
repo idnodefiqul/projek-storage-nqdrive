@@ -16,7 +16,7 @@ import {
 } from "@tanstack/react-table";
 import {
   Card, CardContent, Input, Button, Badge, Skeleton,
-  Dialog, DialogHeader, DialogTitle, DialogDescription,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
   DialogFooter, useToast, Progress, cn,
 } from "@nqdrive/ui";
 import { formatBytes, formatSpeed } from "@nqdrive/shared";
@@ -814,6 +814,8 @@ function FilesPage() {
 
 // ─── Upload dialog ────────────────────────────────────────────────────────────
 
+
+
 function UploadDialog({
   open,
   onOpenChange,
@@ -825,16 +827,18 @@ function UploadDialog({
   currentFolderId: number | null;
   currentFolderPath: string;
 }) {
-  const { items, uploadFile, cancelUpload, removeItem } = useUpload();
+  const { items, addFilesToQueue, startUpload, startAllUploads, cancelUpload, removeItem, clearFinished } = useUpload();
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleFiles = useCallback(
     (files: FileList | null) => {
       if (!files) return;
-      Array.from(files).forEach((file) => uploadFile(file, currentFolderId));
+      addFilesToQueue(files, currentFolderId);
+      // Reset input value to allow selecting same file again
+      if (fileInputRef.current) fileInputRef.current.value = "";
     },
-    [uploadFile, currentFolderId]
+    [addFilesToQueue, currentFolderId]
   );
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -843,22 +847,20 @@ function UploadDialog({
     handleFiles(event.dataTransfer.files);
   };
 
-  useEffect(() => {
-    if (!open) return;
-    if (items.length > 0) {
-      const allFinished = items.every(
-        (i) => i.status === "success" || i.status === "error" || i.status === "cancelled"
-      );
-      const hasSuccess = items.some((i) => i.status === "success");
-      if (allFinished && hasSuccess) {
-        const timer = setTimeout(() => onOpenChange(false), 1500);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [items, open, onOpenChange]);
+  const hasQueued = items.some(i => i.status === "queued" || i.status === "error");
+  const hasFinished = items.some(i => i.status === "success" || i.status === "cancelled");
+
+  // Removed auto-close useEffect to fix "bug suruh pilih file 2x dan menutup sendiri"
+  // Dialog should only close when the user explicitly closes it.
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl" data-no-click-outside={(e: any) => {
+        // Prevent closing when clicking outside if uploading
+        if (items.some(i => i.status === "uploading" || i.status === "hashing")) {
+          e.preventDefault();
+        }
+      }}>
       <DialogHeader>
         <DialogTitle>Upload File</DialogTitle>
         <DialogDescription>
@@ -914,8 +916,16 @@ function UploadDialog({
                     {item.status === "success" && <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />}
                     {item.status === "error" && <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />}
                   </div>
-                  {(item.status === "hashing") && (
-                    <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">Menghitung checksum SHA-256…</p>
+                  {item.status === "queued" && (
+                    <p className="mt-0.5 text-xs text-zinc-500">Menunggu upload...</p>
+                  )}
+                  {item.status === "hashing" && (
+                    <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">Menghitung checksum SHA-256...</p>
+                  )}
+                  {item.sha256Hash && (
+                    <p className="mt-0.5 text-[10px] text-zinc-400 font-mono truncate" title={item.sha256Hash}>
+                      SHA-256: {item.sha256Hash}
+                    </p>
                   )}
                   {item.status === "uploading" && (
                     <div className="mt-1.5">
@@ -932,10 +942,22 @@ function UploadDialog({
                     </p>
                   )}
                 </div>
+                
+                {item.status === "queued" || item.status === "error" ? (
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 text-brand-600"
+                    onClick={() => startUpload(item.id)}
+                  >
+                    <Upload className="h-4 w-4" />
+                  </Button>
+                ) : null}
+
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0 text-zinc-400"
+                  className="h-8 w-8 shrink-0 text-zinc-400 hover:text-red-500"
                   onClick={() =>
                     item.status === "uploading" ? cancelUpload(item.id) : removeItem(item.id)
                   }
@@ -948,11 +970,30 @@ function UploadDialog({
         )}
       </div>
 
-      <DialogFooter>
-        <Button variant="outline" onClick={() => onOpenChange(false)}>
-          Tutup
-        </Button>
+      <DialogFooter className="flex-row justify-between items-center sm:justify-between">
+        <div className="flex gap-2">
+          {hasFinished && (
+            <Button variant="ghost" onClick={clearFinished} size="sm" className="text-zinc-500">
+              Bersihkan Selesai
+            </Button>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => onOpenChange(false)}>
+            Tutup
+          </Button>
+          <Button 
+            onClick={startAllUploads} 
+            disabled={!hasQueued}
+            className="gap-2"
+          >
+            <Upload className="h-4 w-4" />
+            Mulai Upload
+          </Button>
+        </div>
       </DialogFooter>
+      </DialogContent>
     </Dialog>
   );
 }
+

@@ -173,7 +173,7 @@ app.get("/api/files/stream", async (c) => {
 
 app.route("/api/files", fileRoutes);
 // POST /api/files/upload
-app.route("/api/files", uploadRoutes);
+app.route("/api/upload", uploadRoutes);
 app.route("/api/logs", logRoutes);
 app.route("/api/api-keys", apiKeyRoutes);
 app.route("/api/dashboard", dashboardRoutes);
