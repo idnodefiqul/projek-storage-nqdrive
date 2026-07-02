@@ -238,6 +238,69 @@ export class GoogleDriveProvider implements StorageProvider {
     };
   }
 
+  async rename(params: { credentials: ProviderCredentials; providerFileId: string; newName: string }): Promise<void> {
+    const { credentials, providerFileId, newName } = params;
+    const accessToken = credentials.accessToken;
+    if (!accessToken) throw new Error("Missing accessToken for Google Drive rename");
+
+    const response = await fetch(`${GOOGLE_DRIVE_API_BASE}/files/${providerFileId}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: newName }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to rename file on Google Drive: ${response.status} ${await response.text()}`);
+    }
+  }
+
+  async getContent(params: { credentials: ProviderCredentials; providerFileId: string }): Promise<string> {
+    const { credentials, providerFileId } = params;
+    const accessToken = credentials.accessToken;
+    if (!accessToken) throw new Error("Missing accessToken for Google Drive getContent");
+
+    const response = await fetch(
+      `${GOOGLE_DRIVE_API_BASE}/files/${providerFileId}?alt=media`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to read file from Google Drive: ${response.status}`);
+    }
+
+    return await response.text();
+  }
+
+  async updateContent(params: {
+    credentials: ProviderCredentials;
+    providerFileId: string;
+    content: string;
+    mimeType: string;
+  }): Promise<void> {
+    const { credentials, providerFileId, content, mimeType } = params;
+    const accessToken = credentials.accessToken;
+    if (!accessToken) throw new Error("Missing accessToken for Google Drive updateContent");
+
+    const response = await fetch(
+      `${GOOGLE_DRIVE_UPLOAD_BASE}/files/${providerFileId}?uploadType=media`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": mimeType,
+        },
+        body: content,
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`Failed to update file on Google Drive: ${response.status}`);
+    }
+  }
+
   async refreshAccessToken(params: {
     refreshToken: string;
   }): Promise<{ accessToken: string; expiresAt: string }> {

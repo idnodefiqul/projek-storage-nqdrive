@@ -30,5 +30,18 @@ export const fileService = {
   updateVisibility: (id: number, visibility: FileVisibility) =>
     apiRequest<{ message: string }>(`/files/${id}/visibility`, { method: "PATCH", body: { visibility } }),
 
+
+  renameSync: (slug: string, filename: string) =>
+    apiRequest<{ message: string }>(`/files/rename-sync?file=${encodeURIComponent(slug)}`, { method: "PATCH", body: { filename } }),
+
+  getContent: (slug: string) =>
+    apiRequest<{ content: string }>(`/files/content?file=${encodeURIComponent(slug)}`),
+
+  updateContent: (slug: string, content: string) =>
+    apiRequest<{ message: string }>(`/files/content?file=${encodeURIComponent(slug)}`, { method: "PUT", body: { content } }),
+
+  getPreview: (slug: string) =>
+    apiRequest<{ token: string }>(`/files/preview?file=${encodeURIComponent(slug)}`),
+
   remove: (id: number) => apiRequest<{ message: string }>(`/files/${id}`, { method: "DELETE" }),
 };

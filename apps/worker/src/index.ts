@@ -1,4 +1,4 @@
-﻿import { Hono } from "hono";
+import { Hono } from "hono";
 import { cors } from "hono/cors";
 import type { Env } from "./config/env";
 import { registerStorageProviders } from "./config/bootstrap";
@@ -44,7 +44,7 @@ app.use(
       if (!origin) return null;
       return ALLOWED_ORIGINS.has(origin) ? origin : null;
     },
-    allowMethods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowHeaders: [
       "Content-Type",
       "X-Filename",
@@ -82,6 +82,9 @@ const apiGuardMiddleware = async (
 ) => {
   if (c.req.method === "OPTIONS") return next();
 
+  // Allow preview-stream without auth headers (uses signed token in query)
+  if (new URL(c.req.url).pathname === "/api/files/stream") return next();
+
   const appClient  = c.req.header("X-App-Client");
   const authBearer = c.req.header("Authorization");
 
@@ -107,6 +110,67 @@ app.route("/api/auth", authRoutes);
 app.route("/api/me", meRoutes);
 app.route("/api/storage", storageAccountRoutes);
 app.route("/api/folders", folderRoutes);
+// Public preview stream — validates signed token, no auth/headers needed.
+// Used by <img src> and <video src> in the dashboard.
+app.get("/api/files/stream", async (c) => {
+  const token = c.req.query("token");
+  if (!token) return c.text("Missing token", 400);
+
+  const parts = token.split(":");
+  if (parts.length !== 3) return c.text("Invalid token", 403);
+
+  const [fileIdStr, expiryStr, sigHex] = parts;
+  const fileId = Number(fileIdStr);
+  const expiry = Number(expiryStr);
+
+  if (isNaN(fileId) || isNaN(expiry)) return c.text("Invalid token", 403);
+  if (Math.floor(Date.now() / 1000) > expiry) return c.text("Token expired", 403);
+
+  const data = `${fileId}:${expiry}`;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey("raw", encoder.encode(c.env.JWT_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+  const sigBytes = new Uint8Array(sigHex!.match(/.{2}/g)!.map(h => parseInt(h, 16)));
+  const valid = await crypto.subtle.verify("HMAC", key, sigBytes, encoder.encode(data));
+  if (!valid) return c.text("Invalid token", 403);
+
+  const { FileRepository } = await import("./database/file.repository");
+  const { DriveAccountRepository } = await import("./database/drive-account.repository");
+  const { GoogleAccountConnectionService } = await import("./services/google-account-connection.service");
+
+  const fileRepo = new FileRepository(c.env.DB);
+  const file = await fileRepo.findById(fileId);
+  if (!file) return c.text("Not Found", 404);
+
+  const driveRepo = new DriveAccountRepository(c.env.DB);
+  const account = await driveRepo.findById(file.driveAccountId);
+  if (!account) return c.text("Not Found", 404);
+
+  const connService = new GoogleAccountConnectionService(c.env);
+  const accessToken = await connService.getValidAccessToken(account);
+
+  const driveRes = await fetch(
+    `https://www.googleapis.com/drive/v3/files/${file.providerFileId}?alt=media&acknowledgeAbuse=true`,
+    { headers: { Authorization: `Bearer ${accessToken}`, "Accept-Encoding": "identity", Range: "bytes=0-" } }
+  );
+
+  if (!driveRes.ok && driveRes.status !== 206) return c.text("Drive error", 502);
+  if (!driveRes.body) return c.text("No body", 502);
+
+  const ct = file.mimeType || driveRes.headers.get("Content-Type") || "application/octet-stream";
+  let totalSize = 0;
+  const cr = driveRes.headers.get("Content-Range");
+  if (cr) { const m = cr.match(/\/(\d+)$/); if (m) totalSize = Number(m[1]); }
+  if (!totalSize) { const cl = driveRes.headers.get("Content-Length"); if (cl) totalSize = Number(cl); }
+
+  const h = new Headers();
+  h.set("Content-Type", ct);
+  h.set("Cache-Control", "private, max-age=300");
+  h.set("Accept-Ranges", "bytes");
+  if (totalSize > 0) { h.set("Content-Length", String(totalSize)); h.set("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`); }
+
+  return new Response(driveRes.body, { status: totalSize > 0 ? 206 : 200, headers: h, encodeBody: "manual" } as any);
+});
+
 app.route("/api/files", fileRoutes);
 // POST /api/files/upload
 app.route("/api/files", uploadRoutes);

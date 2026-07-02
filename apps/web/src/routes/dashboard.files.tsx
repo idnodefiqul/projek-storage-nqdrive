@@ -29,6 +29,8 @@ import { buildDownloadPath } from "../services/settings.service";
 
 
 import type { FileVisibility, FileWithAccount, Folder } from "@nqdrive/types";
+import { getFileTypeInfo } from "../lib/file-icons";
+import { FilePreviewDialog } from "../components/file-preview";
 import { PageTransition } from "../components/page-transition";
 import { FilesTableSkeleton } from "../components/skeletons";
 
@@ -148,6 +150,7 @@ function ActionDropdown({
   onDeleteFile,
   onDeleteFolder,
   onChangeVisibility,
+  onPreviewFile,
 }: {
   file?: FileWithAccount;
   folder?: Folder;
@@ -155,6 +158,7 @@ function ActionDropdown({
   onDeleteFile: (file: FileWithAccount) => void;
   onDeleteFolder: (folder: Folder) => void;
   onChangeVisibility: (file: FileWithAccount, visibility: FileVisibility) => void;
+  onPreviewFile: (file: FileWithAccount) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -184,6 +188,14 @@ function ActionDropdown({
           <div className="py-1">
             {file && (
               <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onPreviewFile(file); setOpen(false); }}
+                  className="group flex w-full items-center px-4 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  <Eye className="mr-2 h-4 w-4" />
+                  Lihat / Edit
+                </button>
+                <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
                 <div className="px-4 py-2 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Visibilitas</div>
                 {(["public", "private", "hidden"] as const).map((v) => (
                   <button
@@ -344,6 +356,9 @@ function FilesPage() {
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
   const [isUploadOpen, setIsUploadOpen] = useState(false);
+
+  // Preview state
+  const [previewFile, setPreviewFile] = useState<FileWithAccount | null>(null);
 
   // Delete confirm states
   const [fileToDelete, setFileToDelete] = useState<FileWithAccount | null>(null);
@@ -536,8 +551,8 @@ function FilesPage() {
         } else {
           const file = row.data;
           return (
-            <div className="flex items-center gap-2">
-              <FileIcon className="h-4 w-4 text-zinc-400 shrink-0" />
+            <div className="flex items-center gap-2 cursor-pointer" onClick={() => setPreviewFile(file)}>
+              {(() => { const ft = getFileTypeInfo(file.filename); return <ft.Icon className={`h-4 w-4 ${ft.color} shrink-0`} />; })()}
               <div className="flex flex-col">
                 <span className="break-words whitespace-normal font-medium text-zinc-900 dark:text-zinc-100" title={file.filename}>
                   {file.filename}
@@ -575,6 +590,7 @@ function FilesPage() {
               onDeleteFile={setFileToDelete}
               onDeleteFolder={setFolderToDelete}
               onChangeVisibility={handleVisibilityChange}
+              onPreviewFile={setPreviewFile}
             />
           </div>
         );
@@ -782,6 +798,8 @@ function FilesPage() {
           </Button>
         </DialogFooter>
       </Dialog>
+
+      <FilePreviewDialog file={previewFile} onClose={() => setPreviewFile(null)} />
 
       <UploadDialog
         open={isUploadOpen}

@@ -46,3 +46,39 @@ export function useDeleteFile() {
     },
   });
 }
+
+export function useRenameSyncFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, filename }: { slug: string; filename: string }) => fileService.renameSync(slug, filename),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["files"] }),
+  });
+}
+
+export function useFileContent(slug: string | null) {
+  return useQuery({
+    queryKey: ["file-content", slug],
+    queryFn: () => fileService.getContent(slug!),
+    enabled: slug !== null,
+  });
+}
+
+export function useUpdateFileContent() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ slug, content }: { slug: string; content: string }) => fileService.updateContent(slug, content),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["file-content", variables.slug] });
+      queryClient.invalidateQueries({ queryKey: ["files"] });
+    },
+  });
+}
+
+export function usePreviewToken(slug: string | null) {
+  return useQuery({
+    queryKey: ["preview-token", slug],
+    queryFn: () => fileService.getPreview(slug!),
+    enabled: slug !== null,
+    staleTime: 240_000,
+  });
+}

@@ -38,7 +38,7 @@ const WORKER_BASE = (import.meta.env.VITE_WORKER_URL as string | undefined) ?? "
 export async function apiRequest<T>(
   path: string,
   options: {
-    method?: "GET" | "POST" | "PATCH" | "DELETE";
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
     body?: unknown;
     headers?: Record<string, string>;
     signal?: AbortSignal;
