@@ -6,7 +6,7 @@ import {
   Folder as FolderIcon, FolderPlus, Upload,
   ChevronRight, UploadCloud, CheckCircle2, XCircle,
   FileIcon, X, Loader2, Home, MoreVertical, Lock, Globe, EyeOff as EyeOffIcon,
-  ChevronLeft, ChevronsLeft, ChevronsRight
+  ChevronLeft, ChevronsLeft, ChevronsRight, Pencil
 } from "lucide-react";
 import {
   useReactTable,
@@ -20,8 +20,8 @@ import {
   DialogFooter, useToast, Progress, cn,
 } from "@nqdrive/ui";
 import { formatBytes, formatSpeed } from "@nqdrive/shared";
-import { useFiles, useDeleteFile, useUpdateFileVisibility } from "../hooks/use-files";
-import { useFolderByPath, useCreateFolder, useDeleteFolder } from "../hooks/use-folders";
+import { useFiles, useDeleteFile, useUpdateFileVisibility, useRenameFile } from "../hooks/use-files";
+import { useFolderByPath, useCreateFolder, useDeleteFolder, useRenameFolder } from "../hooks/use-folders";
 import { useUpload } from "../hooks/use-upload";
 import { useMinLoading } from "../hooks/use-min-loading";
 import { useSettings } from "../hooks/use-settings";
@@ -34,9 +34,9 @@ import { FilePreviewDialog } from "../components/file-preview";
 import { PageTransition } from "../components/page-transition";
 import { FilesTableSkeleton } from "../components/skeletons";
 
-// ─── URL schema: ?folder=Windows/11/subfolder ────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ URL schema: ?folder=Windows/11/subfolder Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 // Menggunakan "folder" sebagai nama param (bukan "path") agar URL lebih deskriptif.
-// Separator antar level folder adalah "/" literal — tidak di-encode jadi %2F.
+// Separator antar level folder adalah "/" literal Ã¢â‚¬â€ tidak di-encode jadi %2F.
 // Contoh: /dashboard/files?folder=Scripts
 //         /dashboard/files?folder=Windows/11
 //         /dashboard/files?folder=Windows/11/namafolder/namafolder
@@ -55,7 +55,7 @@ const VISIBILITY_LABEL: Record<FileVisibility, string> = {
   hidden: "Hidden",
 };
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 function maskEmail(email: string): string {
   const [local, domain] = email.split("@");
@@ -83,7 +83,7 @@ function EmailCell({ email }: { email: string }) {
 }
 
 /**
- * Breadcrumb component — renders clickable path segments.
+ * Breadcrumb component Ã¢â‚¬â€ renders clickable path segments.
  * e.g.  Root / Windows / 11 / subfolder
  */
 function Breadcrumb({
@@ -96,7 +96,7 @@ function Breadcrumb({
   onNavigate: (folderPath: string) => void;
 }) {
   // Bangun path kumulatif untuk setiap segment.
-  // Format: nama folder bergabung dengan "/" — tidak perlu encode karena
+  // Format: nama folder bergabung dengan "/" Ã¢â‚¬â€ tidak perlu encode karena
   // navigateTo() akan meneruskan nilai ini ke URL param "folder" secara langsung.
   const buildPath = (upTo: number) =>
     [...ancestors, currentFolder]
@@ -141,7 +141,7 @@ function Breadcrumb({
   );
 }
 
-// ─── Action Dropdown ──────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Action Dropdown Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 function ActionDropdown({
   file,
@@ -151,6 +151,8 @@ function ActionDropdown({
   onDeleteFolder,
   onChangeVisibility,
   onPreviewFile,
+  onRenameFile,
+  onRenameFolder,
 }: {
   file?: FileWithAccount;
   folder?: Folder;
@@ -159,6 +161,8 @@ function ActionDropdown({
   onDeleteFolder: (folder: Folder) => void;
   onChangeVisibility: (file: FileWithAccount, visibility: FileVisibility) => void;
   onPreviewFile: (file: FileWithAccount) => void;
+  onRenameFile: (file: FileWithAccount) => void;
+  onRenameFolder: (folder: Folder) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -189,12 +193,21 @@ function ActionDropdown({
             {file && (
               <>
                 <button
-                  onClick={(e) => { e.stopPropagation(); onPreviewFile(file); setOpen(false); }}
+                  onClick={(e) => { e.stopPropagation(); onRenameFile(file); setOpen(false); }}
                   className="group flex w-full items-center px-4 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
                 >
-                  <Eye className="mr-2 h-4 w-4" />
-                  Lihat / Edit
+                  <Pencil className="mr-2 h-4 w-4" />
+                  Ubah Nama
                 </button>
+                {(() => { const ft = getFileTypeInfo(file.filename); return ft.previewable ? (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); onPreviewFile(file); setOpen(false); }}
+                    className="group flex w-full items-center px-4 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                  >
+                    <Eye className="mr-2 h-4 w-4" />
+                    Preview
+                  </button>
+                ) : null; })()}
                 <div className="my-1 border-t border-zinc-200 dark:border-zinc-800" />
                 <div className="px-4 py-2 text-[10px] font-semibold text-zinc-500 uppercase tracking-wider">Visibilitas</div>
                 {(["public", "private", "hidden"] as const).map((v) => (
@@ -233,6 +246,14 @@ function ActionDropdown({
               </>
             )}
             {folder && (
+              <>
+              <button
+                onClick={(e) => { e.stopPropagation(); onRenameFolder(folder); setOpen(false); }}
+                className="group flex w-full items-center px-4 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Ubah Nama
+              </button>
               <button
                 onClick={(e) => { e.stopPropagation(); onDeleteFolder(folder); setOpen(false); }}
                 className="group flex w-full items-center px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
@@ -240,6 +261,7 @@ function ActionDropdown({
                 <Trash2 className="mr-2 h-4 w-4" />
                 Pindahkan ke Trash
               </button>
+              </>
             )}
           </div>
         </div>
@@ -248,7 +270,7 @@ function ActionDropdown({
   );
 }
 
-// ─── Pagination ──────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Pagination Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 const PAGE_SIZES = [10, 20, 50];
 
@@ -285,7 +307,7 @@ function Pagination({
 
       <div className="flex items-center gap-3">
         <span className="text-xs text-zinc-400">
-          {from}—{to} dari {total}
+          {from}–{to} dari {total}
         </span>
         <div className="flex items-center gap-1">
           <PagBtn onClick={() => onPage(1)} disabled={page === 1} title="Halaman pertama">
@@ -322,7 +344,7 @@ function PagBtn({ children, onClick, disabled, title }: { children: React.ReactN
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Main page Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 function FilesPage() {
   const { toast } = useToast();
@@ -334,7 +356,7 @@ function FilesPage() {
   // Contoh: "" = root, "Scripts" = folder Scripts, "Windows/11" = subfolder 11 di dalam Windows
   const currentFolderPath = searchParams.folder ?? "";
 
-  // Navigasi ke folder path baru — mengupdate URL param "folder"
+  // Navigasi ke folder path baru Ã¢â‚¬â€ mengupdate URL param "folder"
   const navigateTo = useCallback(
     (folderPath: string) => {
       navigate({ search: folderPath ? { folder: folderPath } : {} });
@@ -360,12 +382,17 @@ function FilesPage() {
   // Preview state
   const [previewFile, setPreviewFile] = useState<FileWithAccount | null>(null);
 
+  // Inline rename state
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const renameInputRef = useRef<HTMLInputElement>(null);
+
   // Delete confirm states
   const [fileToDelete, setFileToDelete] = useState<FileWithAccount | null>(null);
   const [folderToDelete, setFolderToDelete] = useState<Folder | null>(null);
 
-  // ── Data fetching ───────────────────────────────────────────────────────────
-  // Selalu resolve path aktif — termasuk saat searching — agar folderId tetap tersedia
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Data fetching Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+  // Selalu resolve path aktif Ã¢â‚¬â€ termasuk saat searching Ã¢â‚¬â€ agar folderId tetap tersedia
   const {
     data: pathData,
     isLoading: isLoadingPath,
@@ -396,17 +423,20 @@ function FilesPage() {
   const isQueryLoading = isLoadingPath || isLoadingFiles;
   const isFetchingData = useMinLoading(isQueryLoading, 600);
 
-  // ── Mutations ───────────────────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Mutations Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
   const createFolder = useCreateFolder();
   const deleteFolder = useDeleteFolder();
   const deleteFile = useDeleteFile();
   const updateVisibility = useUpdateFileVisibility();
+  const renameFile = useRenameFile();
+  const renameFolder = useRenameFolder();
+  const uploadHook = useUpload();
 
-  // ── Handlers ───────────────────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Handlers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   const handleFolderClick = useCallback((folder: Folder) => {
     // Append nama folder ke path saat ini dengan separator "/"
-    // Tidak perlu encodeURIComponent — navigateTo akan meneruskan ke ?folder= param secara utuh
+    // Tidak perlu encodeURIComponent Ã¢â‚¬â€ navigateTo akan meneruskan ke ?folder= param secara utuh
     const newPath = currentFolderPath
       ? `${currentFolderPath}/${folder.name}`
       : folder.name;
@@ -473,6 +503,51 @@ function FilesPage() {
     }
   };
 
+  const handleStartRenameFile = useCallback((file: FileWithAccount) => {
+    setRenamingId(`file-${file.id}`);
+    setRenameValue(file.filename);
+    setTimeout(() => {
+      const input = renameInputRef.current;
+      if (input) {
+        // Select only the name part, not the extension
+        const dotIdx = file.filename.lastIndexOf(".");
+        if (dotIdx > 0) {
+          input.setSelectionRange(0, dotIdx);
+        } else {
+          input.select();
+        }
+      }
+    }, 50);
+  }, []);
+
+  const handleStartRenameFolder = useCallback((folder: Folder) => {
+    setRenamingId(`folder-${folder.id}`);
+    setRenameValue(folder.name);
+    setTimeout(() => renameInputRef.current?.select(), 50);
+  }, []);
+
+  const handleRenameSubmit = useCallback(async () => {
+    if (!renamingId || !renameValue.trim()) { setRenamingId(null); return; }
+    const [type, idStr] = renamingId.split("-");
+    const id = Number(idStr);
+    try {
+      if (type === "file") {
+        await renameFile.mutateAsync({ id, filename: renameValue.trim() });
+        toast({ title: "Nama file diubah", variant: "success" });
+      } else {
+        await renameFolder.mutateAsync({ id, name: renameValue.trim() });
+        toast({ title: "Nama folder diubah", variant: "success" });
+      }
+    } catch (error) {
+      toast({ title: "Gagal mengubah nama", description: error instanceof Error ? error.message : undefined, variant: "error" });
+    }
+    setRenamingId(null);
+  }, [renamingId, renameValue, renameFile, renameFolder, toast]);
+
+  const handleRenameKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter") handleRenameSubmit();
+    if (e.key === "Escape") setRenamingId(null);
+  }, [handleRenameSubmit]);
   const handleVisibilityChange = useCallback(async (file: FileWithAccount, visibility: FileVisibility) => {
     const VISIBILITY_TOAST: Record<
       FileVisibility,
@@ -539,9 +614,11 @@ function FilesPage() {
             >
               <FolderIcon className="h-4 w-4 text-brand-500 fill-brand-500/20 shrink-0" />
               <div className="flex flex-col">
-                <span className="break-words whitespace-normal font-medium" title={folder.name}>
-                  {folder.name}
-                </span>
+                {renamingId === `folder-${folder.id}` ? (
+                  <input ref={renameInputRef} value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onBlur={handleRenameSubmit} onKeyDown={handleRenameKeyDown} className="bg-transparent border border-brand-500 rounded px-1 py-0.5 text-sm font-medium outline-none w-full text-zinc-900 dark:text-zinc-100" autoFocus onClick={(e) => e.stopPropagation()} />
+                ) : (
+                  <span className="break-words whitespace-normal font-medium" title={folder.name}>{folder.name}</span>
+                )}
                 <span className="text-xs text-zinc-500 font-normal mt-0.5">
                   {folder.sizeBytes ? formatBytes(folder.sizeBytes) : "0 B"}
                 </span>
@@ -551,12 +628,14 @@ function FilesPage() {
         } else {
           const file = row.data;
           return (
-            <div className="flex items-center gap-2 cursor-pointer" onClick={() => setPreviewFile(file)}>
+            <div className="flex items-center gap-2 cursor-pointer" onClick={() => { const ft = getFileTypeInfo(file.filename); if (ft.previewable) setPreviewFile(file); }}>
               {(() => { const ft = getFileTypeInfo(file.filename); return <ft.Icon className={`h-4 w-4 ${ft.color} shrink-0`} />; })()}
               <div className="flex flex-col">
-                <span className="break-words whitespace-normal font-medium text-zinc-900 dark:text-zinc-100" title={file.filename}>
-                  {file.filename}
-                </span>
+                {renamingId === `file-${file.id}` ? (
+                  <input ref={renameInputRef} value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onBlur={handleRenameSubmit} onKeyDown={handleRenameKeyDown} className="bg-transparent border border-brand-500 rounded px-1 py-0.5 text-sm font-medium outline-none w-full text-zinc-900 dark:text-zinc-100" autoFocus onClick={(e) => e.stopPropagation()} />
+                ) : (
+                  <span className="break-words whitespace-normal font-medium text-zinc-900 dark:text-zinc-100" title={file.filename}>{file.filename}</span>
+                )}
                 <div className="flex items-center gap-2 mt-0.5">
                   <span className="text-xs text-zinc-500 font-normal">{formatBytes(file.sizeBytes)}</span>
                   <EmailCell email={file.driveAccountEmail} />
@@ -591,6 +670,8 @@ function FilesPage() {
               onDeleteFolder={setFolderToDelete}
               onChangeVisibility={handleVisibilityChange}
               onPreviewFile={setPreviewFile}
+              onRenameFile={handleStartRenameFile}
+              onRenameFolder={handleStartRenameFolder}
             />
           </div>
         );
@@ -604,7 +685,7 @@ function FilesPage() {
     getCoreRowModel: getCoreRowModel(),
   });
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  // Ã¢â€â‚¬Ã¢â€â‚¬ Render Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
   return (
     <PageTransition>
@@ -666,7 +747,7 @@ function FilesPage() {
 
           {/* Table */}
           <div className="flex-1 overflow-auto rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 relative">
-            <table className="w-full caption-bottom text-sm">
+            <table className="w-full caption-bottom text-sm bg-white dark:bg-zinc-950">
               <thead className="border-b border-zinc-200 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-900/60 sticky top-0 z-10 backdrop-blur-sm">
                 {table.getHeaderGroups().map((headerGroup) => (
                   <tr key={headerGroup.id}>
@@ -689,20 +770,20 @@ function FilesPage() {
                   </tr>
                 ))}
               </thead>
-              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+              <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/50 bg-white dark:bg-zinc-950">
                 {isFetchingData ? (
                   <FilesTableSkeleton rows={pageSize} />
                 ) : table.getRowModel().rows?.length ? (
                   table.getRowModel().rows.map((row) => (
                     <tr
                       key={row.id}
-                      className="group hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors animate-in fade-in duration-300"
+                      className="group hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors animate-in fade-in duration-300 bg-white dark:bg-zinc-950"
                     >
                       {row.getVisibleCells().map((cell) => (
                         <td
                           key={cell.id}
                           className={cn(
-                            "px-4 py-4 md:py-3 min-w-0 align-middle",
+                            "px-4 py-4 md:py-3 min-w-0 align-middle bg-white dark:bg-zinc-950",
                             cell.column.id === "downloads" ? "hidden sm:table-cell text-right" : "",
                             cell.column.id === "actions" ? "text-right" : ""
                           )}
@@ -714,7 +795,7 @@ function FilesPage() {
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={columns.length} className="py-16 text-center text-sm text-zinc-400 dark:text-zinc-500">
+                    <td colSpan={columns.length} className="py-16 text-center text-sm text-zinc-400 dark:text-zinc-500 bg-white dark:bg-zinc-950">
                       <div className="flex flex-col items-center gap-2">
                         <FolderIcon className="h-10 w-10 text-zinc-300 dark:text-zinc-700" />
                         <p>
@@ -743,7 +824,7 @@ function FilesPage() {
         </CardContent>
       </Card>
 
-      {/* ── Dialogs ─────────────────────────────────────────────────────────── */}
+      {/* Ã¢â€â‚¬Ã¢â€â‚¬ Dialogs Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ */}
 
       <Dialog open={!!fileToDelete} onOpenChange={(open) => !open && setFileToDelete(null)}>
         <DialogHeader>
@@ -753,7 +834,7 @@ function FilesPage() {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" className="border-brand-500 text-brand-600 hover:bg-brand-50 dark:border-brand-500 dark:text-brand-400 dark:hover:bg-brand-500/10 hover:text-brand-700 shrink-0" onClick={() => setFileToDelete(null)}>Batal</Button>
+          <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={() => setFileToDelete(null)}>Batal</Button>
           <Button variant="destructive" className="bg-red-600 text-white hover:bg-red-700 hover:text-white" onClick={handleDeleteFile} disabled={deleteFile.isPending}>
             {deleteFile.isPending ? "Memindahkan..." : "Pindahkan ke Trash"}
           </Button>
@@ -768,7 +849,7 @@ function FilesPage() {
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" className="border-brand-500 text-brand-600 hover:bg-brand-50 dark:border-brand-500 dark:text-brand-400 dark:hover:bg-brand-500/10 hover:text-brand-700 shrink-0" onClick={() => setFolderToDelete(null)}>Batal</Button>
+          <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={() => setFolderToDelete(null)}>Batal</Button>
           <Button variant="destructive" className="bg-red-600 text-white hover:bg-red-700 hover:text-white" onClick={handleDeleteFolder} disabled={deleteFolder.isPending}>
             {deleteFolder.isPending ? "Memindahkan..." : "Pindahkan ke Trash"}
           </Button>
@@ -792,7 +873,7 @@ function FilesPage() {
           onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
         />
         <DialogFooter>
-          <Button variant="outline" className="border-brand-500 text-brand-600 hover:bg-brand-50 dark:border-brand-500 dark:text-brand-400 dark:hover:bg-brand-500/10 hover:text-brand-700 shrink-0" onClick={() => setIsCreateFolderOpen(false)}>Batal</Button>
+          <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={() => setIsCreateFolderOpen(false)}>Batal</Button>
           <Button onClick={handleCreateFolder} disabled={createFolder.isPending}>
             {createFolder.isPending ? "Membuat..." : "Buat Folder"}
           </Button>
@@ -800,8 +881,10 @@ function FilesPage() {
       </Dialog>
 
       <FilePreviewDialog file={previewFile} onClose={() => setPreviewFile(null)} />
+      <FloatingUploadProgress items={uploadHook.items} onClearFinished={uploadHook.clearFinished} />
 
       <UploadDialog
+        uploadHook={uploadHook}
         open={isUploadOpen}
         onOpenChange={setIsUploadOpen}
         currentFolderId={currentFolderId}
@@ -812,22 +895,35 @@ function FilesPage() {
   );
 }
 
-// ─── Upload dialog ────────────────────────────────────────────────────────────
+// Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬ Upload dialog Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
 
 
 
 function UploadDialog({
+  uploadHook,
   open,
   onOpenChange,
   currentFolderId,
   currentFolderPath,
 }: {
+  uploadHook: ReturnType<typeof useUpload>;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   currentFolderId: number | null;
   currentFolderPath: string;
 }) {
-  const { items, addFilesToQueue, startUpload, startAllUploads, cancelUpload, removeItem, clearFinished } = useUpload();
+  const { items, addFilesToQueue, startAllUploads, removeItem, clearFinished } = uploadHook;
+  
+  // Clear ALL items when dialog opens so list is fresh
+  useEffect(() => {
+    if (open) {
+      clearFinished();
+    }
+  }, [open, clearFinished]);
+
+  // Only show queued items in dialog
+  const dialogItems = items.filter(i => i.status === "queued");
+
   const [isDraggingOver, setIsDraggingOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -847,8 +943,7 @@ function UploadDialog({
     handleFiles(event.dataTransfer.files);
   };
 
-  const hasQueued = items.some(i => i.status === "queued" || i.status === "error");
-  const hasFinished = items.some(i => i.status === "success" || i.status === "cancelled");
+  const hasQueued = dialogItems.length > 0;
 
   // Removed auto-close useEffect to fix "bug suruh pilih file 2x dan menutup sendiri"
   // Dialog should only close when the user explicitly closes it.
@@ -898,9 +993,9 @@ function UploadDialog({
           />
         </div>
 
-        {items.length > 0 && (
+        {dialogItems.length > 0 && (
           <div className="flex flex-col gap-2 max-h-[40vh] overflow-y-auto pr-1">
-            {items.map((item) => (
+            {dialogItems.map((item) => (
               <div
                 key={item.id}
                 className="flex items-center gap-3 rounded-md border border-zinc-200 dark:border-zinc-800 p-3 bg-zinc-50/50 dark:bg-zinc-900/50"
@@ -909,58 +1004,17 @@ function UploadDialog({
                   <FileIcon className="h-4 w-4 text-zinc-500" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                      {item.file.name}
-                    </p>
-                    {item.status === "success" && <CheckCircle2 className="h-4 w-4 text-emerald-500 flex-shrink-0" />}
-                    {item.status === "error" && <XCircle className="h-4 w-4 text-red-500 flex-shrink-0" />}
-                  </div>
-                  {item.status === "queued" && (
-                    <p className="mt-0.5 text-xs text-zinc-500">Menunggu upload...</p>
-                  )}
-                  {item.status === "hashing" && (
-                    <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-400">Menghitung checksum SHA-256...</p>
-                  )}
-                  {item.sha256Hash && (
-                    <p className="mt-0.5 text-[10px] text-zinc-400 font-mono truncate" title={item.sha256Hash}>
-                      SHA-256: {item.sha256Hash}
-                    </p>
-                  )}
-                  {item.status === "uploading" && (
-                    <div className="mt-1.5">
-                      <Progress value={item.progress.percentage} className="h-1.5" />
-                      <div className="mt-1 flex justify-between text-[10px] text-zinc-500">
-                        <span>{item.progress.percentage.toFixed(0)}%</span>
-                        <span>{formatSpeed(item.progress.speedBytesPerSecond)}</span>
-                      </div>
-                    </div>
-                  )}
-                  {item.status === "error" && (
-                    <p className="mt-0.5 text-xs text-red-600 dark:text-red-400 truncate">
-                      {item.errorMessage ?? "Upload gagal."}
-                    </p>
-                  )}
+                  <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    {item.file.name}
+                  </p>
+                  <p className="mt-0.5 text-xs text-zinc-500">{formatBytes(item.file.size)}</p>
                 </div>
-                
-                {item.status === "queued" || item.status === "error" ? (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 shrink-0 text-brand-600"
-                    onClick={() => startUpload(item.id)}
-                  >
-                    <Upload className="h-4 w-4" />
-                  </Button>
-                ) : null}
 
                 <Button
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 shrink-0 text-zinc-400 hover:text-red-500"
-                  onClick={() =>
-                    item.status === "uploading" ? cancelUpload(item.id) : removeItem(item.id)
-                  }
+                  onClick={() => removeItem(item.id)}
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -970,20 +1024,20 @@ function UploadDialog({
         )}
       </div>
 
-      <DialogFooter className="flex-row justify-between items-center sm:justify-between">
+      <DialogFooter className="flex-row justify-end items-center sm:justify-end">
         <div className="flex gap-2">
-          {hasFinished && (
-            <Button variant="ghost" onClick={clearFinished} size="sm" className="text-zinc-500">
-              Bersihkan Selesai
-            </Button>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <Button 
+            variant="outline" 
+            onClick={() => onOpenChange(false)}
+            className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700"
+          >
             Tutup
           </Button>
           <Button 
-            onClick={startAllUploads} 
+            onClick={() => {
+              startAllUploads();
+              onOpenChange(false); // Auto close dialog after starting upload
+            }} 
             disabled={!hasQueued}
             className="gap-2"
           >
@@ -997,3 +1051,69 @@ function UploadDialog({
   );
 }
 
+// --- Floating Upload Progress (bottom-right corner) ---
+function FloatingUploadProgress({ items, onClearFinished }: { items: import("../hooks/use-upload").UploadItem[]; onClearFinished: () => void }) {
+  const activeItems = items.filter((i) => i.status === "uploading" || i.status === "hashing");
+  const successItems = items.filter((i) => i.status === "success");
+  const showSuccess = successItems.length > 0 && activeItems.length === 0;
+
+  // Auto-clear success items after 4 seconds so toast disappears
+  useEffect(() => {
+    if (showSuccess) {
+      const timer = setTimeout(() => onClearFinished(), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [showSuccess, onClearFinished]);
+
+  // Only show progress when files are actively being uploaded (not queued)
+  if (activeItems.length === 0 && !showSuccess) return null;
+
+  const totalBytes = activeItems.reduce((s, i) => s + i.progress.totalBytes, 0);
+  const uploadedBytes = activeItems.reduce((s, i) => s + i.progress.uploadedBytes, 0);
+  const overallPercent = totalBytes > 0 ? (uploadedBytes / totalBytes) * 100 : 0;
+  const avgSpeed = activeItems.reduce((s, i) => s + i.progress.speedBytesPerSecond, 0);
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50 w-80 sm:w-96 animate-in slide-in-from-bottom-4 fade-in duration-300">
+      <div className="rounded-xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 shadow-2xl overflow-hidden">
+        {showSuccess ? (
+          <div className="flex items-center gap-3 p-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30 animate-in zoom-in duration-300">
+              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Upload selesai</p>
+              <p className="text-xs text-zinc-500">{successItems.length} file berhasil diupload</p>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between px-4 pt-3 pb-1">
+              <div className="flex items-center gap-2">
+                <Loader2 className="h-4 w-4 animate-spin text-brand-500" />
+                <span className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                  Mengupload {activeItems.length} file
+                </span>
+              </div>
+              <span className="text-xs font-mono text-zinc-500">{overallPercent.toFixed(0)}%</span>
+            </div>
+            <div className="px-4 pb-1">
+              <Progress value={overallPercent} className="h-2" />
+            </div>
+            <div className="flex justify-between px-4 pb-3 text-[10px] text-zinc-400">
+              <span>{formatBytes(uploadedBytes)} / {formatBytes(totalBytes)}</span>
+              <span>{formatSpeed(avgSpeed)}</span>
+            </div>
+            {activeItems.length <= 3 && activeItems.map((item) => (
+              <div key={item.id} className="border-t border-zinc-100 dark:border-zinc-800 px-4 py-2 flex items-center gap-2">
+                <FileIcon className="h-3.5 w-3.5 text-zinc-400 shrink-0" />
+                <span className="text-xs text-zinc-600 dark:text-zinc-400 truncate flex-1">{item.file.name}</span>
+                <span className="text-[10px] text-zinc-400 tabular-nums">{item.progress.percentage.toFixed(0)}%</span>
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

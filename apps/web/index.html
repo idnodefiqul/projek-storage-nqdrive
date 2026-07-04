@@ -11,11 +11,7 @@
     <meta property="og:type" content="website" />
     <!-- Inter font — matches --font-sans defined in globals.css -->
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <!-- Preload critical images — browser mulai download segera saat HTML di-parse,
-         bukan menunggu React render <img> tag. Menghilangkan delay logo. -->
-    <link rel="preload" as="image" href="/logopage.png" type="image/png" />
-    <link rel="preload" as="image" href="/logologon.png" type="image/png" />
-    <link rel="preload" as="image" href="/iconside.png" type="image/png" />
+    <!-- Preloads not needed — images imported via Vite are optimized automatically -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

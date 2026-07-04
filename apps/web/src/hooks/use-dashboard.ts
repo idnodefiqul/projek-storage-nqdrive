@@ -14,8 +14,21 @@ export interface DashboardSummary {
   totalDownloads: number;
 }
 
+export interface AccountStorageInfo {
+  email: string;
+  usedStorageBytes: number;
+  totalStorageBytes: number;
+}
+
+export interface CountryDownload {
+  country: string;
+  count: number;
+}
+
 export interface DashboardMetricsResponse {
   summary: DashboardSummary;
+  accountsStorage: AccountStorageInfo[];
+  topCountries: CountryDownload[];
   topDownloadedFiles: FileEntity[];
   recentFiles: FileEntity[];
   recentFolders: Folder[];

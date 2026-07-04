@@ -24,6 +24,7 @@ dashboardRoutes.get("/metrics", async (c) => {
     topDownloadedFiles,
     recentFiles,
     recentFolders,
+    topCountriesRows,
   ] = await Promise.all([
     driveAccountRepository.findAll(),
     fileRepository.countAll(),
@@ -42,6 +43,9 @@ dashboardRoutes.get("/metrics", async (c) => {
     ).bind(limit).all<{ id: number; filename: string; slug: string; provider_file_id: string; drive_account_id: number; folder_id: number | null; size_bytes: number; mime_type: string; visibility: string; download_count: number; created_at: string; updated_at: string; log_count: number }>(),
     fileRepository.getRecent(limit),
     folderRepository.getRecent(limit),
+    c.env.DB.prepare(
+      `SELECT country, COUNT(*) as count FROM download_logs WHERE country IS NOT NULL AND country != '' GROUP BY country ORDER BY count DESC LIMIT 10`
+    ).all<{ country: string; count: number }>(),
   ]);
 
   const totalStorageBytes = accounts.reduce((sum, a) => sum + a.totalStorageBytes, 0);
@@ -66,6 +70,12 @@ dashboardRoutes.get("/metrics", async (c) => {
     updatedAt: row.updated_at,
   }));
 
+  const accountsStorage = accounts.map((a) => ({
+    email: a.email,
+    usedStorageBytes: a.usedStorageBytes,
+    totalStorageBytes: a.totalStorageBytes,
+  }));
+
   return c.json({
     success: true,
     data: {
@@ -80,6 +90,8 @@ dashboardRoutes.get("/metrics", async (c) => {
         totalFiles: fileCount,
         totalDownloads: downloadCount,
       },
+      accountsStorage,
+      topCountries: (topCountriesRows?.results ?? []).map(r => ({ country: r.country, count: r.count })),
       topDownloadedFiles: topDownloaded,
       recentFiles,
       recentFolders,

@@ -1,12 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Eye, EyeOff, Database, RefreshCw } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, Badge, Progress, Skeleton, TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from "@nqdrive/ui";
+import {
+  Eye, EyeOff, Database, RefreshCw, Plus, Trash2, KeyRound,
+  CheckCircle2, XCircle, Loader2, ExternalLink, AlertCircle,
+} from "lucide-react";
+import {
+  Card, CardContent, CardHeader, CardTitle, Badge, Progress, Skeleton,
+  TooltipProvider, Tooltip, TooltipTrigger, TooltipContent,
+  Button, Dialog, DialogHeader, DialogTitle, DialogDescription, useToast,
+  Avatar, AvatarImage, AvatarFallback,
+} from "@nqdrive/ui";
 import { formatBytes } from "@nqdrive/shared";
-import { useStorageManagerSummary, useSyncAllAccounts } from "../hooks/use-drive-accounts";
+import {
+  useStorageManagerSummary, useSyncAllAccounts,
+  useDriveAccounts, useDeleteDriveAccount,
+  useConnectGoogleAccountViaToken, useValidateRefreshToken,
+} from "../hooks/use-drive-accounts";
 import { useMinLoading } from "../hooks/use-min-loading";
 import { PageTransition } from "../components/page-transition";
+import { CardGridSkeleton } from "../components/skeletons";
+import { ApiClientError } from "../lib/client";
 import { motion, AnimatePresence } from "framer-motion";
+import { googleDriveSvg } from "../assets";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -22,8 +37,10 @@ const itemVariants = {
 };
 
 export const Route = createFileRoute("/dashboard/storage-manager")({
-  component: StorageManagerPage,
+  component: GoogleDrivePage,
 });
+
+// ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 function maskEmail(email: string): string {
   const [local, domain] = email.split("@");
@@ -31,16 +48,16 @@ function maskEmail(email: string): string {
   return `${local.slice(0, 3)}***@${domain}`;
 }
 
-function EmailCell({ email }: { email: string }) {
+function EmailCell({ email, size = "sm" }: { email: string; size?: "sm" | "xs" }) {
   const [shown, setShown] = useState(false);
   const displayEmail = shown ? email : maskEmail(email);
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
+    <div className="flex min-w-0 items-center gap-1.5">
       <TooltipProvider delayDuration={300}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="truncate font-medium text-sm text-zinc-900 dark:text-zinc-100">
+            <span className={`truncate font-medium text-zinc-900 dark:text-zinc-100 ${size === "xs" ? "text-xs" : "text-sm"}`}>
               {displayEmail}
             </span>
           </TooltipTrigger>
@@ -52,45 +69,218 @@ function EmailCell({ email }: { email: string }) {
       <button type="button" onClick={() => setShown((v) => !v)}
         className="shrink-0 text-zinc-400 transition-colors hover:text-brand-500"
         title={shown ? "Sembunyikan email" : "Tampilkan email"}>
-        {shown ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+        {shown ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
       </button>
     </div>
   );
 }
 
-function StorageManagerPage() {
-  const { data: summary, isLoading: isQueryLoading } = useStorageManagerSummary();
-  const isLoading = useMinLoading(isQueryLoading, 600);
+// ─── ADD ACCOUNT DIALOG ───────────────────────────────────────────────────────
+
+function AddAccountDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [refreshToken, setRefreshToken] = useState("");
+  const [showToken, setShowToken] = useState(false);
+  const [validationState, setValidationState] = useState<
+    null | { valid: true; email: string } | { valid: false; reason: string }
+  >(null);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const connectMutation = useConnectGoogleAccountViaToken();
+  const validateMutation = useValidateRefreshToken();
+
+  const handleClose = () => {
+    setRefreshToken(""); setValidationState(null);
+    setFormError(null); setShowToken(false);
+    connectMutation.reset(); validateMutation.reset();
+    onClose();
+  };
+
+  const handleValidate = async () => {
+    const token = refreshToken.trim();
+    if (!token) return;
+    setValidationState(null); setFormError(null);
+    try {
+      const result = await validateMutation.mutateAsync(token);
+      if (result.valid && result.email) setValidationState({ valid: true, email: result.email });
+      else setValidationState({ valid: false, reason: result.reason ?? "Token tidak valid." });
+    } catch (error) {
+      let msg = "Gagal menghubungi server. Periksa koneksi internet.";
+      if (error instanceof ApiClientError || error instanceof Error) msg = error.message;
+      setFormError(msg);
+    }
+  };
+
+  const handleConnect = async () => {
+    setFormError(null);
+    try {
+      const result = await connectMutation.mutateAsync(refreshToken.trim());
+      toast({ title: "Akun berhasil ditambahkan", description: result.account.email, variant: "success" });
+      handleClose();
+    } catch (error) {
+      let msg = "Terjadi kesalahan. Coba lagi.";
+      if (error instanceof ApiClientError || error instanceof Error) msg = error.message;
+      toast({ title: "Gagal menambahkan akun", description: msg, variant: "error" });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()} className="max-w-xl">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <KeyRound className="h-5 w-5 text-brand-600" />
+          Tambah Akun Google Drive
+        </DialogTitle>
+        <DialogDescription>Hubungkan akun Google Drive ke storage pool menggunakan refresh token.</DialogDescription>
+      </DialogHeader>
+
+      <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 dark:border-blue-800 dark:bg-blue-950">
+        <p className="mb-1.5 text-xs font-semibold text-blue-800 dark:text-blue-200">Cara mendapatkan Refresh Token:</p>
+        <ol className="ml-4 list-decimal space-y-1">
+          <li className="text-xs text-blue-700 dark:text-blue-300">
+            Buka <a href="https://developers.google.com/oauthplayground" target="_blank" rel="noopener noreferrer"
+              className="inline-flex items-center gap-0.5 font-medium underline underline-offset-2">
+              Google OAuth Playground <ExternalLink className="h-3 w-3" /></a>
+          </li>
+          <li className="text-xs text-blue-700 dark:text-blue-300">Klik ⚙️ → centang <em>Use your own OAuth credentials</em> → isi Client ID &amp; Secret</li>
+          <li className="text-xs text-blue-700 dark:text-blue-300">Pilih scope: <code className="rounded bg-blue-100 px-1 py-0.5 font-mono text-[11px] dark:bg-blue-900">https://www.googleapis.com/auth/drive</code></li>
+          <li className="text-xs text-blue-700 dark:text-blue-300">Klik <em>Authorize APIs</em> → login → <em>Exchange authorization code for tokens</em></li>
+          <li className="text-xs text-blue-700 dark:text-blue-300">Copy nilai <strong>Refresh token</strong> dari response JSON</li>
+        </ol>
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Refresh Token</label>
+        <div className="flex gap-2">
+          <div className="relative min-w-0 flex-1">
+            <input type={showToken ? "text" : "password"} value={refreshToken}
+              onChange={(e) => { setRefreshToken(e.target.value); setValidationState(null); setFormError(null); }}
+              placeholder="1//0g..."
+              className="h-10 w-full rounded-lg border border-zinc-300 bg-white pl-3 pr-10 font-mono text-sm
+                text-zinc-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30
+                disabled:cursor-not-allowed disabled:opacity-50
+                dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+              disabled={connectMutation.isPending}
+              onKeyDown={(e) => e.key === "Enter" && !validationState && !validateMutation.isPending && handleValidate()} />
+            <button type="button" onClick={() => setShowToken((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 transition-colors hover:text-zinc-600"
+              tabIndex={-1}>
+              {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+          <Button variant="outline" size="sm"
+            onClick={handleValidate}
+            disabled={!refreshToken.trim() || validateMutation.isPending || connectMutation.isPending}
+            className="h-10 shrink-0">
+            {validateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" />
+              : validationState ? <><RefreshCw className="mr-1 h-3.5 w-3.5" />Ulang</> : "Cek Token"}
+          </Button>
+        </div>
+      </div>
+
+      {formError && (
+        <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 dark:border-orange-800 dark:bg-orange-950">
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" />
+          <p className="text-sm text-orange-700 dark:text-orange-300">{formError}</p>
+        </div>
+      )}
+
+      {validationState && (
+        <div className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+          validationState.valid
+            ? "border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950 dark:text-green-200"
+            : "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200"}`}>
+          {validationState.valid
+            ? <><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /><div><p className="font-medium">Token valid ✓</p><p className="mt-0.5 font-mono text-xs">{validationState.email}</p></div></>
+            : <><XCircle className="mt-0.5 h-4 w-4 shrink-0" /><div><p className="font-medium">Token tidak valid</p><p className="mt-0.5 text-xs">{validationState.reason}</p></div></>}
+        </div>
+      )}
+
+      <div className="flex justify-end gap-2 pt-1">
+        <Button variant="outline" onClick={handleClose} disabled={connectMutation.isPending} className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700">Batal</Button>
+        <Button onClick={handleConnect} disabled={connectMutation.isPending || !validationState || !validationState.valid}>
+          {connectMutation.isPending
+            ? <><Loader2 className="mr-1 h-4 w-4 animate-spin" />Menambahkan...</>
+            : <><Plus className="mr-1 h-4 w-4" />Tambahkan Akun</>}
+        </Button>
+      </div>
+    </Dialog>
+  );
+}
+
+// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+
+function GoogleDrivePage() {
+  const { toast } = useToast();
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  // Storage data
+  const { data: summary, isLoading: isSummaryLoading } = useStorageManagerSummary();
+  const isStorageLoading = useMinLoading(isSummaryLoading, 600);
   const syncAll = useSyncAllAccounts();
+
+  // Accounts data
+  const { data: accountsData, isLoading: isAccountsQueryLoading } = useDriveAccounts();
+  const isAccountsLoading = useMinLoading(isAccountsQueryLoading, 600);
+  const deleteAccount = useDeleteDriveAccount();
+
+  const handleDelete = async (id: number, email: string) => {
+    if (!confirm(`Hapus akun "${email}" dari storage pool?\n\nPastikan tidak ada file aktif di akun ini.`)) return;
+    try {
+      await deleteAccount.mutateAsync(id);
+      toast({ title: "Akun berhasil dihapus", variant: "success" });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : undefined;
+      toast({ title: "Gagal menghapus akun", description: msg?.includes("file") ? "Akun masih memiliki file. Hapus atau pindahkan file terlebih dahulu." : msg, variant: "error" });
+    }
+  };
 
   return (
     <PageTransition>
       <div className="flex h-full flex-col gap-6">
-        {/* Header + Sync button */}
+        {/* Header */}
         <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Storage Manager</h1>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Detail penggunaan storage terpusat dari semua akun Google Drive yang terhubung.
-            </p>
+          <div className="flex items-center gap-3">
+            {/* Google Drive colored icon */}
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white dark:bg-zinc-900 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800">
+              <img src={googleDriveSvg} alt="Google Drive" className="h-6 w-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Google Drive</h1>
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                Kelola storage dan akun Google Drive yang terhubung.
+              </p>
+            </div>
           </div>
-          <button
-            onClick={() => syncAll.mutate()}
-            disabled={syncAll.isPending || isLoading}
-            className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 disabled:opacity-60 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-emerald-500/25 transition-all"
-          >
-            <RefreshCw className={`h-4 w-4 ${syncAll.isPending ? "animate-spin" : ""}`} />
-            {syncAll.isPending ? "Syncing..." : "Sync"}
-          </button>
+          {/* Sync + Add buttons side by side */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => syncAll.mutate()}
+              disabled={syncAll.isPending || isStorageLoading}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-60 h-9 px-3 text-sm font-medium text-zinc-700 dark:text-zinc-300 shadow-sm transition-all"
+            >
+              <RefreshCw className={`h-4 w-4 ${syncAll.isPending ? "animate-spin" : ""}`} />
+              <span className="hidden sm:inline">{syncAll.isPending ? "Syncing..." : "Sync"}</span>
+            </button>
+            {/* Mobile: icon-only [+]. Desktop: [+ Add Account] */}
+            <button
+              onClick={() => setDialogOpen(true)}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-500 text-white hover:bg-brand-600 shadow-sm shadow-brand-500/25 disabled:opacity-50 h-9 w-9 sm:w-auto sm:px-3 text-sm font-medium transition-all"
+              aria-label="Add Account"
+            >
+              <Plus className="h-4 w-4 shrink-0" />
+              <span className="hidden sm:inline">Add Account</span>
+            </button>
+          </div>
         </div>
 
+        {/* ── Storage Summary Card ── */}
         <Card className="shrink-0 relative overflow-hidden border-0 bg-white dark:bg-zinc-900 shadow-sm ring-1 ring-zinc-200 dark:ring-white/5">
-          {/* Colorful Google Account Avatar inspired background */}
           <div className="pointer-events-none absolute -top-12 -right-12 h-48 w-48 rounded-full bg-[#4285F4]/15 blur-3xl dark:bg-[#4285F4]/5" />
           <div className="pointer-events-none absolute top-4 left-1/4 h-40 w-40 rounded-full bg-[#EA4335]/15 blur-3xl hidden sm:block dark:hidden" />
           <div className="pointer-events-none absolute -bottom-10 right-1/4 h-48 w-48 rounded-full bg-[#FBBC05]/15 blur-3xl hidden sm:block dark:hidden" />
           <div className="pointer-events-none absolute -bottom-8 -left-8 h-48 w-48 rounded-full bg-[#34A853]/15 blur-3xl dark:bg-[#34A853]/5" />
-          
+
           <CardHeader className="pb-3 relative z-10">
             <CardTitle className="flex items-center gap-2 text-brand-700 dark:text-brand-300">
               <Database className="h-5 w-5" />
@@ -98,7 +288,7 @@ function StorageManagerPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="relative z-10">
-            {isLoading || !summary ? (
+            {isStorageLoading || !summary ? (
               <div className="space-y-3">
                 <Skeleton className="h-4 w-full" />
                 <Skeleton className="h-4 w-3/4" />
@@ -118,91 +308,120 @@ function StorageManagerPage() {
                     {summary.usedPercentage.toFixed(1)}% Terpakai
                   </span>
                 </div>
-                <Progress 
-                  value={summary.usedPercentage} 
+                <Progress
+                  value={summary.usedPercentage}
                   className="h-3 bg-zinc-200 dark:bg-zinc-800"
-                  indicatorClassName={summary.usedPercentage > 90 ? "bg-red-500" : "bg-brand-500"} 
+                  indicatorClassName={summary.usedPercentage > 90 ? "bg-red-500" : "bg-brand-500"}
                 />
               </div>
             )}
           </CardContent>
         </Card>
 
-        <div className="flex-1 flex flex-col min-h-[400px]">
-          <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-100">Daftar Partisi (Google Accounts)</h2>
-          
+        {/* ── Account Cards (merged Google Accounts) ── */}
+        <div className="flex-1 flex flex-col min-h-[300px]">
+          <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-100">Akun Google Drive</h2>
+
           <AnimatePresence mode="wait">
-            {isLoading ? (
-              <motion.div
-                key="skeleton"
-                variants={containerVariants}
-                initial="hidden"
-                animate="show"
-                exit="hidden"
-                className="flex flex-col gap-3"
-              >
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <motion.div key={i} variants={itemVariants}>
-                    <Skeleton className="h-[72px] w-full rounded-xl" />
-                  </motion.div>
-                ))}
+            {isAccountsLoading ? (
+              <motion.div key="skeleton" variants={containerVariants} initial="hidden" animate="show" exit="hidden">
+                <CardGridSkeleton count={4} />
               </motion.div>
-            ) : summary?.accounts.length === 0 ? (
-              <motion.div
-                key="empty"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white/50 py-12 dark:border-zinc-800 dark:bg-zinc-900/50"
-              >
-                <Database className="h-10 w-10 text-zinc-400 opacity-50" />
-                <p className="mt-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">Belum ada partisi penyimpanan</p>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Hubungkan akun Google Drive untuk memperbesar kapasitas.</p>
+            ) : accountsData?.accounts.length === 0 ? (
+              <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white/50 py-16 dark:border-zinc-800 dark:bg-zinc-900/50">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100 dark:bg-zinc-800">
+                  <KeyRound className="h-7 w-7 text-zinc-400 opacity-50" />
+                </div>
+                <p className="mt-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">Belum ada akun Google Drive</p>
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Klik tombol "Tambah Akun" di kanan atas untuk mulai.</p>
               </motion.div>
             ) : (
-              <motion.div
-                key="list"
-                variants={containerVariants}
-                initial="hidden"
-                animate="show"
-                className="flex flex-col gap-3"
-              >
-                {summary?.accounts.map((account) => (
-                  <motion.div key={account.email} variants={itemVariants}>
-                    <Card className="overflow-hidden transition-all hover:border-zinc-300 dark:hover:border-zinc-700">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4">
-                        <div className="flex min-w-0 flex-1 flex-col gap-1">
-                          <EmailCell email={account.email} />
-                          <span className="text-xs text-zinc-500 dark:text-zinc-400">
-                            {account.lastSyncedAt ? `Sinkronisasi: ${new Date(account.lastSyncedAt).toLocaleString("id-ID")}` : "Belum sinkronisasi"}
-                          </span>
-                        </div>
-                        
-                        <div className="flex flex-col gap-2 sm:w-64 shrink-0">
-                          <div className="flex items-center justify-between text-xs">
-                            <span className="font-medium text-zinc-700 dark:text-zinc-300">{formatBytes(account.usedStorageBytes)}</span>
-                            <span className="text-zinc-500">{formatBytes(account.totalStorageBytes)}</span>
-                          </div>
-                          <Progress 
-                            value={account.usedPercentage} 
-                            className="h-2"
-                            indicatorClassName={account.usedPercentage > 90 ? "bg-red-500" : "bg-brand-500"} 
-                          />
-                        </div>
-                        
-                        <div className="flex shrink-0 items-center justify-end sm:w-20">
-                          <Badge variant={account.status === "online" ? "success" : "destructive"} className="px-2 py-0.5 text-[10px]">
-                            {account.status === "online" ? "Online" : "Offline"}
-                          </Badge>
-                        </div>
-                      </div>
-                    </Card>
-                  </motion.div>
-                ))}
+              <motion.div key="list" variants={containerVariants} initial="hidden" animate="show">
+                <TooltipProvider delayDuration={300}>
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {accountsData?.accounts.map((account) => {
+                      const usagePercent = account.totalStorageBytes > 0
+                        ? (account.usedStorageBytes / account.totalStorageBytes) * 100
+                        : 0;
+                      const isDanger = usagePercent > 90;
+                      const isSyncing = account.status === "syncing";
+                      const syncTime = account.lastSyncedAt
+                        ? new Date(account.lastSyncedAt).toLocaleString("id-ID", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
+                        : null;
+
+                      return (
+                        <motion.div key={account.id} variants={itemVariants}>
+                          <Card className="flex flex-col overflow-hidden transition-all hover:shadow-md dark:hover:shadow-xl dark:hover:ring-1 dark:hover:ring-white/10">
+                            <div className="flex items-start justify-between p-4 sm:p-5 pb-3">
+                              <div className="flex min-w-0 flex-1 items-center gap-3">
+                                <Avatar className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 ring-1 ring-zinc-200 dark:ring-zinc-800">
+                                  <AvatarImage src={`https://avatar.vercel.sh/${account.email}?size=80`} alt={account.email} />
+                                  <AvatarFallback className="bg-brand-100 font-semibold text-brand-700 dark:bg-brand-900/50 dark:text-brand-300">
+                                    {account.email.charAt(0).toUpperCase()}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="flex min-w-0 flex-col">
+                                  <EmailCell email={account.email} />
+                                  <span className="text-[11px] text-zinc-500">Google Drive Storage</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="mt-auto flex flex-col gap-3 px-4 sm:px-5 pb-4 sm:pb-5">
+                              {/* Status + Sync info row */}
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="flex items-center gap-2">
+                                  <Badge variant={account.status === "online" ? "success" : account.status === "error" ? "destructive" : "neutral"} className="px-2 py-0.5 text-[10px]">
+                                    <span className={`mr-1.5 h-1.5 w-1.5 rounded-full ${account.status === "online" ? "bg-emerald-500" : account.status === "syncing" ? "bg-blue-500" : account.status === "error" ? "bg-red-500" : "bg-zinc-400"}`} />
+                                    {account.status === "online" ? "Online" : account.status === "syncing" ? "Syncing" : account.status === "error" ? "Error" : "Offline"}
+                                  </Badge>
+                                  {isSyncing && <RefreshCw className="h-3 w-3 animate-spin text-blue-500" />}
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDelete(account.id, account.email)}
+                                  disabled={deleteAccount.isPending}
+                                  className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-950/50"
+                                  title="Hapus Akun"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+
+                              {/* Last synced */}
+                              <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                                <RefreshCw className="h-3 w-3 shrink-0" />
+                                <span className="truncate">
+                                  {isSyncing ? "Sedang sinkronisasi..." : syncTime ? `Sync: ${syncTime}` : "Belum pernah sync"}
+                                </span>
+                              </div>
+
+                              {/* Storage bar */}
+                              <div className="flex flex-col gap-1.5">
+                                <div className="flex items-center justify-between text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                  <span>{formatBytes(account.usedStorageBytes)}</span>
+                                  <span>{formatBytes(account.totalStorageBytes)}</span>
+                                </div>
+                                <Progress
+                                  value={usagePercent}
+                                  className="h-1.5 bg-zinc-200 dark:bg-zinc-800"
+                                  indicatorClassName={isDanger ? "bg-red-500" : "bg-brand-500"}
+                                />
+                              </div>
+                            </div>
+                          </Card>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </TooltipProvider>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
+
+        <AddAccountDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
       </div>
     </PageTransition>
   );

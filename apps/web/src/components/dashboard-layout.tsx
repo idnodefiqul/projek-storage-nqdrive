@@ -3,6 +3,7 @@ import { Suspense, useEffect } from "react";
 import { SidebarProvider, AppSidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 import { useAuthContext } from "../stores/auth-provider";
+import { useSettings } from "../hooks/use-settings";
 import { AnimatePresence } from "framer-motion";
 import { PageSkeleton } from "./skeletons";
 
@@ -13,6 +14,7 @@ import { PageSkeleton } from "./skeletons";
  */
 export function DashboardLayout() {
   const { isAuthenticated, isLoading } = useAuthContext();
+  useSettings();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -46,7 +48,7 @@ export function DashboardLayout() {
   return (
     <SidebarProvider>
       <AppSidebar />
-      <div className="flex flex-1 flex-col overflow-hidden w-full relative">
+      <div className="flex flex-1 flex-col overflow-hidden w-full relative" style={{ contain: "strict" }}>
         <Topbar />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
           <Suspense fallback={<PageSkeleton />}>

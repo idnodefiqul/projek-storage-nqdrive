@@ -2,6 +2,10 @@ import { apiRequest } from "../lib/client";
 
 export interface SiteSettings {
   download_endpoint: string;
+  avatar_style: string;
+  avatar_seed: string;
+  brand_color: string;
+  theme_mode: string;
 }
 
 /**

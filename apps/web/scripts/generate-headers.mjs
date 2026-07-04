@@ -67,6 +67,7 @@ const headersContent = `# ======================================================
   Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: ${connectOrigins}; media-src 'self' ${connectOrigins}; frame-src 'self' ${connectOrigins}; connect-src ${connectOrigins}; worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
   Cache-Control: no-cache, no-store, must-revalidate
+  CDN-Cache-Control: no-store
   Pragma: no-cache
 
 # ── Hashed JS/CSS assets: cache permanen (safe, nama berisi hash) ──

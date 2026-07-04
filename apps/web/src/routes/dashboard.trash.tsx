@@ -112,7 +112,7 @@ function ConfirmPermanentDeleteDialog({
         </p>
       </div>
       <DialogFooter>
-        <Button variant="outline" className="border-brand-500 text-brand-600 hover:bg-brand-50 dark:border-brand-500 dark:text-brand-400 dark:hover:bg-brand-500/10 hover:text-brand-700 shrink-0" onClick={onClose} disabled={isPending}>
+        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={onClose} disabled={isPending}>
           Batal
         </Button>
         <Button variant="destructive" onClick={onConfirm} disabled={isPending}>
@@ -162,7 +162,7 @@ function ConfirmEmptyTrashDialog({
         </p>
       </div>
       <DialogFooter>
-        <Button variant="outline" className="border-brand-500 text-brand-600 hover:bg-brand-50 dark:border-brand-500 dark:text-brand-400 dark:hover:bg-brand-500/10 hover:text-brand-700 shrink-0" onClick={onClose} disabled={isPending}>
+        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={onClose} disabled={isPending}>
           Batal
         </Button>
         <Button variant="destructive" onClick={onConfirm} disabled={isPending}>

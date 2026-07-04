@@ -1,17 +1,6 @@
-import { useState } from "react";
-import {
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  Legend,
-} from "recharts";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, Skeleton } from "@nqdrive/ui";
-import { useDashboardAnalytics, type ChartDataPoint } from "../hooks/use-dashboard";
-import { TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { useDashboardAnalytics } from "../hooks/use-dashboard";
 
 type Period = 7 | 30 | 90;
 
@@ -23,49 +12,23 @@ function formatDate(dateStr: string, period: Period): string {
   return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
 }
 
-interface CustomTooltipProps {
-  active?: boolean;
-  payload?: Array<{ name: string; value: number; color: string }>;
-  label?: string;
-}
-
-function CustomTooltip({ active, payload, label }: CustomTooltipProps) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-xl border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 shadow-xl px-4 py-3 text-sm">
-      <p className="font-semibold text-zinc-700 dark:text-zinc-300 mb-2">{label}</p>
-      {payload.map((p) => (
-        <div key={p.name} className="flex items-center gap-2">
-          <span className="inline-block w-2 h-2 rounded-full" style={{ background: p.color }} />
-          <span className="text-zinc-500 dark:text-zinc-400 capitalize">{p.name}:</span>
-          <span className="font-semibold text-zinc-900 dark:text-zinc-100">{p.value}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TrendBadge({ data, key }: { data: ChartDataPoint[]; key: "downloads" | "uploads" }) {
-  if (data.length < 2) return <Minus className="h-3 w-3 text-zinc-400" />;
-  const half = Math.floor(data.length / 2);
-  const prev = data.slice(0, half).reduce((s, d) => s + d[key], 0);
-  const curr = data.slice(half).reduce((s, d) => s + d[key], 0);
-  if (curr > prev) return <TrendingUp className="h-3 w-3 text-emerald-500" />;
-  if (curr < prev) return <TrendingDown className="h-3 w-3 text-red-500" />;
-  return <Minus className="h-3 w-3 text-zinc-400" />;
-}
-
 export function DashboardAnalyticsChart() {
   const [period, setPeriod] = useState<Period>(30);
   const { data: analytics, isLoading } = useDashboardAnalytics(period);
+  const [Chart, setChart] = useState<any>(null);
 
-  const chartData = analytics?.chartData?.map((d) => ({
-    ...d,
-    label: formatDate(d.date, period),
-  })) ?? [];
+  useEffect(() => {
+    let mounted = true;
+    import("react-apexcharts").then(m => {
+      if (mounted) setChart(() => m.default);
+    });
+    return () => { mounted = false; };
+  }, []);
 
-  const totalDownloads = chartData.reduce((s, d) => s + d.downloads, 0);
-  const totalUploads = chartData.reduce((s, d) => s + d.uploads, 0);
+  const chartData = analytics?.chartData ?? [];
+  const categories = chartData.map(d => formatDate(d.date, period));
+  const downloads = chartData.map(d => d.downloads);
+  const uploads = chartData.map(d => d.uploads);
 
   const PERIODS: { label: string; value: Period }[] = [
     { label: "7H", value: 7 },
@@ -73,8 +36,63 @@ export function DashboardAnalyticsChart() {
     { label: "90H", value: 90 },
   ];
 
+  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+
+  const options = useMemo((): any => ({
+    chart: {
+      type: "area",
+      toolbar: { show: false },
+      zoom: { enabled: false },
+      background: "transparent",
+      fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
+      animations: { enabled: true, easing: "easeinout", speed: 600, dynamicAnimation: { enabled: false } },
+      selection: { enabled: false },
+      redrawOnParentResize: true,
+      redrawOnWindowResize: true,
+    },
+    theme: { mode: isDark ? "dark" : "light" },
+    colors: ["#6366f1", "#10b981"],
+    dataLabels: { enabled: false },
+    stroke: { curve: "smooth", width: 2.5 },
+    fill: {
+      type: "gradient",
+      gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05, stops: [0, 90, 100] },
+    },
+    xaxis: {
+      categories,
+      labels: { style: { colors: isDark ? "#71717a" : "#a1a1aa", fontSize: "11px" } },
+      axisBorder: { show: false },
+      axisTicks: { show: false },
+      tickAmount: period === 7 ? 7 : period === 30 ? 8 : 10,
+    },
+    yaxis: {
+      labels: { style: { colors: isDark ? "#71717a" : "#a1a1aa", fontSize: "11px" } },
+    },
+    grid: {
+      borderColor: isDark ? "#27272a" : "#e4e4e7",
+      strokeDashArray: 3,
+      xaxis: { lines: { show: false } },
+    },
+    tooltip: {
+      theme: isDark ? "dark" : "light",
+      x: { show: true },
+    },
+    legend: {
+      position: "top",
+      horizontalAlign: "right",
+      labels: { colors: isDark ? "#a1a1aa" : "#52525b" },
+      fontSize: "12px",
+      markers: { size: 5, shape: "circle" },
+    },
+  }), [isDark, categories, period]);
+
+  const series = [
+    { name: "Download", data: downloads },
+    { name: "Upload", data: uploads },
+  ];
+
   return (
-    <Card className="col-span-1 lg:col-span-7">
+    <Card className="col-span-1 lg:col-span-5" style={{ contain: "layout style" }}>
       <CardHeader className="flex flex-row items-start justify-between gap-3 pb-4">
         <div className="min-w-0">
           <CardTitle className="text-lg font-semibold">Analitik Aktivitas</CardTitle>
@@ -82,8 +100,6 @@ export function DashboardAnalyticsChart() {
             Download &amp; upload dalam {period} hari terakhir
           </p>
         </div>
-
-        {/* Period selector */}
         <div className="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 p-1 bg-zinc-50 dark:bg-zinc-800/50">
           {PERIODS.map((p) => (
             <button
@@ -100,79 +116,15 @@ export function DashboardAnalyticsChart() {
           ))}
         </div>
       </CardHeader>
-
       <CardContent>
-        {isLoading ? (
-          <div className="flex flex-col gap-2">
-            <Skeleton className="h-[240px] w-full rounded-xl" />
-          </div>
+        {isLoading || !Chart ? (
+          <Skeleton className="h-[260px] w-full rounded-xl" />
         ) : chartData.length === 0 ? (
-          <div className="flex h-[240px] items-center justify-center text-sm text-zinc-400">
+          <div className="flex h-[260px] items-center justify-center text-sm text-zinc-400">
             Belum ada data aktivitas.
           </div>
         ) : (
-          <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-              <defs>
-                <linearGradient id="gradDownload" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="gradUpload" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
-                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid
-                strokeDasharray="3 3"
-                stroke="currentColor"
-                className="text-zinc-200 dark:text-zinc-800"
-                vertical={false}
-              />
-              <XAxis
-                dataKey="label"
-                tick={{ fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                className="text-zinc-400"
-                interval={period === 7 ? 0 : period === 30 ? 4 : 13}
-              />
-              <YAxis
-                tick={{ fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-                allowDecimals={false}
-                className="text-zinc-400"
-              />
-              <Tooltip content={<CustomTooltip />} />
-              <Legend
-                iconType="circle"
-                iconSize={8}
-                wrapperStyle={{ fontSize: 12, paddingTop: 16 }}
-                formatter={(value) =>
-                  value === "downloads" ? "Download" : "Upload"
-                }
-              />
-              <Area
-                type="monotone"
-                dataKey="downloads"
-                stroke="#6366f1"
-                strokeWidth={2}
-                fill="url(#gradDownload)"
-                dot={false}
-                activeDot={{ r: 4, strokeWidth: 0 }}
-              />
-              <Area
-                type="monotone"
-                dataKey="uploads"
-                stroke="#10b981"
-                strokeWidth={2}
-                fill="url(#gradUpload)"
-                dot={false}
-                activeDot={{ r: 4, strokeWidth: 0 }}
-              />
-            </AreaChart>
-          </ResponsiveContainer>
+          <Chart options={options} series={series} type="area" height={260} />
         )}
       </CardContent>
     </Card>

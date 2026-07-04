@@ -9,7 +9,7 @@ import type { Env } from "../config/env";
  */
 const settingsRoutes = new Hono<{ Bindings: Env }>();
 
-const ALLOWED_KEYS = ["download_endpoint"] as const;
+const ALLOWED_KEYS = ["download_endpoint", "avatar_style", "avatar_seed", "brand_color", "theme_mode"] as const;
 type SettingKey = (typeof ALLOWED_KEYS)[number];
 
 /** GET /api/settings — return all settings */
@@ -21,6 +21,10 @@ settingsRoutes.get("/", requireAuth, async (c) => {
     success: true,
     data: {
       download_endpoint: settings["download_endpoint"] ?? "default",
+      avatar_style: settings["avatar_style"] ?? "pixelArt",
+      avatar_seed: settings["avatar_seed"] ?? "",
+      brand_color: settings["brand_color"] ?? "",
+      theme_mode: settings["theme_mode"] ?? "light",
     },
   });
 });
@@ -35,6 +39,12 @@ settingsRoutes.patch("/", requireAuth, async (c) => {
   for (const key of ALLOWED_KEYS) {
     if (key in body) {
       const value = body[key]?.toString() ?? "";
+
+      // Pass through avatar keys
+      if (key === "avatar_style" || key === "avatar_seed" || key === "brand_color" || key === "theme_mode") {
+        updates[key] = value;
+        continue;
+      }
 
       // Validate download_endpoint
       if (key === "download_endpoint") {

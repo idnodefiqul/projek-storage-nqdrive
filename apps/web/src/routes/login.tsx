@@ -5,6 +5,7 @@ import { motion } from "framer-motion";
 import { useLogin, useMe } from "../hooks/auth";
 import { Particles } from "@nqdrive/ui";
 import { LoadingOverlay } from "../components/overlay";
+import { logoLoginPng } from "../assets";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
@@ -71,7 +72,7 @@ function LoginPage() {
       >
         <div className="rounded-2xl border border-zinc-200 bg-white p-8 shadow-xl dark:border-white/10 dark:bg-white/5 dark:shadow-2xl dark:backdrop-blur-xl dark:ring-1 dark:ring-white/5">
           <div className="mb-8 flex flex-col items-center gap-3">
-            <img src="/logologon.png" alt="Logo" className="h-28 w-auto object-contain" />
+            <img src={logoLoginPng} alt="Logo" className="h-28 w-auto object-contain" />
           </div>
           <div className="mb-6 flex items-center gap-3">
             <div className="h-px flex-1 bg-zinc-200 dark:bg-white/10" />

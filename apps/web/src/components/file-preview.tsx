@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  X, Save, Loader2, Maximize2, Minimize2, Edit3, Check,
-  AlertTriangle, ChevronLeft, ChevronRight, ZoomIn, ZoomOut, Lock,
+  X, Save, Loader2, Maximize2, Minimize2, Edit3,
+  AlertTriangle, Lock,
 } from "lucide-react";
 import { Button, Input, useToast } from "@nqdrive/ui";
-import { usePreviewToken, useFileContent, useUpdateFileContent, useRenameSyncFile } from "../hooks/use-files";
+import { usePreviewToken, useFileContent, useUpdateFileContent } from "../hooks/use-files";
 import { getFileTypeInfo } from "../lib/file-icons";
 import { formatBytes } from "@nqdrive/shared";
+import { logoMainPng } from "../assets";
 import type { FileWithAccount } from "@nqdrive/types";
 
 const WORKER_BASE = (import.meta.env.VITE_WORKER_URL as string | undefined) ?? "";
@@ -41,14 +42,15 @@ function PdfViewer({ url }: { url: string }) {
   const renderPdf = useCallback(async (pw?: string) => {
     setLoading(true);
     setError(null);
+    setPages([]);
     try {
       const pdfjs = await loadPdfJs();
       const loadingTask = pdfjs.getDocument({ url, password: pw || undefined, useSystemFonts: true });
       const pdf = await loadingTask.promise;
       setTotalPages(pdf.numPages);
       setNeedsPassword(false);
+      setLoading(false);
 
-      const rendered: string[] = [];
       const scale = window.innerWidth < 768 ? 1.5 : 2;
 
       for (let i = 1; i <= pdf.numPages; i++) {
@@ -59,16 +61,15 @@ function PdfViewer({ url }: { url: string }) {
         canvas.height = viewport.height;
         const ctx = canvas.getContext("2d")!;
         await page.render({ canvasContext: ctx, viewport }).promise;
-        rendered.push(canvas.toDataURL("image/png"));
+        const dataUrl = canvas.toDataURL("image/png");
+        setPages(prev => [...prev, dataUrl]);
       }
-      setPages(rendered);
     } catch (err: any) {
       if (err?.name === "PasswordException") {
         setNeedsPassword(true);
       } else {
         setError(err?.message || "Gagal memuat PDF");
       }
-    } finally {
       setLoading(false);
     }
   }, [url]);
@@ -80,7 +81,7 @@ function PdfViewer({ url }: { url: string }) {
     if (password.trim()) renderPdf(password.trim());
   };
 
-  if (loading) return <div className="flex items-center justify-center h-full min-h-[300px]"><Loader2 className="h-8 w-8 animate-spin text-brand-500" /></div>;
+  if (loading && pages.length === 0) return <div className="flex items-center justify-center h-full min-h-[300px]"><Loader2 className="h-8 w-8 animate-spin text-brand-500" /></div>;
 
   if (needsPassword) {
     return (
@@ -113,13 +114,18 @@ function PdfViewer({ url }: { url: string }) {
   );
 
   return (
-    <div ref={containerRef} className="flex flex-col items-center gap-3 p-4 overflow-auto h-full bg-zinc-100 dark:bg-zinc-950">
+    <div ref={containerRef} className="flex flex-col items-center gap-0 overflow-auto h-full bg-zinc-100 dark:bg-zinc-950">
       {pages.map((src, i) => (
         <div key={i} className="w-full max-w-3xl">
-          <img src={src} alt={`Page ${i + 1}`} className="w-full h-auto shadow-md rounded-sm bg-white" loading="lazy" />
-          <p className="text-center text-[10px] text-zinc-400 mt-1">{i + 1} / {totalPages}</p>
+          <img src={src} alt={`Page ${i + 1}`} className="w-full h-auto bg-white block" loading="lazy" />
         </div>
       ))}
+      {pages.length < totalPages && pages.length > 0 && (
+        <div className="flex items-center justify-center py-6">
+          <Loader2 className="h-5 w-5 animate-spin text-brand-500" />
+          <span className="ml-2 text-xs text-zinc-500">Memuat halaman {pages.length + 1} / {totalPages}...</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -131,13 +137,18 @@ function VideoPlayer({ url, onClose }: { url: string; onClose: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [videoLoaded, setVideoLoaded] = useState(false);
   const [showUI, setShowUI] = useState(true);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [buffered, setBuffered] = useState(0);
   const [isBrowserFS, setIsBrowserFS] = useState(false);
+  const [seekIndicator, setSeekIndicator] = useState<"left" | "right" | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastTapTime = useRef(0);
+  const lastTapX = useRef(0);
+  const seekIndicatorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fmt = (s: number) => {
     if (!isFinite(s) || s < 0) return "0:00";
@@ -151,6 +162,41 @@ function VideoPlayer({ url, onClose }: { url: string; onClose: () => void }) {
     const v = videoRef.current;
     if (!v) return;
     v.paused ? v.play() : v.pause();
+  };
+
+  const seekBy = (seconds: number) => {
+    const v = videoRef.current;
+    if (!v || !v.duration) return;
+    v.currentTime = Math.max(0, Math.min(v.duration, v.currentTime + seconds));
+  };
+
+  // Double-tap left/right to seek ±10s — no single-tap play/pause on screen
+  const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const now = Date.now();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const isLeft = x < rect.width / 2;
+
+    if (now - lastTapTime.current < 350 && Math.abs(x - lastTapX.current) < 100) {
+      // Double tap detected — seek
+      if (isLeft) {
+        seekBy(-10);
+        setSeekIndicator("left");
+      } else {
+        seekBy(10);
+        setSeekIndicator("right");
+      }
+      if (seekIndicatorTimer.current) clearTimeout(seekIndicatorTimer.current);
+      seekIndicatorTimer.current = setTimeout(() => setSeekIndicator(null), 600);
+      lastTapTime.current = 0;
+    } else {
+      // Single tap — just show/hide UI controls
+      lastTapTime.current = now;
+      lastTapX.current = x;
+      setTimeout(() => {
+        if (lastTapTime.current === now) resetHide();
+      }, 350);
+    }
   };
 
   const toggleFS = () => {
@@ -184,24 +230,65 @@ function VideoPlayer({ url, onClose }: { url: string; onClose: () => void }) {
   useEffect(() => {
     const onFSChange = () => { if (!document.fullscreenElement) setIsBrowserFS(false); };
     document.addEventListener("fullscreenchange", onFSChange);
-    return () => { document.removeEventListener("fullscreenchange", onFSChange); if (hideTimer.current) clearTimeout(hideTimer.current); };
+    return () => { document.removeEventListener("fullscreenchange", onFSChange); if (hideTimer.current) clearTimeout(hideTimer.current); if (seekIndicatorTimer.current) clearTimeout(seekIndicatorTimer.current); };
   }, []);
 
   if (error) return (
-    <div className="flex flex-col items-center justify-center gap-4 p-12 h-full min-h-[300px] bg-black">
+    <div className="flex flex-col items-center justify-center gap-4 p-12 h-full min-h-[300px] bg-zinc-100 dark:bg-zinc-950">
       <AlertTriangle className="h-8 w-8 text-red-500" />
-      <p className="text-sm text-zinc-400">Gagal memuat video</p>
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">Gagal memuat video</p>
     </div>
   );
 
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full bg-black flex items-center justify-center overflow-hidden cursor-pointer"
-      onClick={togglePlay}
+      className="relative w-full h-full bg-zinc-100 dark:bg-zinc-950 flex items-center justify-center overflow-hidden cursor-pointer"
+      onClick={handleContainerClick}
       onMouseMove={resetHide}
       onTouchStart={resetHide}
     >
+      {/* Double-tap seek indicator */}
+      <AnimatePresence>
+        {seekIndicator && (
+          <motion.div
+            key={`seek-${seekIndicator}`}
+            initial={{ opacity: 0, scale: 0.5 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.5 }}
+            transition={{ duration: 0.2 }}
+            className={`absolute z-20 top-1/2 -translate-y-1/2 pointer-events-none ${seekIndicator === "left" ? "left-8 sm:left-16" : "right-8 sm:right-16"}`}
+          >
+            <div className="flex items-center gap-1 rounded-full bg-black/50 dark:bg-white/20 px-4 py-2 backdrop-blur-sm">
+              <svg viewBox="0 0 24 24" className="h-5 w-5 text-white" fill="currentColor">
+                {seekIndicator === "left"
+                  ? <path d="M12.5 3C7.81 3 4.01 6.54 3.67 11H1.5l3.5 4 3.5-4H6.17c.33-3.36 3.13-6 6.33-6 3.52 0 6.5 2.98 6.5 6.5S16.02 18 12.5 18c-1.56 0-2.99-.56-4.1-1.49l-1.42 1.42C8.53 19.35 10.43 20 12.5 20c4.69 0 8.5-3.81 8.5-8.5S17.19 3 12.5 3zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H11.5z" />
+                  : <path d="M11.5 3c4.69 0 8.5 3.81 8.5 8.5s-3.81 8.5-8.5 8.5c-2.07 0-3.97-.65-5.52-1.07l1.42-1.42c1.11.93 2.54 1.49 4.1 1.49 3.52 0 6.5-2.98 6.5-6.5S15.02 5 11.5 5c-3.2 0-6 2.64-6.33 6H7.5l-3.5 4-3.5-4h2.17c.34-4.46 4.14-8 8.83-8zm1 5v5l-4.28 2.54-.72-1.21 3.5-2.08V8H12.5z" />
+                }
+              </svg>
+              <span className="text-sm font-semibold text-white">10s</span>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Loading spinner — visible until video can play */}
+      <AnimatePresence>
+        {!videoLoaded && !error && (
+          <motion.div
+            key="video-loader"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-zinc-100 dark:bg-zinc-950 pointer-events-none"
+          >
+            <div className="h-10 w-10 rounded-full border-3 border-zinc-300 dark:border-zinc-700 border-t-brand-500 animate-spin" />
+            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Memuat video...</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Video element — fills entire container */}
       <video
         ref={videoRef}
@@ -211,6 +298,7 @@ function VideoPlayer({ url, onClose }: { url: string; onClose: () => void }) {
         className="w-full h-full object-contain"
         onError={() => setError(true)}
         onTimeUpdate={handleTimeUpdate}
+        onCanPlay={() => setVideoLoaded(true)}
         onLoadedMetadata={() => { if (videoRef.current) { setDuration(videoRef.current.duration); setIsPlaying(!videoRef.current.paused); } }}
         onPlay={() => { setIsPlaying(true); resetHide(); }}
         onPause={() => { setIsPlaying(false); setShowUI(true); }}
@@ -218,11 +306,11 @@ function VideoPlayer({ url, onClose }: { url: string; onClose: () => void }) {
       />
 
       {/* Logo — top-left inside video, always visible */}
-      <img src="/logopage.png" alt="" className="absolute top-4 left-4 h-8 sm:h-10 w-auto opacity-50 pointer-events-none select-none drop-shadow-lg" />
+      <img src={logoMainPng} alt="" className="absolute top-4 left-4 h-8 sm:h-10 w-auto opacity-20 pointer-events-none select-none drop-shadow-lg" />
 
-      {/* Center play button — only when paused */}
+      {/* Center play icon — only when paused, tap bottom button to play */}
       <AnimatePresence>
-        {!isPlaying && (
+        {!isPlaying && videoLoaded && (
           <motion.div
             initial={{ opacity: 0, scale: 0.7 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -230,8 +318,8 @@ function VideoPlayer({ url, onClose }: { url: string; onClose: () => void }) {
             transition={{ duration: 0.15 }}
             className="absolute inset-0 flex items-center justify-center pointer-events-none"
           >
-            <div className="flex h-18 w-18 sm:h-22 sm:w-22 items-center justify-center rounded-full bg-brand-500/80 shadow-xl shadow-brand-500/30">
-              <svg viewBox="0 0 24 24" className="h-10 w-10 sm:h-12 sm:w-12 text-white ml-1" fill="currentColor"><polygon points="6,3 20,12 6,21" /></svg>
+            <div className="flex h-16 w-16 sm:h-20 sm:w-20 items-center justify-center rounded-full bg-black/30 dark:bg-white/15 backdrop-blur-sm">
+              <svg viewBox="0 0 24 24" className="h-8 w-8 sm:h-10 sm:w-10 text-white ml-0.5" fill="currentColor"><polygon points="6,3 20,12 6,21" /></svg>
             </div>
           </motion.div>
         )}
@@ -245,12 +333,12 @@ function VideoPlayer({ url, onClose }: { url: string; onClose: () => void }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
-            className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/70 to-transparent pt-3 pb-12 px-4 flex items-start justify-between pointer-events-auto"
+            className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/50 dark:from-black/70 to-transparent pt-3 pb-12 px-4 flex items-start justify-between pointer-events-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div />
-            <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-colors backdrop-blur-sm">
-              <X className="h-5 w-5 text-white" />
+            <button onClick={onClose} className="flex h-9 w-9 items-center justify-center rounded-full bg-black/10 dark:bg-white/10 hover:bg-black/20 dark:hover:bg-white/20 transition-colors backdrop-blur-sm">
+              <X className="h-5 w-5 text-zinc-700 dark:text-white" />
             </button>
           </motion.div>
         )}
@@ -264,13 +352,13 @@ function VideoPlayer({ url, onClose }: { url: string; onClose: () => void }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 10 }}
             transition={{ duration: 0.2 }}
-            className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent pt-12 pb-4 px-4 pointer-events-auto"
+            className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 dark:from-black/80 via-black/30 dark:via-black/40 to-transparent pt-12 pb-4 px-4 pointer-events-auto"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Progress bar */}
             <div className="group cursor-pointer mb-3" onClick={handleSeek}>
-              <div className="relative h-1 group-hover:h-2 transition-all rounded-full bg-white/20 overflow-hidden">
-                <div className="absolute inset-y-0 left-0 bg-white/20 rounded-full transition-all" style={{ width: `${buffered}%` }} />
+              <div className="relative h-1 group-hover:h-2 transition-all rounded-full bg-zinc-300/40 dark:bg-white/20 overflow-hidden">
+                <div className="absolute inset-y-0 left-0 bg-zinc-400/30 dark:bg-white/20 rounded-full transition-all" style={{ width: `${buffered}%` }} />
                 <div className="absolute inset-y-0 left-0 bg-brand-500 rounded-full transition-all" style={{ width: `${progress}%` }} />
                 <div className="absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full bg-brand-500 shadow-md opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: `calc(${progress}% - 6px)` }} />
               </div>
@@ -279,17 +367,17 @@ function VideoPlayer({ url, onClose }: { url: string; onClose: () => void }) {
             {/* Controls row */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
-                <button onClick={togglePlay} className="text-white hover:text-brand-400 transition-colors">
+                <button onClick={togglePlay} className="text-zinc-800 dark:text-white hover:text-brand-500 dark:hover:text-brand-400 transition-colors">
                   {isPlaying ? (
                     <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1" /><rect x="14" y="4" width="4" height="16" rx="1" /></svg>
                   ) : (
                     <svg viewBox="0 0 24 24" className="h-6 w-6" fill="currentColor"><polygon points="6,3 20,12 6,21" /></svg>
                   )}
                 </button>
-                <span className="text-sm text-white/90 font-mono tabular-nums">{fmt(currentTime)} <span className="text-white/40">/</span> {fmt(duration)}</span>
+                <span className="text-sm text-zinc-700/90 dark:text-white/90 font-mono tabular-nums">{fmt(currentTime)} <span className="text-zinc-400 dark:text-white/40">/</span> {fmt(duration)}</span>
               </div>
               <div className="flex items-center gap-3">
-                <button onClick={toggleFS} className="text-white/80 hover:text-white transition-colors" title="Fullscreen">
+                <button onClick={toggleFS} className="text-zinc-600 dark:text-white/80 hover:text-zinc-900 dark:hover:text-white transition-colors" title="Fullscreen">
                   {isBrowserFS ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
                 </button>
               </div>
@@ -313,11 +401,11 @@ function ImageViewer({ url, filename }: { url: string; filename: string }) {
   );
 
   return (
-    <div className="flex items-center justify-center overflow-auto h-full bg-zinc-100 dark:bg-zinc-950 p-2">
+    <div className="flex items-start justify-center h-full w-full bg-zinc-100 dark:bg-zinc-950 p-0 overflow-y-auto overflow-x-hidden">
       <img
         src={url}
         alt={filename}
-        className="max-w-full w-auto h-auto object-contain"
+        className="w-full h-auto object-contain select-none"
         onError={() => setError(true)}
         draggable={false}
       />
@@ -340,17 +428,13 @@ export function FilePreviewDialog({ file, onClose }: Props) {
   const { data: tokenData, isLoading: isLoadingToken, isError: isTokenError } = usePreviewToken(needsStream ? file!.slug : null);
   const { data: textData, isLoading: isLoadingText, isError: isTextError } = useFileContent(needsText ? file!.slug : null);
   const updateContent = useUpdateFileContent();
-  const renameSync = useRenameSyncFile();
 
   const [textContent, setTextContent] = useState("");
   const [isEditing, setIsEditing] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(true);
-  const [isRenaming, setIsRenaming] = useState(false);
-  const [newName, setNewName] = useState("");
 
   useEffect(() => { if (textData?.content !== undefined) setTextContent(textData.content); }, [textData?.content]);
-  useEffect(() => { if (file) setNewName(file.filename); }, [file]);
-  useEffect(() => { if (!file) { setIsEditing(false); setIsRenaming(false); } }, [file]);
+  useEffect(() => { if (!file) { setIsEditing(false); } }, [file]);
   useEffect(() => { const h = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [onClose]);
 
   const handleSaveText = useCallback(async () => {
@@ -358,12 +442,6 @@ export function FilePreviewDialog({ file, onClose }: Props) {
     try { await updateContent.mutateAsync({ slug: file.slug, content: textContent }); setIsEditing(false); toast({ title: "File berhasil disimpan", variant: "success" }); }
     catch (e) { toast({ title: "Gagal menyimpan", description: e instanceof Error ? e.message : undefined, variant: "error" }); }
   }, [file, textContent, updateContent, toast]);
-
-  const handleRename = useCallback(async () => {
-    if (!file || !newName.trim() || newName.trim() === file.filename) { setIsRenaming(false); return; }
-    try { await renameSync.mutateAsync({ slug: file.slug, filename: newName.trim() }); setIsRenaming(false); toast({ title: "Nama file diperbarui", variant: "success" }); }
-    catch (e) { toast({ title: "Gagal rename", description: e instanceof Error ? e.message : undefined, variant: "error" }); }
-  }, [file, newName, renameSync, toast]);
 
   if (!file) return null;
 
@@ -377,7 +455,7 @@ export function FilePreviewDialog({ file, onClose }: Props) {
     return (
       <AnimatePresence>
         <motion.div key="video-fs" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={FADE}
-          className="fixed inset-0 z-[100] bg-black">
+          className="fixed inset-0 z-[9999] bg-zinc-100 dark:bg-zinc-950">
           <VideoPlayer url={sUrl} onClose={onClose} />
         </motion.div>
       </AnimatePresence>
@@ -389,7 +467,7 @@ export function FilePreviewDialog({ file, onClose }: Props) {
     return (
       <AnimatePresence>
         <motion.div key="video-loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={FADE}
-          className="fixed inset-0 z-[100] bg-black flex items-center justify-center">
+          className="fixed inset-0 z-[9999] bg-zinc-100 dark:bg-zinc-950 flex items-center justify-center">
           <Loader2 className="h-10 w-10 animate-spin text-brand-500" />
         </motion.div>
       </AnimatePresence>
@@ -400,34 +478,23 @@ export function FilePreviewDialog({ file, onClose }: Props) {
     <AnimatePresence>
       {file && (
         <motion.div key="preview-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={FADE}
-          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4" onClick={onClose}>
+          className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-0 sm:p-4" onClick={onClose}>
           <motion.div initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.97 }}
             transition={{ duration: 0.2, ease: [0.4, 0, 0.2, 1] }} onClick={(e) => e.stopPropagation()}
             className={`relative flex flex-col bg-white dark:bg-zinc-900 shadow-2xl border border-zinc-200 dark:border-zinc-800 overflow-hidden ${isFullscreen ? "w-full h-full rounded-none" : "w-full max-w-4xl max-h-[90vh] rounded-2xl"}`}>
 
-            {/* Header */}
+            {/* Header — no rename, just filename + controls */}
             <div className="flex items-center gap-3 px-4 sm:px-5 py-3 border-b border-zinc-200 dark:border-zinc-800 shrink-0">
               <div className={`flex h-8 w-8 items-center justify-center rounded-lg shrink-0 ${typeInfo!.bg}`}><Icon className={`h-4 w-4 ${color}`} /></div>
               <div className="flex-1 min-w-0">
-                {isRenaming ? (
-                  <div className="flex items-center gap-2">
-                    <Input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") handleRename(); if (e.key === "Escape") setIsRenaming(false); }} className="h-8 text-sm" autoFocus />
-                    <Button size="icon" variant="ghost" onClick={handleRename} disabled={renameSync.isPending} className="h-8 w-8 shrink-0">
-                      {renameSync.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4 text-brand-500" />}
-                    </Button>
-                  </div>
-                ) : (
-                  <button onClick={() => setIsRenaming(true)} className="flex items-center gap-1.5 group text-left w-full" title="Klik untuk rename">
-                    <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">{file.filename}</p>
-                    <Edit3 className="h-3 w-3 text-zinc-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
-                  </button>
-                )}
+                <p className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 truncate">{file.filename}</p>
                 <p className="text-xs text-zinc-500 mt-0.5">{formatBytes(file.sizeBytes)} {"\u00B7"} {typeInfo!.label}</p>
               </div>
               <div className="flex items-center gap-1 shrink-0">
                 {previewable === "text" && !isEditing && <Button size="icon" variant="ghost" onClick={() => setIsEditing(true)} className="h-8 w-8" title="Edit"><Edit3 className="h-4 w-4" /></Button>}
                 {previewable === "text" && isEditing && <Button size="icon" variant="ghost" onClick={handleSaveText} disabled={updateContent.isPending} className="h-8 w-8" title="Simpan">{updateContent.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4 text-brand-500" />}</Button>}
-                <Button size="icon" variant="ghost" onClick={() => setIsFullscreen(v => !v)} className="h-8 w-8 hidden sm:flex" title={isFullscreen ? "Kecilkan" : "Perbesar"}>{isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</Button>
+                {/* Fullscreen toggle — visible on both mobile and desktop */}
+                <Button size="icon" variant="ghost" onClick={() => setIsFullscreen(v => !v)} className="h-8 w-8" title={isFullscreen ? "Kecilkan" : "Perbesar"}>{isFullscreen ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}</Button>
                 <Button size="icon" variant="ghost" onClick={onClose} className="h-8 w-8" title="Tutup"><X className="h-4 w-4" /></Button>
               </div>
             </div>

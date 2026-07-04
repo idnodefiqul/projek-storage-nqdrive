@@ -101,9 +101,9 @@ authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
       `${SESSION_COOKIE_NAME}=${token}`,
       "HttpOnly",
       "Path=/",
-      "SameSite=Strict",
+      "SameSite=None",
       `Max-Age=${JWT_EXPIRY_SECONDS}`,
-      ...(isProduction ? ["Secure"] : []),
+      "Secure",
     ].join("; ");
 
     c.header("Set-Cookie", cookieAttributes);
@@ -127,9 +127,9 @@ authRoutes.post("/logout", requireAuth, (c) => {
     `${SESSION_COOKIE_NAME}=`,
     "HttpOnly",
     "Path=/",
-    "SameSite=Strict",
+    "SameSite=None",
     "Max-Age=0",
-    ...(isProduction ? ["Secure"] : []),
+    "Secure",
   ].join("; ");
 
   c.header("Set-Cookie", clearCookie);

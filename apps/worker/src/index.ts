@@ -52,6 +52,8 @@ app.use(
       "X-Folder-Id",
       "X-App-Client",
       "X-File-SHA256",
+      "Content-Range",
+      "Content-Length",
     ],
     exposeHeaders: ["Set-Cookie"],
     credentials: true, // Required â€” auth uses HttpOnly session cookie.
@@ -148,9 +150,21 @@ app.get("/api/files/stream", async (c) => {
   const connService = new GoogleAccountConnectionService(c.env);
   const accessToken = await connService.getValidAccessToken(account);
 
+  // Forward browser Range header for true streaming (video seek, PDF partial load)
+  const browserRange = c.req.header("Range");
+  const driveHeaders: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+    "Accept-Encoding": "identity",
+  };
+  if (browserRange) {
+    driveHeaders["Range"] = browserRange;
+  } else {
+    driveHeaders["Range"] = "bytes=0-";
+  }
+
   const driveRes = await fetch(
     `https://www.googleapis.com/drive/v3/files/${file.providerFileId}?alt=media&acknowledgeAbuse=true`,
-    { headers: { Authorization: `Bearer ${accessToken}`, "Accept-Encoding": "identity", Range: "bytes=0-" } }
+    { headers: driveHeaders }
   );
 
   if (!driveRes.ok && driveRes.status !== 206) return c.text("Drive error", 502);
@@ -166,9 +180,19 @@ app.get("/api/files/stream", async (c) => {
   h.set("Content-Type", ct);
   h.set("Cache-Control", "private, max-age=300");
   h.set("Accept-Ranges", "bytes");
-  if (totalSize > 0) { h.set("Content-Length", String(totalSize)); h.set("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`); }
 
-  return new Response(driveRes.body, { status: totalSize > 0 ? 206 : 200, headers: h, encodeBody: "manual" } as any);
+  // Forward Content-Range and Content-Length from Google Drive
+  if (cr) {
+    h.set("Content-Range", cr);
+    const driveContentLength = driveRes.headers.get("Content-Length");
+    if (driveContentLength) h.set("Content-Length", driveContentLength);
+  } else if (totalSize > 0) {
+    h.set("Content-Length", String(totalSize));
+    h.set("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`);
+  }
+
+  const status = (driveRes.status === 206 || browserRange) ? 206 : 200;
+  return new Response(driveRes.body, { status, headers: h, encodeBody: "manual" } as any);
 });
 
 app.route("/api/files", fileRoutes);

@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button, Card, CardHeader, CardTitle, CardContent } from "@nqdrive/ui";
 import { useTheme } from "../stores/theme-provider";
+import { logoMainPng } from "../assets";
 
 export const Route = createFileRoute("/")({
   component: LandingPage,
@@ -70,7 +71,7 @@ function Navbar({ isAuthenticated }: { isAuthenticated: boolean }) {
     >
       {/* Logo image only  — no text name */}
       <div className="flex items-center">
-        <img src="/logopage.png" alt="Logo" className="h-9 w-auto object-contain" />
+        <img src={logoMainPng} alt="Logo" className="h-9 w-auto object-contain" />
       </div>
 
       <div className="flex items-center gap-3">
@@ -249,7 +250,7 @@ function Footer({ isAuthenticated }: { isAuthenticated: boolean }) {
     <footer className="w-full border-t border-zinc-200 dark:border-white/10 bg-zinc-50 dark:bg-zinc-950 mt-12 py-10 px-6">
       <div className="max-w-6xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
         <div className="flex flex-col items-center md:items-start gap-1">
-          <img src="/logopage.png" alt="Logo" className="h-8 w-auto object-contain" />
+          <img src={logoMainPng} alt="Logo" className="h-8 w-auto object-contain" />
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
             Secure Cloud Storage &copy; {new Date().getFullYear()}
           </p>

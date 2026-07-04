@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Pages Function catch-all -- proxy request file/download ke Worker, tanpa
  * mengganggu static asset (JS/CSS Vite) maupun SPA fallback React.
  *
