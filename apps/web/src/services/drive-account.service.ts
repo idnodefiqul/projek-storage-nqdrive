@@ -10,6 +10,13 @@ export const driveAccountService = {
 
 export const googleDriveService = {
   /**
+   * Ambil URL Google OAuth consent (cara login yang direkomendasikan).
+   * Frontend melakukan window.location ke URL ini; setelah admin mengizinkan,
+   * Google redirect ke worker callback yang menyimpan akun otomatis.
+   */
+  getOAuthUrl: () => apiRequest<{ url: string }>("/storage/accounts/oauth/url"),
+
+  /**
    * Tambahkan akun Google Drive via refresh token.
    * FIX: body dikirim sebagai object, bukan JSON.stringify manual
    * (apiRequest sudah handle JSON.stringify di dalamnya).

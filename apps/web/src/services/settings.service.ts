@@ -6,6 +6,12 @@ export interface SiteSettings {
   avatar_seed: string;
   brand_color: string;
   theme_mode: string;
+  rate_limit_login?: string;
+  block_cli_download?: string;
+  rate_limit_download?: string;
+  turnstile_enabled?: string;
+  turnstile_sitekey?: string;
+  turnstile_secretkey?: string;
 }
 
 /**

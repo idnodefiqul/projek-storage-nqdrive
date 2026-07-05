@@ -1,23 +1,117 @@
 /**
- * Google OAuth 2.0 utility — versi minimal yang hanya perlu:
- *   1. fetchGoogleAccountInfo  — ambil email dari access token
- *   2. exchangeRefreshToken    — tukar refresh token -> access token baru
+ * Google OAuth 2.0 utility.
  *
- * Flow OAuth consent screen (buildGoogleAuthorizationUrl / exchangeGoogleAuthCode) DIHAPUS.
- * Admin sekarang menambahkan akun dengan paste refresh token langsung ke form dashboard,
- * bukan lewat redirect Google consent. Ini lebih simpel dan tidak perlu setup redirect URI.
+ * Dua cara menambahkan akun Google Drive:
+ *   A. OAuth consent flow (DIREKOMENDASIKAN) — admin klik "Login dengan Google",
+ *      izinkan di halaman Google, worker menukar `code` -> refresh token otomatis.
+ *        - buildGoogleAuthUrl   — bikin URL consent screen
+ *        - exchangeAuthCode     — tukar authorization code -> { accessToken, refreshToken }
+ *   B. Paste refresh token manual (cara lama, tetap didukung sebagai fallback).
+ *        - exchangeRefreshToken — tukar refresh token -> access token baru
+ *
+ * Keduanya berbagi helper fetchGoogleAccountInfo untuk ambil email + validasi scope drive.
  */
 
 const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const GOOGLE_TOKEN_INFO_URL = "https://oauth2.googleapis.com/tokeninfo";
+const GOOGLE_OAUTH_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth";
+const GOOGLE_DRIVE_SCOPE = "https://www.googleapis.com/auth/drive";
 
 export interface GoogleTokenExchangeResult {
   accessToken: string;
   expiresAt: string;
 }
 
+export interface GoogleAuthCodeResult {
+  accessToken: string;
+  refreshToken: string;
+  expiresAt: string;
+}
+
 export interface GoogleAccountInfo {
   email: string;
+}
+
+/**
+ * Bangun URL Google OAuth consent screen.
+ *
+ * access_type=offline + prompt=consent WAJIB agar Google mengembalikan refresh_token —
+ * tanpa keduanya, Google hanya memberi access token (yang expired 1 jam) dan akun jadi
+ * tidak bisa dipakai jangka panjang. `state` diteruskan balik apa adanya oleh Google,
+ * dipakai untuk proteksi CSRF di callback.
+ */
+export function buildGoogleAuthUrl(params: {
+  clientId: string;
+  redirectUri: string;
+  state: string;
+}): string {
+  const query = new URLSearchParams({
+    client_id: params.clientId,
+    redirect_uri: params.redirectUri,
+    response_type: "code",
+    scope: GOOGLE_DRIVE_SCOPE,
+    access_type: "offline",
+    prompt: "consent",
+    include_granted_scopes: "true",
+    state: params.state,
+  });
+  return `${GOOGLE_OAUTH_AUTH_URL}?${query.toString()}`;
+}
+
+/**
+ * Tukar authorization code (dari callback Google) menjadi access + refresh token.
+ * redirectUri HARUS sama persis dengan yang dipakai di buildGoogleAuthUrl, kalau tidak
+ * Google menolak dengan redirect_uri_mismatch.
+ */
+export async function exchangeAuthCode(params: {
+  code: string;
+  clientId: string;
+  clientSecret: string;
+  redirectUri: string;
+}): Promise<GoogleAuthCodeResult> {
+  const response = await fetch(GOOGLE_OAUTH_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      code: params.code,
+      client_id: params.clientId,
+      client_secret: params.clientSecret,
+      redirect_uri: params.redirectUri,
+      grant_type: "authorization_code",
+    }),
+  });
+
+  if (!response.ok) {
+    const detail = await response.text();
+    // Log detail asli Google untuk debugging (invalid_grant / redirect_uri_mismatch / dll)
+    console.error("[exchangeAuthCode] Google menolak:", response.status, detail);
+    throw new Error("Gagal menukar kode otorisasi Google. Coba hubungkan ulang akun.");
+  }
+
+  const data = (await response.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+  };
+
+  if (!data.access_token) {
+    throw new Error("Google tidak mengembalikan access token.");
+  }
+
+  // refresh_token hanya dikirim saat access_type=offline + consent baru. Kalau kosong,
+  // biasanya akun sudah pernah di-grant tanpa prompt=consent — beri pesan yang jelas.
+  if (!data.refresh_token) {
+    throw new Error(
+      "Google tidak mengembalikan refresh token. Cabut akses aplikasi di " +
+      "myaccount.google.com/permissions lalu hubungkan ulang."
+    );
+  }
+
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresAt: new Date(Date.now() + (data.expires_in ?? 3600) * 1000).toISOString(),
+  };
 }
 
 /**

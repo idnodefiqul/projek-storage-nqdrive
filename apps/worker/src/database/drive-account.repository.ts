@@ -47,7 +47,7 @@ export class DriveAccountRepository {
 
   async findAll(): Promise<DriveAccount[]> {
     const { results } = await this.db
-      .prepare("SELECT * FROM drive_accounts ORDER BY created_at DESC")
+      .prepare("SELECT * FROM drive_accounts WHERE refresh_token_encrypted != '' ORDER BY created_at DESC")
       .all<DriveAccountRow>();
     return results.map(rowToDriveAccount);
   }
@@ -147,5 +147,40 @@ export class DriveAccountRepository {
   /** Throws (FK RESTRICT) if files still reference this account — caller should surface that clearly. */
   async delete(id: number): Promise<void> {
     await this.db.prepare("DELETE FROM drive_accounts WHERE id = ?").bind(id).run();
+  }
+
+  async reconnect(
+    id: number,
+    params: {
+      refreshTokenEncrypted: string;
+      accessToken: string;
+      accessTokenExpiresAt: string;
+      totalStorageBytes: number;
+      usedStorageBytes: number;
+      availableStorageBytes: number;
+    }
+  ): Promise<DriveAccount> {
+    const row = await this.db
+      .prepare(
+        `UPDATE drive_accounts
+         SET refresh_token_encrypted = ?, access_token = ?, access_token_expires_at = ?,
+             total_storage_bytes = ?, used_storage_bytes = ?, available_storage_bytes = ?,
+             status = 'online', last_synced_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?
+         RETURNING *`
+      )
+      .bind(
+        params.refreshTokenEncrypted,
+        params.accessToken,
+        params.accessTokenExpiresAt,
+        params.totalStorageBytes,
+        params.usedStorageBytes,
+        params.availableStorageBytes,
+        id
+      )
+      .first<DriveAccountRow>();
+
+    if (!row) throw new Error("Failed to reconnect drive account: no row returned");
+    return rowToDriveAccount(row);
   }
 }

@@ -64,7 +64,7 @@ const headersContent = `# ======================================================
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
-  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: ${connectOrigins}; media-src 'self' ${connectOrigins}; frame-src 'self' ${connectOrigins}; connect-src ${connectOrigins}; worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com https://cdnjs.cloudflare.com https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https: ${connectOrigins}; media-src 'self' ${connectOrigins}; frame-src 'self' https://challenges.cloudflare.com ${connectOrigins}; connect-src https://challenges.cloudflare.com ${connectOrigins}; worker-src 'self' blob: https://cdnjs.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
   Cache-Control: no-cache, no-store, must-revalidate
   CDN-Cache-Control: no-store

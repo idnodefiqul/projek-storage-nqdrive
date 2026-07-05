@@ -23,7 +23,7 @@ export const setupAdminSchema = z.object({
 export const loginSchema = z.object({
   username: z.string().min(1, "Username wajib diisi"),
   password: z.string().min(1, "Password wajib diisi"),
-});
+}).passthrough();
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, "Password saat ini wajib diisi"),

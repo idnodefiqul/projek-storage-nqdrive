@@ -4,9 +4,9 @@ import { useSetupStatus, useMe } from "../hooks/auth";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { 
   Moon, Sun, Zap, ShieldCheck, Database, 
-  FolderOpen, ChartColumn, RefreshCw, ArrowRight, Github, BookOpen, LayoutDashboard, LogIn
+  FolderOpen, ChartColumn, RefreshCw, ArrowRight, Github, BookOpen, LayoutDashboard, LogIn, Menu, X, Shield
 } from "lucide-react";
-import { Button, Card, CardHeader, CardTitle, CardContent } from "@nqdrive/ui";
+import { Button, Card, CardHeader, CardTitle, CardContent, Dialog } from "@nqdrive/ui";
 import { useTheme } from "../stores/theme-provider";
 import { logoMainPng } from "../assets";
 
@@ -53,49 +53,113 @@ function Navbar({ isAuthenticated }: { isAuthenticated: boolean }) {
   const { theme, toggleTheme } = useTheme();
   const { scrollY } = useScroll();
   const [isScrolled, setIsScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   useMotionValueEvent(scrollY, "change", (latest) => {
     setIsScrolled(latest > 20);
   });
 
-  return (
-    <motion.header
-      className={`fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between px-6 transition-all duration-300 ${
-        isScrolled 
-          ? "bg-white/70 backdrop-blur-md border-b border-zinc-200 dark:bg-zinc-950/70 dark:border-white/10 shadow-sm" 
-          : "bg-transparent border-transparent"
-      }`}
-      initial={{ y: -100 }}
-      animate={{ y: 0 }}
-      transition={{ duration: 0.5, ease: "easeOut" }}
-    >
-      {/* Logo image only  — no text name */}
-      <div className="flex items-center">
-        <img src={logoMainPng} alt="Logo" className="h-9 w-auto object-contain" />
-      </div>
+  useEffect(() => {
+    document.body.style.overflow = mobileMenuOpen ? "hidden" : "";
+    return () => { document.body.style.overflow = ""; };
+  }, [mobileMenuOpen]);
 
-      <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={toggleTheme} className="rounded-full">
-          {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-        </Button>
-        {isAuthenticated ? (
-          <Link to="/dashboard">
-            <Button variant="default" className="rounded-full px-5 shadow-md shadow-brand-500/20">
-              Dashboard
-            </Button>
+  const menuItem = {
+    hidden: { opacity: 0, y: 16 },
+    show: { opacity: 1, y: 0, transition: { duration: 0.4, ease: "easeOut" } }
+  };
+
+  return (
+    <>
+      <motion.header
+        className={`fixed top-0 left-0 right-0 z-50 flex h-16 items-center justify-between px-6 transition-all duration-300 ${
+          isScrolled
+            ? "bg-white/70 backdrop-blur-md border-b border-zinc-200 dark:bg-zinc-950/70 dark:border-white/10 shadow-sm"
+            : "bg-transparent border-transparent"
+        }`}
+        initial={{ y: -100 }}
+        animate={{ y: 0 }}
+        transition={{ duration: 0.5, ease: "easeOut" }}
+      >
+        <div className="flex items-center">
+          <img src={logoMainPng} alt="Logo" className="h-9 w-auto object-contain" />
+        </div>
+
+        <nav className="hidden items-center gap-3 sm:flex">
+          <Link to="/privacy-policy" className="text-sm font-medium text-zinc-600 hover:text-brand-600 dark:text-zinc-400 dark:hover:text-brand-400">
+            Privacy Policy
           </Link>
-        ) : (
-          <Link to="/login">
-            <Button variant="default" className="rounded-full px-5 shadow-md shadow-brand-500/20">
-              Login
+          <Button variant="ghost" size="icon" onClick={toggleTheme} className="rounded-full">
+            {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
+          </Button>
+          {isAuthenticated ? (
+            <Link to="/dashboard">
+              <Button variant="default" className="rounded-full px-5 shadow-md shadow-brand-500/20">
+                Dashboard
+              </Button>
+            </Link>
+          ) : (
+            <Link to="/login">
+              <Button variant="default" className="rounded-full px-5 shadow-md shadow-brand-500/20">
+                Login
+              </Button>
+            </Link>
+          )}
+        </nav>
+
+        <div className="flex sm:hidden">
+          <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(true)} className="rounded-full">
+            <Menu className="h-5 w-5 text-zinc-900 dark:text-zinc-100" />
+          </Button>
+        </div>
+      </motion.header>
+
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 z-[60] bg-white/95 backdrop-blur-md dark:bg-zinc-950/95 sm:hidden">
+          <div className="flex h-16 items-center justify-between px-6">
+            <img src={logoMainPng} alt="Logo" className="h-9 w-auto object-contain" />
+            <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(false)} className="rounded-full">
+              <X className="h-5 w-5 text-zinc-900 dark:text-zinc-100" />
             </Button>
-          </Link>
-        )}
-      </div>
-    </motion.header>
+          </div>
+          <motion.nav
+            initial="hidden"
+            animate="show"
+            exit="hidden"
+            variants={{
+              show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
+              hidden: { opacity: 0 }
+            }}
+            className="flex flex-col gap-6 p-8"
+          >
+            <motion.div variants={menuItem}>
+              {isAuthenticated ? (
+                <Link to="/dashboard" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                  <LayoutDashboard className="h-6 w-6 text-brand-500" /> Dashboard
+                </Link>
+              ) : (
+                <Link to="/login" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                  <LogIn className="h-6 w-6 text-brand-500" /> Login
+                </Link>
+              )}
+            </motion.div>
+            <motion.div variants={menuItem}>
+              <Link to="/privacy-policy" onClick={() => setMobileMenuOpen(false)} className="flex items-center gap-3 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                <Shield className="h-6 w-6 text-brand-500" /> Privacy Policy
+              </Link>
+            </motion.div>
+            <motion.div variants={menuItem} className="pt-6 border-t border-zinc-200 dark:border-zinc-800">
+              <button onClick={() => { toggleTheme(); setMobileMenuOpen(false); }} className="flex w-full items-center gap-3 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+                {theme === "light" ? <Moon className="h-6 w-6 text-brand-500" /> : <Sun className="h-6 w-6 text-brand-500" />}
+                {theme === "light" ? "Dark Mode" : "Light Mode"}
+              </button>
+            </motion.div>
+          </motion.nav>
+        </div>
+      )}
+    </>
   );
 }
-
 function HeroSection({ isAuthenticated }: { isAuthenticated: boolean }) {
   const container = {
     hidden: { opacity: 0 },
@@ -128,7 +192,7 @@ function HeroSection({ isAuthenticated }: { isAuthenticated: boolean }) {
         animate="show"
       >
         <motion.div variants={item} className="rounded-full border border-zinc-200 bg-white/50 px-4 py-1.5 text-xs font-semibold text-zinc-600 backdrop-blur-md dark:border-white/10 dark:bg-zinc-900/50 dark:text-zinc-300 shadow-sm">
-          ✨ Cloud Storage Manager
+          Cloud Storage Manager
         </motion.div>
         
         <motion.h1 variants={item} className="text-5xl md:text-7xl font-extrabold tracking-tight text-zinc-900 dark:text-white max-w-3xl leading-[1.1]">

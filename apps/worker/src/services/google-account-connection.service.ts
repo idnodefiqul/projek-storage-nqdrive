@@ -1,21 +1,17 @@
 import { GoogleDriveProvider } from "@nqdrive/storage";
 import { DriveAccountRepository } from "../database/drive-account.repository";
 import { encryptSecret, decryptSecret } from "../utils/encryption";
-import { exchangeRefreshToken, fetchGoogleAccountInfo } from "./google-oauth.service";
+import { exchangeRefreshToken, exchangeAuthCode, fetchGoogleAccountInfo } from "./google-oauth.service";
 import type { Env } from "../config/env";
 import type { DriveAccount } from "@nqdrive/types";
 
 /**
- * Orchestrates penambahan Google Drive account via refresh token langsung.
+ * Orchestrates penambahan Google Drive account. Dua jalur, keduanya berujung di
+ * persistAccount() yang menyimpan akun + refresh token terenkripsi ke D1:
  *
- * Flow baru (tanpa consent screen):
- *   1. Admin paste refresh token di form dashboard
- *   2. POST /api/storage/accounts/connect  -> service ini dipanggil
- *   3. Tukar refresh token -> access token (validate token valid & punya drive scope)
- *   4. Fetch email akun dari userinfo
- *   5. Cek duplikat, fetch quota, encrypt refresh token, simpan ke D1
- *
- * Flow OAuth lama (redirect -> callback) DIHAPUS sepenuhnya.
+ *   A. connectViaAuthCode      (DIREKOMENDASIKAN) — dari OAuth consent flow.
+ *      Refresh token didapat otomatis saat menukar authorization code.
+ *   B. connectViaRefreshToken  (fallback) — admin paste refresh token manual.
  */
 export class GoogleAccountConnectionService {
   private readonly repository: DriveAccountRepository;
@@ -27,51 +23,70 @@ export class GoogleAccountConnectionService {
   }
 
   /**
-   * Tambahkan akun Google Drive via refresh token.
+   * Fallback: tambahkan akun via refresh token yang di-paste manual.
    * Throws dengan pesan user-friendly jika token tidak valid, sudah dipakai, atau tidak punya scope drive.
    */
   async connectViaRefreshToken(refreshToken: string): Promise<DriveAccount> {
-    // Sanitasi: pastikan input adalah string non-kosong
     const cleanToken = refreshToken.trim();
     if (!cleanToken) {
       throw new Error("Refresh token tidak boleh kosong.");
     }
 
-    // Panjang refresh token Google biasanya 100+ karakter — sanity check
     if (cleanToken.length < 20 || cleanToken.length > 512) {
       throw new Error("Format refresh token tidak valid.");
     }
 
-    // Tukar refresh token -> access token (juga memvalidasi bahwa token masih aktif)
     const tokens = await exchangeRefreshToken({
       refreshToken: cleanToken,
       clientId: this.env.GOOGLE_CLIENT_ID,
       clientSecret: this.env.GOOGLE_CLIENT_SECRET,
     });
 
-    // Fetch email + validasi drive scope
-    const accountInfo = await fetchGoogleAccountInfo(tokens.accessToken);
+    return this.persistAccount(tokens.accessToken, cleanToken, tokens.expiresAt);
+  }
 
-    // Cek duplikat berdasarkan email
-    const existing = await this.repository.findByEmail(accountInfo.email);
-    if (existing) {
-      throw new Error(`Akun Google Drive "${accountInfo.email}" sudah terhubung sebelumnya.`);
-    }
-
-    // Fetch quota Drive
-    const quota = await this.provider.getQuota({
-      credentials: { accessToken: tokens.accessToken },
+  async connectViaAuthCode(code: string, redirectUri: string): Promise<DriveAccount> {
+    const result = await exchangeAuthCode({
+      code,
+      clientId: this.env.GOOGLE_CLIENT_ID,
+      clientSecret: this.env.GOOGLE_CLIENT_SECRET,
+      redirectUri,
     });
 
-    // Encrypt refresh token sebelum disimpan ke D1
-    const refreshTokenEncrypted = await encryptSecret(cleanToken, this.env.ENCRYPTION_KEY);
+    return this.persistAccount(result.accessToken, result.refreshToken, result.expiresAt);
+  }
+
+  private async persistAccount(
+    accessToken: string,
+    refreshToken: string,
+    expiresAt: string
+  ): Promise<DriveAccount> {
+    const accountInfo = await fetchGoogleAccountInfo(accessToken);
+
+    const quota = await this.provider.getQuota({
+      credentials: { accessToken },
+    });
+
+    const refreshTokenEncrypted = await encryptSecret(refreshToken, this.env.ENCRYPTION_KEY);
+
+    const existing = await this.repository.findByEmail(accountInfo.email);
+    if (existing) {
+      return this.repository.reconnect(existing.id, {
+        refreshTokenEncrypted,
+        accessToken,
+        accessTokenExpiresAt: expiresAt,
+        totalStorageBytes: quota.totalBytes,
+        usedStorageBytes: quota.usedBytes,
+        availableStorageBytes: quota.availableBytes,
+      });
+    }
 
     return this.repository.create({
       email: accountInfo.email,
       provider: "google_drive",
       refreshTokenEncrypted,
-      accessToken: tokens.accessToken,
-      accessTokenExpiresAt: tokens.expiresAt,
+      accessToken,
+      accessTokenExpiresAt: expiresAt,
       totalStorageBytes: quota.totalBytes,
       usedStorageBytes: quota.usedBytes,
       availableStorageBytes: quota.availableBytes,
@@ -84,6 +99,10 @@ export class GoogleAccountConnectionService {
    * SECURITY: error refresh token yang gagal menandai akun sebagai offline.
    */
   async getValidAccessToken(account: DriveAccount): Promise<string> {
+    if (!account.refreshTokenEncrypted) {
+      throw new Error("FILE_NOT_AVAILABLE");
+    }
+
     const expiresAt = account.accessTokenExpiresAt ? new Date(account.accessTokenExpiresAt) : null;
     const isExpiringSoon = !expiresAt || expiresAt.getTime() - Date.now() < 2 * 60 * 1000;
 
@@ -106,6 +125,12 @@ export class GoogleAccountConnectionService {
       await this.repository.updateAccessToken(account.id, refreshed.accessToken, refreshed.expiresAt);
       return refreshed.accessToken;
     } catch (err) {
+      // Log alasan ASLI dari Google (invalid_grant vs invalid_client) — ini krusial untuk
+      // membedakan "token dicabut/expired" (invalid_grant) dari "client_id/secret salah"
+      // (invalid_client). Tanpa ini, dua masalah yang sangat berbeda terlihat identik.
+      const reason = err instanceof Error ? err.message : String(err);
+      console.error(`[getValidAccessToken] refresh gagal untuk ${account.email}:`, reason);
+
       // Tandai akun offline jika refresh token sudah tidak valid (dicabut / expired)
       await this.repository.updateStatus(account.id, "offline");
       throw new Error(

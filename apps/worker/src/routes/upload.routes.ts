@@ -11,19 +11,6 @@ const uploadRoutes = new Hono<{ Bindings: Env }>();
 uploadRoutes.use("*", requireAuth);
 
 /**
- * In-memory store for active resumable upload sessions.
- * Maps sessionId -> { googleUploadUrl, accountId, filename, mimeType, sizeBytes }
- * Cloudflare Workers: this persists within a single isolate lifetime.
- */
-const uploadSessions = new Map<string, {
-  googleUploadUrl: string;
-  accountId: number;
-  filename: string;
-  mimeType: string;
-  sizeBytes: number;
-}>();
-
-/**
  * POST /api/upload/session
  * Creates a Google Drive resumable upload session and returns a LOCAL sessionId.
  * The browser NEVER sees the googleapis.com URL.
@@ -69,13 +56,10 @@ uploadRoutes.post("/session", async (c) => {
 
   // Generate local session ID — browser will use this instead of Google URL
   const sessionId = crypto.randomUUID();
-  uploadSessions.set(sessionId, {
-    googleUploadUrl,
-    accountId: account.id,
-    filename: decodedFilename,
-    mimeType,
-    sizeBytes,
-  });
+  await c.env.DB.prepare(
+    `INSERT INTO upload_sessions (id, google_upload_url, drive_account_id, filename, mime_type, size_bytes)
+     VALUES (?, ?, ?, ?, ?, ?)`
+  ).bind(sessionId, googleUploadUrl, account.id, decodedFilename, mimeType, sizeBytes).run();
 
   return c.json({ success: true, data: { sessionId, accountId: account.id } }, 200);
 });
@@ -87,7 +71,9 @@ uploadRoutes.post("/session", async (c) => {
  */
 uploadRoutes.put("/status/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
-  const session = uploadSessions.get(sessionId);
+  const session = await c.env.DB.prepare(
+    "SELECT google_upload_url, drive_account_id, filename, mime_type, size_bytes FROM upload_sessions WHERE id = ?"
+  ).bind(sessionId).first<{ google_upload_url: string; drive_account_id: number; filename: string; mime_type: string; size_bytes: number }>();
 
   if (!session) {
     return c.json({ success: false, error: { code: "SESSION_NOT_FOUND", message: "Upload session expired or invalid." } }, 404);
@@ -106,7 +92,7 @@ uploadRoutes.put("/status/:sessionId", async (c) => {
   const contentLength = c.req.header("Content-Length");
   if (contentLength) headers["Content-Length"] = contentLength;
 
-  const googleRes = await fetch(session.googleUploadUrl, {
+  const googleRes = await fetch(session.google_upload_url, {
     method: "PUT",
     headers,
     // @ts-ignore ? Cloudflare Workers supports streaming ReadableStream as body
@@ -123,13 +109,13 @@ uploadRoutes.put("/status/:sessionId", async (c) => {
     // Upload complete — return Google file metadata
     const data = await googleRes.json();
     // Clean up session
-    uploadSessions.delete(sessionId);
+    await c.env.DB.prepare("DELETE FROM upload_sessions WHERE id = ?").bind(sessionId).run();
     return c.json({ success: true, data: { providerFileId: (data as any).id } });
   }
 
   // Error from Google
   const errText = await googleRes.text().catch(() => "Unknown error");
-  return c.json({ success: false, error: { code: "GOOGLE_UPLOAD_ERROR", message: errText } }, googleRes.status);
+  return c.json({ success: false, error: { code: "GOOGLE_UPLOAD_ERROR", message: errText } }, (googleRes.status || 500) as 500);
 });
 
 /**

@@ -5,14 +5,82 @@ import { requireAuth } from "../middleware/require-auth.middleware";
 import { DriveAccountRepository } from "../database/drive-account.repository";
 import { FileRepository } from "../database/file.repository";
 import { GoogleAccountConnectionService } from "../services/google-account-connection.service";
-import { exchangeRefreshToken, fetchGoogleAccountInfo } from "../services/google-oauth.service";
+import {
+  exchangeRefreshToken,
+  fetchGoogleAccountInfo,
+  buildGoogleAuthUrl,
+} from "../services/google-oauth.service";
+import { signJwt, verifyJwt } from "../utils/jwt";
 import { calculatePercentage } from "@nqdrive/shared";
 import type { Env } from "../config/env";
 import type { PublicDriveAccount, DriveAccount } from "@nqdrive/types";
 
 const storageAccountRoutes = new Hono<{ Bindings: Env }>();
 
+// Redirect URI OAuth harus menunjuk ke worker (yang memegang GOOGLE_CLIENT_SECRET),
+// dan HARUS sama persis dengan yang didaftarkan di Google Cloud Console.
+function getRedirectUri(env: Env): string {
+  return `${env.GOOGLE_OAUTH_REDIRECT_URI.replace(/\/$/, "")}/api/storage/accounts/oauth/callback`;
+}
+
+// URL dashboard tujuan redirect balik setelah callback (sukses/gagal).
+function getDashboardUrl(env: Env): string {
+  return `${(env.WEB_APP_URL || "https://drive.fiqul.id").replace(/\/$/, "")}/dashboard/storage-manager`;
+}
+
+// ─── OAuth callback (Google redirect ke sini — TANPA requireAuth) ──────────
+// Didaftarkan SEBELUM requireAuth agar Google (yang tak punya cookie sesi) bisa mengaksesnya.
+// Proteksi CSRF via `state` JWT bertanda-tangan yang kita terbitkan di /oauth/url.
+storageAccountRoutes.get("/accounts/oauth/callback", async (c) => {
+  const dashboard = getDashboardUrl(c.env);
+  const code = c.req.query("code");
+  const state = c.req.query("state");
+  const oauthError = c.req.query("error");
+
+  // User menolak izin di halaman Google, atau Google mengembalikan error.
+  if (oauthError) {
+    return c.redirect(`${dashboard}?oauth=error&reason=${encodeURIComponent(oauthError)}`);
+  }
+  if (!code || !state) {
+    return c.redirect(`${dashboard}?oauth=error&reason=missing_code`);
+  }
+
+  // Validasi state (CSRF): harus JWT valid yang kita terbitkan sendiri.
+  const statePayload = await verifyJwt(state, c.env.JWT_SECRET);
+  if (!statePayload || statePayload.email !== "oauth-state@nqdrive.internal") {
+    return c.redirect(`${dashboard}?oauth=error&reason=invalid_state`);
+  }
+
+  try {
+    const connectionService = new GoogleAccountConnectionService(c.env);
+    const account = await connectionService.connectViaAuthCode(code, getRedirectUri(c.env));
+    return c.redirect(`${dashboard}?oauth=success&email=${encodeURIComponent(account.email)}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "connect_failed";
+    return c.redirect(`${dashboard}?oauth=error&reason=${encodeURIComponent(message)}`);
+  }
+});
+
 storageAccountRoutes.use("*", requireAuth);
+
+// ─── GET /api/storage/accounts/oauth/url ───────────────────────────────────
+// Admin terautentikasi meminta URL consent Google. Kita terbitkan `state` JWT
+// berumur pendek untuk proteksi CSRF, lalu frontend melakukan window.location ke URL ini.
+storageAccountRoutes.get("/accounts/oauth/url", async (c) => {
+  const state = await signJwt(
+    { sub: 0, username: "oauth", email: "oauth-state@nqdrive.internal" },
+    c.env.JWT_SECRET,
+    600 // 10 menit
+  );
+
+  const url = buildGoogleAuthUrl({
+    clientId: c.env.GOOGLE_CLIENT_ID,
+    redirectUri: getRedirectUri(c.env),
+    state,
+  });
+
+  return c.json({ success: true, data: { url } });
+});
 
 // ─── Helper ───────────────────────────────────────────────────────────────
 
@@ -82,21 +150,28 @@ storageAccountRoutes.delete("/accounts/:id", async (c) => {
     );
   }
 
-  try {
+  // Count files associated with this account
+  const filesRow = await c.env.DB.prepare(
+    "SELECT COUNT(*) as count FROM files WHERE drive_account_id = ? AND deleted_at IS NULL"
+  ).bind(id).first<{ count: number }>();
+  const filesCount = filesRow?.count ?? 0;
+
+  if (filesCount > 0) {
+    await c.env.DB.prepare(
+      `UPDATE drive_accounts
+       SET refresh_token_encrypted = '', access_token = NULL,
+           access_token_expires_at = NULL, status = 'offline',
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`
+    ).bind(id).run();
+    return c.json({
+      success: true,
+      data: { message: `Akun diputus. ${filesCount} file tetap di list — login ulang untuk mengaktifkan download.` },
+    });
+  } else {
+    // No files, delete completely
     await repository.delete(id);
     return c.json({ success: true, data: { message: "Akun berhasil dihapus." } });
-  } catch {
-    return c.json(
-      {
-        success: false,
-        error: {
-          code: "ACCOUNT_HAS_FILES",
-          message:
-            "Akun masih memiliki file. Pindahkan atau hapus file terkait sebelum menghapus akun ini.",
-        },
-      },
-      409
-    );
   }
 });
 

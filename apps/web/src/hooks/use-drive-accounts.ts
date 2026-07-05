@@ -20,6 +20,12 @@ export function useDeleteDriveAccount() {
   });
 }
 
+export function useGoogleOAuthUrl() {
+  return useMutation({
+    mutationFn: () => googleDriveService.getOAuthUrl(),
+  });
+}
+
 export function useConnectGoogleAccountViaToken() {
   const queryClient = useQueryClient();
   return useMutation({

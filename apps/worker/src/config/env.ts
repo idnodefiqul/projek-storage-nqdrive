@@ -10,6 +10,7 @@ export interface Env {
   // Vars (wrangler.jsonc "vars")
   APP_ENV: "development" | "production";
   GOOGLE_OAUTH_REDIRECT_URI: string;
+  WEB_APP_URL: string;
 
   // Secrets (set via `wrangler secret put` / .dev.vars)
   JWT_SECRET: string;

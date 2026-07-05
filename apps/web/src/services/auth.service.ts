@@ -17,12 +17,15 @@ export const authService = {
   setupAdmin: (input: { username: string; email: string; password: string }) =>
     apiRequest<{ user: PublicUser }>("/auth/setup", { method: "POST", body: input }),
 
-  login: (input: { username: string; password: string }) =>
-    apiRequest<{ user: PublicUser }>("/auth/login", { method: "POST", body: input }),
+  login: (input: { username: string; password: string; turnstileToken?: string }) =>
+    apiRequest<{ user?: PublicUser; twoFactorRequired?: boolean; tempToken?: string }>("/auth/login", { method: "POST", body: input }),
+
+  login2fa: (input: { tempToken: string; code: string }) =>
+    apiRequest<{ user: PublicUser }>("/auth/login/2fa", { method: "POST", body: input }),
 
   logout: () => apiRequest<{ message: string }>("/auth/logout", { method: "POST" }),
 
-  me: () => apiRequest<{ id: number; username: string; email: string }>("/me"),
+  me: () => apiRequest<{ id: number; username: string; email: string; totpEnabled: boolean }>("/me"),
 
   changePassword: (input: { currentPassword: string; newPassword: string }) =>
     apiRequest<{ message: string }>("/auth/change-password", { method: "POST", body: input }),

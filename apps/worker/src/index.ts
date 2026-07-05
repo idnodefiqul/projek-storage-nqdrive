@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 import type { Env } from "./config/env";
 import { registerStorageProviders } from "./config/bootstrap";
@@ -7,12 +7,13 @@ import { storageAccountRoutes } from "./routes/storage-account.routes";
 import { folderRoutes } from "./routes/folder.routes";
 import { fileRoutes } from "./routes/file.routes";
 import { uploadRoutes } from "./routes/upload.routes";
-import { downloadRoutes } from "./routes/download.routes";
+import { downloadRoutes, throttleStream } from "./routes/download.routes";
 import { logRoutes } from "./routes/log.routes";
 import { apiKeyRoutes } from "./routes/api-key.routes";
 import { dashboardRoutes } from "./routes/dashboard.routes";
 import { trashRoutes } from "./routes/trash.routes";
-import { settingsRoutes, settingsPublicRoutes } from "./routes/settings.routes";
+import { settingsRoutes } from "./routes/settings.routes";
+import { securityApiRoutes } from "./routes/security.routes";
 import { SettingsRepository } from "./database/settings.repository";
 import { DownloadService, FileNotAccessibleError } from "./services/download.service";
 import { DownloadLogRepository } from "./database/download-log.repository";
@@ -21,13 +22,29 @@ import { extractRealIp } from "./utils/ip-parser";
 import { resolveCountry } from "./utils/geo-resolver";
 import { syncDriveAccounts } from "./cron/sync-drive-accounts";
 import { purgeExpiredTrash } from "./cron/purge-trash";
+import { enforceDownloadSecurity } from "./utils/security";
 
 /**
  * NQDRIVE Worker entry point.
  */
 const app = new Hono<{ Bindings: Env }>();
 
-// CORS: strict full-origin allowlist â€” hanya origin eksplisit yang diizinkan.
+app.onError((err, c) => {
+  console.error("Unhandled error:", err);
+  return c.json(
+    { 
+      success: false, 
+      error: { 
+        code: "INTERNAL_ERROR", 
+        message: err.message,
+        stack: err.stack
+      } 
+    },
+    500
+  );
+});
+
+// CORS: strict full-origin allowlist - hanya origin eksplisit yang diizinkan.
 const ALLOWED_ORIGINS = new Set([
   "http://localhost:5173",
   "http://localhost:4173",
@@ -56,36 +73,79 @@ app.use(
       "Content-Length",
     ],
     exposeHeaders: ["Set-Cookie"],
-    credentials: true, // Required â€” auth uses HttpOnly session cookie.
+    credentials: true, // Required - auth uses HttpOnly session cookie.
     maxAge: 86400,
   })
 );
 
 // Register all StorageProvider implementations once per request.
+let dbInitialized = false;
 app.use("*", async (c, next) => {
   registerStorageProviders(c.env);
+  
+  // Bootstrap security tables dynamically only ONCE
+  if (!dbInitialized) {
+    try {
+      await c.env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS login_attempts (
+          ip TEXT PRIMARY KEY,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          locked_until INTEGER NOT NULL DEFAULT 0
+        )
+      `).run();
+      await c.env.DB.prepare(`
+        CREATE TABLE IF NOT EXISTS download_attempts (
+          ip TEXT PRIMARY KEY,
+          attempts INTEGER NOT NULL DEFAULT 0,
+          last_attempt INTEGER NOT NULL DEFAULT 0
+        )
+      `).run();
+
+      // Add TOTP fields to users table dynamically if they don't exist
+      try {
+        await c.env.DB.prepare("ALTER TABLE users ADD COLUMN totp_secret TEXT").run();
+      } catch {}
+      try {
+        await c.env.DB.prepare("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0").run();
+      } catch {}
+      try {
+        await c.env.DB.prepare("ALTER TABLE users ADD COLUMN backup_codes TEXT").run();
+      } catch {}
+
+      dbInitialized = true;
+    } catch (err) {
+      console.error("Failed to bootstrap security tables:", err);
+    }
+  }
+
   await next();
 });
 
-// â”€â”€â”€ Absolute API Access Guard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// - Absolute API Access Guard -
 // Semua path yang dilindungi WAJIB punya salah satu dari:
 //   1. Header X-App-Client: nqdrive-web  (request dari React web app kita)
 //   2. Header Authorization: Bearer xxx  (request dari API key programatik)
 //
-// Kondisi apapun â€” address bar, DevTools console, Postman, curl â€” tanpa
+// Kondisi apapun - address bar, DevTools console, Postman, curl - tanpa
 // salah satu dari dua header di atas = DITOLAK dengan blank 404.
 // OPTIONS (CORS preflight) dikecualikan agar CORS tetap berjalan normal.
 
-const PROTECTED_PATHS = ["/api/*", "/sitename", "/system/*"];
+const PROTECTED_PATHS = ["/api/*", "/captcha", "/captcha/*", "/config", "/resource/*", "/system/*"];
 
 const apiGuardMiddleware = async (
-  c: Parameters<typeof app.use>[1],
+  c: Context<{ Bindings: Env }>,
   next: () => Promise<void>
 ) => {
   if (c.req.method === "OPTIONS") return next();
 
+  const pathname = new URL(c.req.url).pathname;
+
   // Allow preview-stream without auth headers (uses signed token in query)
-  if (new URL(c.req.url).pathname === "/api/files/stream") return next();
+  if (pathname === "/api/files/stream") return next();
+
+  // Allow Google OAuth callback ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¾Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¦ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â Google's redirect can't send X-App-Client.
+  // Protected instead by the signed `state` JWT verified inside the handler.
+  if (pathname === "/api/storage/accounts/oauth/callback") return next();
 
   const appClient  = c.req.header("X-App-Client");
   const authBearer = c.req.header("Authorization");
@@ -93,7 +153,7 @@ const apiGuardMiddleware = async (
   const isOfficialWebApp  = appClient === "nqdrive-web";
   const isApiKeyAccess    = typeof authBearer === "string" && authBearer.startsWith("Bearer ");
 
-  // Blokir SEMUA request yang bukan dari web app atau API key â€” tanpa pengecualian
+  // Blokir SEMUA request yang bukan dari web app atau API key - tanpa pengecualian
   if (!isOfficialWebApp && !isApiKeyAccess) {
     return new Response(null, { status: 404 });
   }
@@ -112,7 +172,7 @@ app.route("/api/auth", authRoutes);
 app.route("/api/me", meRoutes);
 app.route("/api/storage", storageAccountRoutes);
 app.route("/api/folders", folderRoutes);
-// Public preview stream — validates signed token, no auth/headers needed.
+// Public preview stream - validates signed token, no auth/headers needed.
 // Used by <img src> and <video src> in the dashboard.
 app.get("/api/files/stream", async (c) => {
   const token = c.req.query("token");
@@ -201,16 +261,140 @@ app.route("/api/upload", uploadRoutes);
 app.route("/api/logs", logRoutes);
 app.route("/api/api-keys", apiKeyRoutes);
 app.route("/api/dashboard", dashboardRoutes);
-// Trash routes â€” manajemen Recycle Bin
+// Trash routes - manajemen Recycle Bin
 app.route("/api/trash", trashRoutes);
-// Settings routes â€” site name, download endpoint, dll
+// Settings routes - site name, download endpoint, dll
 app.route("/api/settings", settingsRoutes);
-// /sitename â€” site name publik (sebelumnya /api/settings/public)
-app.route("/sitename", settingsPublicRoutes);
-// /system/state â€” setup status (sebelumnya /api/auth/setup-status)
+// Security routes
+app.route("/api/security", securityApiRoutes);
+// /captcha - public Turnstile config for login page only
+app.get("/captcha", async (c) => {
+  const clientHeader = c.req.header("X-App-Client");
+  if (clientHeader !== "nqdrive-web") {
+    return new Response(null, { status: 404 });
+  }
+
+  const repo = new SettingsRepository(c.env.DB);
+  const settings = await repo.getMany(["turnstile_enabled", "turnstile_sitekey"]);
+
+  c.header("Cache-Control", "no-store, no-cache, must-revalidate");
+  return c.json({
+    success: true,
+    data: {
+      turnstile_enabled: settings["turnstile_enabled"] === "true",
+      turnstile_sitekey: settings["turnstile_sitekey"] ?? "",
+    },
+  });
+});
+
+// /config - public visual config for download page
+app.get("/config", async (c) => {
+  const clientHeader = c.req.header("X-App-Client");
+  if (clientHeader !== "nqdrive-web") {
+    return new Response(null, { status: 404 });
+  }
+
+  const repo = new SettingsRepository(c.env.DB);
+  const settings = await repo.getMany(["brand_color", "theme_mode"]);
+
+  c.header("Cache-Control", "no-store, no-cache, must-revalidate");
+  return c.json({
+    success: true,
+    data: {
+      brand_color: settings["brand_color"] ?? "",
+      theme_mode: settings["theme_mode"] ?? "light",
+    },
+  });
+});
+
+// /resource/:prefix/:shareCode - public file metadata
+app.get("/resource/:prefix/:shareCode", async (c) => {
+  const clientHeader = c.req.header("X-App-Client");
+  if (clientHeader !== "nqdrive-web") {
+    return new Response(null, { status: 404 });
+  }
+
+  const prefix = c.req.param("prefix");
+  const shareCode = c.req.param("shareCode");
+
+  const repo = new SettingsRepository(c.env.DB);
+  const prefixSetting = await repo.get("share_page_prefix") ?? "p";
+  let expectedPrefix = prefixSetting;
+  if (prefixSetting.startsWith("custom:")) expectedPrefix = prefixSetting.slice(7);
+
+  if (prefix !== expectedPrefix) {
+    return c.json({ success: false, error: { message: "File tidak ditemukan." } }, 404);
+  }
+
+  const ipAddress = extractRealIp(c);
+  const cfCountry = (c.req.raw.cf?.country as string) || null;
+  const country = await resolveCountry(ipAddress, cfCountry);
+
+  const file = await c.env.DB.prepare(
+    `SELECT f.id, f.filename, f.size_bytes, f.mime_type, f.sha256_hash, f.slug, a.refresh_token_encrypted 
+     FROM files f
+     JOIN drive_accounts a ON f.drive_account_id = a.id
+     WHERE f.share_code = ? AND f.deleted_at IS NULL`
+  ).bind(shareCode).first<any>();
+
+  // Sembunyikan halaman download sepenuhnya jika akun Google terputus
+  if (!file || !file.refresh_token_encrypted) {
+    return c.json({ success: false, error: { message: "File tidak ditemukan atau telah dihapus." } }, 404);
+  }
+
+  const limitGbStr = await repo.get("bandwidth_limit_gb");
+  const limitGb = limitGbStr ? Number(limitGbStr) : 0;
+  const speedMbpsStr = await repo.get("bandwidth_speed_mbps");
+  const speedMbps = speedMbpsStr ? Number(speedMbpsStr) : 0;
+  
+  let bytesUsed = 0;
+  if (limitGb > 0) {
+    const row = await c.env.DB.prepare(
+      "SELECT COALESCE(SUM(bytes_served), 0) as total FROM download_logs WHERE ip_address = ? AND created_at > datetime('now', '-24 hours')"
+    ).bind(ipAddress).first<{ total: number }>();
+    bytesUsed = row?.total ?? 0;
+  }
+
+  const limitBytes = limitGb * 1024 * 1024 * 1024;
+  const isThrottled = limitGb > 0 && bytesUsed > limitBytes;
+  const downloadEndpoint = await repo.get("download_endpoint") ?? "default";
+  let downloadUrl = "";
+  if (downloadEndpoint === "download") downloadUrl = `/${shareCode}/download/${file.slug}`;
+  else if (downloadEndpoint === "dl") downloadUrl = `/${shareCode}/dl/${file.slug}`;
+  else if (downloadEndpoint === "get") downloadUrl = `/${shareCode}/get/${file.slug}`;
+  else if (downloadEndpoint === "query") downloadUrl = `/${shareCode}/${file.slug}?download`;
+  else if (downloadEndpoint.startsWith("custom:")) downloadUrl = `/${shareCode}/${downloadEndpoint.slice(7)}/${file.slug}`;
+  else downloadUrl = `/${shareCode}/${file.slug}/download`;
+
+  const dlCountRow = await c.env.DB.prepare(
+    "SELECT COUNT(*) as cnt FROM download_logs WHERE file_id = ?"
+  ).bind(file.id).first<{ cnt: number }>();
+  const downloadCount = dlCountRow?.cnt ?? 0;
+  return c.json({
+    success: true,
+    data: {
+      filename: file.filename,
+      sizeBytes: file.size_bytes,
+      mimeType: file.mime_type,
+      sha256Hash: file.sha256_hash,
+      slug: file.slug,
+      downloadCount,
+      downloadUrl,
+      bandwidth: {
+        ip: ipAddress,
+        bytesUsed,
+        limitGb,
+        isThrottled,
+        speedMbps,
+        country,
+      }
+    }
+  });
+});
+// /system/state - setup status (sebelumnya /api/auth/setup-status)
 app.route("/system", systemStateRoutes);
 
-// Public download routes â€” mounted WITHOUT /api prefix on purpose.
+// Public download routes - mounted WITHOUT /api prefix on purpose.
 // Mounted LAST so it never shadows /api/* routes.
 app.route("/", downloadRoutes);
 
@@ -239,6 +423,10 @@ app.get("/:prefix/:slug{[^/]+\\.[^/]+}", async (c) => {
   const downloadLogRepository = new DownloadLogRepository(c.env.DB);
 
   try {
+    // Enforce CLI blocking and download rate limits
+    const securityCheck = await enforceDownloadSecurity(c);
+    if (securityCheck) return securityCheck;
+
     const fileInfo = await downloadService.getFileInfo(slug);
     if (!fileInfo) return c.text("Not Found", 404);
 
@@ -291,9 +479,20 @@ app.get("/:prefix/:slug{[^/]+\\.[^/]+}", async (c) => {
       headers.set("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`);
     }
 
-    return new Response(result.stream, {
+    // Apply speed limit — ALWAYS throttle if bandwidth_speed_mbps is set
+    let finalStream = result.stream;
+    const bwSettings = await settingsRepo.getMany(["bandwidth_speed_mbps"]);
+    const speedMbps = bwSettings["bandwidth_speed_mbps"] ? Number(bwSettings["bandwidth_speed_mbps"]) : 0;
+
+    // Always apply speed limit if configured
+    if (speedMbps > 0) {
+      const bytesPerSecond = speedMbps * 1024 * 1024;
+      finalStream = throttleStream(result.stream, bytesPerSecond);
+    }
+
+    return new Response(finalStream, {
       status: 206, headers,
-      // @ts-ignore â€” Cloudflare Workers specific flag
+      // @ts-ignore - Cloudflare Workers specific flag
       encodeBody: "manual",
     });
   } catch (error) {

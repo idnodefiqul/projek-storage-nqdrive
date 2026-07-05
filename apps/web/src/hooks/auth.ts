@@ -43,7 +43,9 @@ export function useLogin() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: authService.login,
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Don't set logged in if 2FA is required (session cookie not yet issued)
+      if (data.twoFactorRequired) return;
       localStorage.setItem("nqdrive_is_logged_in", "true");
       queryClient.invalidateQueries({ queryKey: authQueryKeys.me });
     },

@@ -34,6 +34,8 @@
 
   /* Custom animations */
   --animate-meteor: meteor 5s linear infinite;
+  --animate-spin-slow: spin 4s linear infinite;
+  --animate-bounce-slow: bounce 2s ease-in-out infinite;
 }
 
 @layer base {

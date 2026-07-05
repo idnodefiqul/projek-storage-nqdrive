@@ -32,7 +32,8 @@
   // atau custom domain jika sudah dikonfigurasi.
   "vars": {
     "APP_ENV": "production",
-    "GOOGLE_OAUTH_REDIRECT_URI": "https://developers.google.com/oauthplayground"
+    "GOOGLE_OAUTH_REDIRECT_URI": "https://apiweb.fiqul.id",
+    "WEB_APP_URL": "https://drive.fiqul.id"
   },
 
   "observability": {

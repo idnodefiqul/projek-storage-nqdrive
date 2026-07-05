@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import {
-  Download, Check, ChevronDown, CheckCircle2, AlertCircle,
+  Download, Check, ChevronDown, CheckCircle2, AlertCircle, Share2, ShieldAlert
 } from "lucide-react";
 import { useToast } from "@nqdrive/ui";
 import { useSettings, useUpdateSettings } from "../hooks/use-settings";
@@ -14,7 +14,7 @@ export const Route = createFileRoute("/dashboard/primary-link")({
   component: PrimaryLinkPage,
 });
 
-// ─── Download endpoint options ─────────────────────────────────────────────
+// Download endpoint options
 interface EndpointOption {
   id: string;
   label: string;
@@ -63,6 +63,13 @@ const ENDPOINT_OPTIONS: EndpointOption[] = [
   },
 ];
 
+const SHARE_PREFIX_OPTIONS = [
+  { id: "p", label: "Default (/p/:shareCode)", example: "/p/AbCdEfGhIjKlMnOpQrStUvW" },
+  { id: "s", label: "Short (/s/:shareCode)", example: "/s/AbCdEfGhIjKlMnOpQrStUvW" },
+  { id: "f", label: "File (/f/:shareCode)", example: "/f/AbCdEfGhIjKlMnOpQrStUvW" },
+  { id: "custom", label: "Custom Prefix", example: "/custom_prefix/AbCdEfGhIjKlMnOpQrStUvW" },
+];
+
 function PrimaryLinkPage() {
   const { toast } = useToast();
   const { data: settings, isLoading: isLoadingSettings } = useSettings();
@@ -81,13 +88,27 @@ function PrimaryLinkPage() {
     return () => { if (notificationTimeoutRef.current) clearTimeout(notificationTimeoutRef.current); };
   }, []);
 
-  // Endpoint state
+  // Direct download link state
   const [selectedEndpoint, setSelectedEndpoint] = useState("default");
   const [customPrefix, setCustomPrefix] = useState("");
   const [isEndpointDirty, setIsEndpointDirty] = useState(false);
 
+  // Share page link state
+  const [selectedSharePrefix, setSelectedSharePrefix] = useState("p");
+  const [customSharePrefix, setCustomSharePrefix] = useState("");
+  const [isSharePrefixDirty, setIsSharePrefixDirty] = useState(false);
+
+  // Bandwidth limit state
+  const [bandwidthLimitGb, setBandwidthLimitGb] = useState("0");
+  const [isBandwidthDirty, setIsBandwidthDirty] = useState(false);
+
+  // Speed limit state
+  const [bandwidthSpeedMbps, setBandwidthSpeedMbps] = useState("0");
+  const [isSpeedDirty, setIsSpeedDirty] = useState(false);
+
   useEffect(() => {
     if (settings) {
+      // Direct Download
       const ep = settings.download_endpoint ?? "default";
       if (ep.startsWith("custom:")) {
         setSelectedEndpoint("custom");
@@ -97,6 +118,25 @@ function PrimaryLinkPage() {
         setCustomPrefix("");
       }
       setIsEndpointDirty(false);
+
+      // Share Page
+      const sp = (settings as any).share_page_prefix ?? "p";
+      if (sp.startsWith("custom:")) {
+        setSelectedSharePrefix("custom");
+        setCustomSharePrefix(sp.slice(7));
+      } else {
+        setSelectedSharePrefix(sp);
+        setCustomSharePrefix("");
+      }
+      setIsSharePrefixDirty(false);
+
+      // Bandwidth limit
+      setBandwidthLimitGb((settings as any).bandwidth_limit_gb ?? "0");
+      setIsBandwidthDirty(false);
+
+      // Speed limit
+      setBandwidthSpeedMbps((settings as any).bandwidth_speed_mbps ?? "0");
+      setIsSpeedDirty(false);
     }
   }, [settings]);
 
@@ -106,6 +146,14 @@ function PrimaryLinkPage() {
       return prefix ? `custom:${prefix}` : "default";
     }
     return selectedEndpoint;
+  };
+
+  const resolvedSharePrefix = (): string => {
+    if (selectedSharePrefix === "custom") {
+      const prefix = customSharePrefix.trim();
+      return prefix ? `custom:${prefix}` : "p";
+    }
+    return selectedSharePrefix;
   };
 
   const handleEndpointSave = async () => {
@@ -122,8 +170,8 @@ function PrimaryLinkPage() {
     }
     try {
       await updateSettings.mutateAsync({ download_endpoint: ep });
-      showNotification("Save done link download");
-      toast({ title: "Save done link download", variant: "success" });
+      showNotification("Format permalink download berhasil disimpan.");
+      toast({ title: "Format permalink download berhasil disimpan.", variant: "success" });
       setIsEndpointDirty(false);
     } catch {
       showNotification("Gagal menyimpan endpoint download.", "error");
@@ -131,47 +179,102 @@ function PrimaryLinkPage() {
     }
   };
 
-  const previewUrl = () => {
-    const ep = resolvedEndpoint();
-    const prefix = selectedEndpoint === "custom" ? (customPrefix || "files") : "";
-    const epForPreview = selectedEndpoint === "custom" ? `custom:${prefix}` : ep;
-    return buildDownloadPath("contoh-file.pdf", "AbCdEfGhIjKlMnOpQrStUvW", epForPreview);
+  const handleSharePrefixSave = async () => {
+    const sp = resolvedSharePrefix();
+    if (selectedSharePrefix === "custom" && !customSharePrefix.trim()) {
+      showNotification("Masukkan custom share prefix terlebih dahulu.", "error");
+      toast({ title: "Masukkan custom share prefix terlebih dahulu.", variant: "error" });
+      return;
+    }
+    if (selectedSharePrefix === "custom" && !/^[a-z0-9_-]+$/i.test(customSharePrefix.trim())) {
+      showNotification("Custom prefix share hanya boleh berisi huruf, angka, - dan _.", "error");
+      toast({ title: "Custom prefix share hanya boleh berisi huruf, angka, - dan _.", variant: "error" });
+      return;
+    }
+    try {
+      await updateSettings.mutateAsync({ share_page_prefix: sp } as any);
+      showNotification("Format link share page berhasil disimpan.");
+      toast({ title: "Format link share page berhasil disimpan.", variant: "success" });
+      setIsSharePrefixDirty(false);
+    } catch {
+      showNotification("Gagal menyimpan prefix share page.", "error");
+      toast({ title: "Gagal menyimpan prefix share page.", variant: "error" });
+    }
   };
 
-  if (isFetchingData) {
-    return <PageTransition><SettingsSkeleton /></PageTransition>;
-  }
+  const handleBandwidthSave = async () => {
+    const val = bandwidthLimitGb.trim();
+    if (!val || isNaN(Number(val)) || Number(val) < 0) {
+      showNotification("Batas bandwidth tidak valid.", "error");
+      toast({ title: "Batas bandwidth tidak valid.", variant: "error" });
+      return;
+    }
+    try {
+      await updateSettings.mutateAsync({ bandwidth_limit_gb: val } as any);
+      showNotification("Batas bandwidth harian berhasil disimpan.");
+      toast({ title: "Batas bandwidth harian berhasil disimpan.", variant: "success" });
+      setIsBandwidthDirty(false);
+    } catch {
+      showNotification("Gagal menyimpan batas bandwidth.", "error");
+      toast({ title: "Gagal menyimpan batas bandwidth.", variant: "error" });
+    }
+  };
+
+  const handleSpeedSave = async () => {
+    const val = bandwidthSpeedMbps.trim();
+    if (!val || isNaN(Number(val)) || Number(val) < 0) {
+      showNotification("Batas kecepatan tidak valid.", "error");
+      toast({ title: "Batas kecepatan tidak valid.", variant: "error" });
+      return;
+    }
+    try {
+      await updateSettings.mutateAsync({ bandwidth_speed_mbps: val } as any);
+      showNotification("Batas kecepatan download berhasil disimpan.");
+      toast({ title: "Batas kecepatan download berhasil disimpan.", variant: "success" });
+      setIsSpeedDirty(false);
+    } catch {
+      showNotification("Gagal menyimpan batas kecepatan.", "error");
+      toast({ title: "Gagal menyimpan batas kecepatan.", variant: "error" });
+    }
+  };
+
+  // Preview URLs
+  const previewDirectUrl = () => {
+    const base = "https://drive.fiqul.id";
+    const code = "AbCdEfGhIjKlMnOpQrStUvW";
+    const filename = "contoh-file.pdf";
+    return `${base}${buildDownloadPath(filename, code, resolvedEndpoint())}`;
+  };
+
+  const previewShareUrl = () => {
+    const base = "https://drive.fiqul.id";
+    const code = "AbCdEfGhIjKlMnOpQrStUvW";
+    const sp = resolvedSharePrefix();
+    let prefix = "p";
+    if (sp === "s") prefix = "s";
+    else if (sp === "f") prefix = "f";
+    else if (sp.startsWith("custom:")) prefix = sp.slice(7);
+    return `${base}/${prefix}/${code}`;
+  };
+
+  if (isFetchingData) return <SettingsSkeleton />;
 
   return (
     <PageTransition>
-      <div className="flex flex-col gap-6 w-full">
+      <div className="flex flex-col gap-6 max-w-4xl">
         {/* Header */}
-        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-4 flex-wrap">
-              <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Primary Link</h1>
-              {notification && (
-                <div className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-left-3 ${
-                  notification.type === "success"
-                    ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/80 dark:border-emerald-900/80 text-emerald-700 dark:text-emerald-400"
-                    : "bg-red-50 dark:bg-red-950/30 border-red-200/80 dark:border-red-900/80 text-red-700 dark:text-red-400"
-                }`}>
-                  {notification.type === "success"
-                    ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                    : <AlertCircle className="h-4 w-4 text-red-500" />}
-                  {notification.message}
-                </div>
-              )}
-            </div>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-              Atur format URL link direct download file.
-            </p>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">Link &amp; Bandwidth Settings</h1>
           </div>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">
+            Konfigurasi direct download link, format halaman share file, dan batas kuota bandwidth download harian.
+          </p>
 
-          {/* Mobile notification */}
+          {/* Toast Notification */}
           {notification && (
-            <div className="sm:hidden fixed top-4 left-4 right-4 z-[999] flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-950 shadow-xl animate-in fade-in slide-in-from-top-4 duration-300 border border-zinc-800 dark:border-zinc-200">
-              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-white shrink-0 ${notification.type === "success" ? "bg-emerald-500" : "bg-red-500"}`}>
+            <div className={`mt-3 flex items-center gap-2.5 rounded-xl border border-zinc-200/80 bg-zinc-50 px-4 py-3 shadow-md dark:border-white/5 dark:bg-zinc-950/40 animate-in fade-in duration-300 text-zinc-900 dark:text-zinc-100`}>
+              <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full ${notification.type === "success" ? "bg-emerald-500" : "bg-red-500"}`}>
                 {notification.type === "success" ? <Check className="h-3.5 w-3.5 text-white" /> : <AlertCircle className="h-3.5 w-3.5 text-white" />}
               </span>
               <span className="flex-1 text-sm font-semibold">{notification.message}</span>
@@ -179,7 +282,7 @@ function PrimaryLinkPage() {
           )}
         </div>
 
-        {/* Content */}
+        {/* 1. DIRECT PERMALINK DOWNLOAD */}
         <div className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 px-5 sm:px-6 py-5 sm:py-6">
             {/* Left: Info */}
@@ -188,16 +291,15 @@ function PrimaryLinkPage() {
                 <Download className="h-4.5 w-4.5 text-emerald-500 dark:text-emerald-400" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Permalink Download</h3>
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Direct Download Link</h3>
                 <p className="text-[13px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
-                  Atur format URL link direct download. Setiap file dilindungi dengan kode unik 23 karakter yang otomatis disertakan. Tombol "Salin Link" di halaman Files akan menyalin link direct download.
+                  Atur format link raw direct download. Link ini ditujukan untuk program otomatis (seperti CLI tools, download manager) untuk langsung mengunduh file tanpa melewati browser interface.
                 </p>
-                {/* URL Preview */}
                 <div className="mt-3 flex flex-col gap-2">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-xs text-zinc-400 dark:text-zinc-500">Direct link:</span>
-                    <code className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded border border-emerald-100 dark:border-emerald-800/50 break-all">
-                      {previewUrl()}
+                    <span className="text-xs text-zinc-400 dark:text-zinc-500 font-medium">Contoh URL Direct:</span>
+                    <code className="text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2 py-0.5 rounded border border-emerald-100 dark:border-emerald-800/50 break-all font-mono">
+                      {previewDirectUrl()}
                     </code>
                   </div>
                 </div>
@@ -245,12 +347,176 @@ function PrimaryLinkPage() {
                   className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 text-xs font-semibold text-white shadow-sm shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   <Check className="h-3.5 w-3.5" />
-                  Simpan Permalink
+                  Simpan Format Direct
                 </button>
               </div>
             </div>
           </div>
         </div>
+
+        {/* 2. FORMAT LINK SHARE PAGE */}
+        <div className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 px-5 sm:px-6 py-5 sm:py-6">
+            {/* Left: Info */}
+            <div className="flex flex-1 items-start gap-3.5 min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-100 dark:ring-blue-800">
+                <Share2 className="h-4.5 w-4.5 text-blue-500 dark:text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Format Link Share Page</h3>
+                <p className="text-[13px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
+                  Tentukan link share page untuk didistribusikan kepada publik. Ketika tombol "Salin Link" di halaman Files ditekan, tautan share page ini yang akan disalin (bukan direct download).
+                </p>
+                <div className="mt-3 flex flex-col gap-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-xs text-zinc-400 dark:text-zinc-500 font-medium">Contoh URL Share Page:</span>
+                    <code className="text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded border border-blue-100 dark:border-blue-800/50 break-all font-mono">
+                      {previewShareUrl()}
+                    </code>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right: Select + Action */}
+            <div className="sm:w-[320px] shrink-0 flex flex-col gap-2">
+              <div className="relative">
+                <select
+                  value={selectedSharePrefix}
+                  onChange={(e) => { setSelectedSharePrefix(e.target.value); setIsSharePrefixDirty(true); }}
+                  className="h-10 w-full appearance-none rounded-lg border border-zinc-300 bg-white pl-4 pr-10 text-sm font-medium text-zinc-900 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                >
+                  {SHARE_PREFIX_OPTIONS.map((opt) => (
+                    <option key={opt.id} value={opt.id}>{opt.label}</option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400 pointer-events-none" />
+              </div>
+
+              {selectedSharePrefix === "custom" && (
+                <div className="animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 text-sm font-mono">/</span>
+                      <input
+                        type="text"
+                        value={customSharePrefix}
+                        onChange={(e) => { setCustomSharePrefix(e.target.value.replace(/[^a-z0-9_-]/gi, "")); setIsSharePrefixDirty(true); }}
+                        placeholder="share_prefix"
+                        maxLength={32}
+                        className="h-9 w-full rounded-md border border-zinc-300 bg-white pl-7 pr-3 text-[13px] font-mono text-zinc-900 placeholder-zinc-400 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                      />
+                    </div>
+                    <span className="text-xs text-zinc-400 font-mono">/:shareCode</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-1 flex justify-end">
+                <button
+                  onClick={handleSharePrefixSave}
+                  disabled={!isSharePrefixDirty || updateSettings.isPending}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 text-xs font-semibold text-white shadow-sm shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Simpan Format Share
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 3. BANDWIDTH LIMITER */}
+        <div className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 px-5 sm:px-6 py-5 sm:py-6">
+            {/* Left: Info */}
+            <div className="flex flex-1 items-start gap-3.5 min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-100 dark:ring-amber-800">
+                <ShieldAlert className="h-4.5 w-4.5 text-amber-500 dark:text-amber-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Bandwidth Limiter</h3>
+                <p className="text-[13px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
+                  Batasi total kuota download harian per alamat IP. Kuota ini hanya untuk monitoring &amp; menampilkan status di halaman download. 
+                  Kecepatan download selalu mengikuti <strong>Speed Limiter</strong> di bawah. Gunakan nilai <strong>0</strong> untuk menonaktifkan.
+                </p>
+              </div>
+            </div>
+
+            {/* Right: Input + Action */}
+            <div className="sm:w-[320px] shrink-0 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={bandwidthLimitGb}
+                  onChange={(e) => { setBandwidthLimitGb(e.target.value); setIsBandwidthDirty(true); }}
+                  placeholder="10"
+                  min="0"
+                  className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                />
+                <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 font-mono shrink-0">GB / Hari</span>
+              </div>
+
+              <div className="mt-1 flex justify-end">
+                <button
+                  onClick={handleBandwidthSave}
+                  disabled={!isBandwidthDirty || updateSettings.isPending}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 text-xs font-semibold text-white shadow-sm shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Simpan Batasan Bandwidth
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* 4. SPEED LIMITER (per-device) */}
+        <div className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 px-5 sm:px-6 py-5 sm:py-6">
+            {/* Left: Info */}
+            <div className="flex flex-1 items-start gap-3.5 min-w-0">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-100 dark:ring-blue-800">
+                <Download className="h-4.5 w-4.5 text-blue-500 dark:text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Speed Limiter (Per Device)</h3>
+                <p className="text-[13px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
+                  Batasi kecepatan download maksimal per perangkat/koneksi. Berlaku untuk <strong>semua download</strong> dari semua device (browser, Pixel, iPhone, dll). 
+                  Gunakan nilai <strong>0</strong> untuk kecepatan tanpa batas.
+                </p>
+              </div>
+            </div>
+
+            {/* Right: Input + Action */}
+            <div className="sm:w-[320px] shrink-0 flex flex-col gap-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={bandwidthSpeedMbps}
+                  onChange={(e) => { setBandwidthSpeedMbps(e.target.value); setIsSpeedDirty(true); }}
+                  placeholder="1"
+                  min="0"
+                  step="0.5"
+                  className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                />
+                <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 font-mono shrink-0">MB/s</span>
+              </div>
+
+              <div className="mt-1 flex justify-end">
+                <button
+                  onClick={handleSpeedSave}
+                  disabled={!isSpeedDirty || updateSettings.isPending}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 text-xs font-semibold text-white shadow-sm shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Simpan Batas Kecepatan
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
     </PageTransition>
   );

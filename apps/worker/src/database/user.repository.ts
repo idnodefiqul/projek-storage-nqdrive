@@ -7,9 +7,12 @@ interface UserRow {
   password_hash: string;
   created_at: string;
   updated_at: string;
+  totp_secret?: string | null;
+  totp_enabled?: number | null;
+  backup_codes?: string | null;
 }
 
-function rowToUser(row: UserRow): User {
+function rowToUser(row: UserRow): User & { totpSecret?: string | null; totpEnabled?: boolean; backupCodes?: string | null } {
   return {
     id: row.id,
     username: row.username,
@@ -17,6 +20,9 @@ function rowToUser(row: UserRow): User {
     passwordHash: row.password_hash,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    totpSecret: row.totp_secret,
+    totpEnabled: row.totp_enabled === 1,
+    backupCodes: row.backup_codes,
   };
 }
 

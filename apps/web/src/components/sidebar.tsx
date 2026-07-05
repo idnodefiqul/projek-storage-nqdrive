@@ -15,11 +15,17 @@ import {
   ChevronDown,
   Link2,
   UserCog,
+  LogOut,
+  ShieldCheck,
+  ClipboardList,
 } from "lucide-react";
 import { getAvatarSvg } from "../lib/avatar";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuthContext } from "../stores/auth-provider";
 import { useTrashCount } from "../hooks/use-trash";
+import { useLogout } from "../hooks/auth";
+import { useNavigate } from "@tanstack/react-router";
+import { LoadingOverlay } from "./overlay";
 import {
   iconsidePng, logoMainPng,
   googleDriveSvg, cloudflareR2Svg, amazonS3Svg, telegramSvg, onedriveSvg,
@@ -139,6 +145,8 @@ const BOTTOM_NAV: NavItem[] = [
 const SETTINGS_CHILDREN: NavItem[] = [
   { label: "Primary Link", to: "/dashboard/primary-link", icon: Link2 },
   { label: "Account",      to: "/dashboard/account",      icon: UserCog },
+  { label: "Security",     to: "/dashboard/security",     icon: ShieldCheck },
+  { label: "Audit Logs",   to: "/dashboard/audit-logs",   icon: ClipboardList },
 ];
 
 // All storage route prefixes for detecting active state on parent
@@ -378,7 +386,23 @@ function SidebarContent({
   onClose: () => void;
 }) {
   const { user } = useAuthContext();
+  const logout = useLogout();
+  const navigate = useNavigate();
+  const [isLoggingOut, setIsLoggingOut] = React.useState(false);
   const [avatarKey, setAvatarKey] = React.useState(0);
+
+  const handleLogout = async () => {
+    setIsLoggingOut(true);
+    try {
+      await logout.mutateAsync();
+      setTimeout(() => {
+        navigate({ to: "/login" });
+      }, 1200);
+    } catch {
+      setIsLoggingOut(false);
+    }
+  };
+
   React.useEffect(() => {
     const handler = () => setAvatarKey((k: number) => k + 1);
     window.addEventListener("avatar-changed", handler);
@@ -464,6 +488,7 @@ function SidebarContent({
       </div>
 
       {/* User footer */}
+      <LoadingOverlay visible={isLoggingOut} message="Keluar..." />
       <div className="border-t border-zinc-200 dark:border-zinc-800 p-3">
         <div className={cn("flex items-center gap-3 rounded-lg px-2 py-2", isCollapsed && "justify-center px-0")}>
           <div className="h-9 w-9 md:h-10 md:w-10 shrink-0 rounded-full bg-brand-50 border border-brand-200 dark:border-brand-800 dark:bg-brand-900/30 flex items-center justify-center shadow-sm overflow-hidden">
@@ -484,7 +509,31 @@ function SidebarContent({
               </span>
             </div>
           )}
+          {!isCollapsed && (
+            <button
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="rounded-lg p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all shrink-0"
+              title="Logout"
+              aria-label="Logout"
+            >
+              <LogOut className="h-4.5 w-4.5" />
+            </button>
+          )}
         </div>
+        {isCollapsed && (
+          <div className="mt-2 flex justify-center">
+            <button
+              onClick={handleLogout}
+              disabled={isLoggingOut}
+              className="rounded-lg p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all"
+              title="Logout"
+              aria-label="Logout"
+            >
+              <LogOut className="h-5 w-5" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
