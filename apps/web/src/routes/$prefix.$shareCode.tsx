@@ -4,7 +4,7 @@ import {
   Download, ShieldCheck, FileText, FileArchive, FileImage,
   FileAudio, FileVideo, FileCode, File as FileIcon,
   Activity, Loader2, Gauge, CheckCircle2,
-  Zap, UserX, RefreshCw, Sparkles, Home, Shield, Globe2, Menu, X, Share2, Copy, Link2, Mail, Send, MessageCircle, Moon, Sun, CircleX,
+  Zap, UserX, RefreshCw, Sparkles, Home, Shield, Globe2, Menu, X, Share2, Copy, Link2, Mail, Send, MessageCircle, Moon, Sun, CircleX, HardDrive,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button, Dialog, DialogContent, Particles } from "@nqdrive/ui";
@@ -383,18 +383,33 @@ function DownloadPage() {
                       File is safe and ready to download
                     </div>
 
-                    <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:max-w-sm lg:mx-0">
-                      <div className="flex flex-col gap-0.5">
-                        <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">File Type</dt>
-                        <dd className="font-semibold text-zinc-800 dark:text-zinc-200">{getFileTypeLabel(fileInfo.mimeType)}</dd>
+                    <dl className="mt-5 grid grid-cols-1 gap-3 text-sm sm:max-w-lg sm:grid-cols-3 lg:mx-0">
+                      <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-zinc-200 bg-white/70 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-500/10 text-brand-600 dark:text-brand-300">
+                          <FileText className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-semibold uppercase tracking-normal text-zinc-400 dark:text-zinc-500 sm:tracking-wide">Type</dt>
+                          <dd className="truncate font-semibold text-zinc-800 dark:text-zinc-200">{getFileTypeLabel(fileInfo.mimeType)}</dd>
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-0.5">
-                        <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Size</dt>
-                        <dd className="font-semibold text-zinc-800 dark:text-zinc-200">{formatBytes(fileInfo.sizeBytes)}</dd>
+                      <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-zinc-200 bg-white/70 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-300">
+                          <HardDrive className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-semibold uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Size</dt>
+                          <dd className="truncate font-semibold text-zinc-800 dark:text-zinc-200">{formatBytes(fileInfo.sizeBytes)}</dd>
+                        </div>
                       </div>
-                      <div className="flex flex-col gap-0.5">
-                        <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Downloads</dt>
-                        <dd className="font-semibold text-zinc-800 dark:text-zinc-200">{fileInfo.downloadCount}x</dd>
+                      <div className="flex min-w-0 items-center gap-2.5 rounded-xl border border-zinc-200 bg-white/70 px-3 py-2.5 dark:border-zinc-800 dark:bg-zinc-900/60">
+                        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sky-500/10 text-sky-600 dark:text-sky-300">
+                          <Download className="h-4 w-4" />
+                        </div>
+                        <div className="min-w-0">
+                          <dt className="text-[10px] font-semibold uppercase tracking-normal text-zinc-400 dark:text-zinc-500 sm:tracking-wide">Download</dt>
+                          <dd className="truncate font-semibold text-zinc-800 dark:text-zinc-200">{fileInfo.downloadCount}</dd>
+                        </div>
                       </div>
                     </dl>
                   </div>
@@ -522,3 +537,7 @@ function DownloadPage() {
 }
 
 export default DownloadPage;
+
+
+
+

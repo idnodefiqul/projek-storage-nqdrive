@@ -10,11 +10,11 @@ export function useFiles(params: ListFilesParams) {
   return useQuery({
     queryKey: fileQueryKeys.list(params),
     queryFn: () => fileService.list(params),
-    placeholderData: (previousData) => previousData, // keeps the table from flashing empty between pages
-    // Refresh data setiap 30 detik agar download count di tabel selalu up-to-date
-    // tanpa perlu reload halaman manual.
-    staleTime: 30_000,
-    refetchInterval: 30_000,
+    placeholderData: (previousData) => previousData,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
   });
 }
 

@@ -52,7 +52,6 @@ const VARIANT_CONFIG: Record<
   },
 };
 
-// Default fallback
 const DEFAULT_VARIANT = VARIANT_CONFIG.info;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
@@ -76,7 +75,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {children}
       {createPortal(
         <div
-          className="fixed bottom-20 right-4 z-[100] flex w-full max-w-sm flex-col gap-2 px-4 sm:px-0"
+          className="fixed left-1/2 top-3 z-[100] flex w-[calc(100vw-1.5rem)] max-w-[22rem] -translate-x-1/2 flex-col items-center gap-2 sm:top-5 sm:max-w-md"
           aria-live="polite"
           aria-label="Notifikasi"
         >
@@ -95,9 +94,7 @@ function ToastItem({ toast: t, onDismiss }: { toast: Toast; onDismiss: (id: stri
   const [leaving, setLeaving] = useState(false);
 
   useEffect(() => {
-    // mount → slide in
     const enter = requestAnimationFrame(() => setVisible(true));
-    // auto dismiss: start leave animation 300ms sebelum benar-benar dihapus
     const leaveTimer = setTimeout(() => setLeaving(true), 4700);
     return () => {
       cancelAnimationFrame(enter);
@@ -114,26 +111,26 @@ function ToastItem({ toast: t, onDismiss }: { toast: Toast; onDismiss: (id: stri
       style={{
         transition: "opacity 300ms ease, transform 300ms ease",
         opacity: visible && !leaving ? 1 : 0,
-        transform: visible && !leaving ? "translateY(0)" : "translateY(12px)",
+        transform: visible && !leaving ? "translateY(0)" : "translateY(-10px)",
       }}
       className={cn(
-        "flex items-start gap-3 rounded-xl border p-4 shadow-lg shadow-black/10",
+        "flex w-full items-start gap-2 rounded-xl border p-3 shadow-lg shadow-black/10 backdrop-blur sm:gap-3 sm:p-4",
         config.classes
       )}
     >
-      <Icon className="mt-0.5 h-5 w-5 shrink-0" />
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-semibold leading-snug">{t.title}</p>
+      <Icon className="mt-0.5 h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-semibold leading-snug sm:text-sm">{t.title}</p>
         {t.description && (
-          <p className="mt-0.5 text-sm opacity-75 leading-snug break-words">{t.description}</p>
+          <p className="mt-0.5 break-words text-xs leading-snug opacity-75 sm:text-sm">{t.description}</p>
         )}
       </div>
       <button
         onClick={() => onDismiss(t.id)}
         aria-label="Tutup notifikasi"
-        className="shrink-0 opacity-50 hover:opacity-100 transition-opacity mt-0.5"
+        className="mt-0.5 shrink-0 opacity-50 transition-opacity hover:opacity-100"
       >
-        <X className="h-4 w-4" />
+        <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
       </button>
     </div>
   );

@@ -47,7 +47,10 @@ export function useStorageManagerSummary() {
   return useQuery({
     queryKey: ["storage-manager", "summary"],
     queryFn: storageManagerService.getSummary,
-    refetchInterval: 30_000,
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -62,7 +65,6 @@ export function useSyncAllAccounts() {
     },
   });
 }
-
 
 export function useFormatDriveAccount() {
   const queryClient = useQueryClient();

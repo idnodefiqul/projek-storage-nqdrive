@@ -124,11 +124,10 @@ async function handleDownload(c: Context<{ Bindings: Env }>) {
       headers.set("Content-Range", `bytes ${range.start}-${range.end}/${totalSize}`);
     } else {
       headers.set("Content-Length", String(totalSize));
-      headers.set("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`);
     }
 
     return new Response(result.stream, {
-      status: 206,
+      status: range ? 206 : 200,
       headers,
       // @ts-ignore
       encodeBody: "manual",

@@ -229,17 +229,15 @@ app.get("/api/files/stream", async (c) => {
   h.set("Cache-Control", "private, max-age=300");
   h.set("Accept-Ranges", "bytes");
 
-  // Forward Content-Range and Content-Length from Google Drive
-  if (cr) {
+  if (browserRange && cr) {
     h.set("Content-Range", cr);
     const driveContentLength = driveRes.headers.get("Content-Length");
     if (driveContentLength) h.set("Content-Length", driveContentLength);
   } else if (totalSize > 0) {
     h.set("Content-Length", String(totalSize));
-    h.set("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`);
   }
 
-  const status = (driveRes.status === 206 || browserRange) ? 206 : 200;
+  const status = browserRange ? 206 : 200;
   return new Response(driveRes.body, { status, headers: h, encodeBody: "manual" } as any);
 });
 
@@ -467,11 +465,10 @@ app.get("/:prefix/:slug{[^/]+\\.[^/]+}", async (c) => {
       headers.set("Content-Range", `bytes ${range.start}-${range.end}/${totalSize}`);
     } else {
       headers.set("Content-Length", String(totalSize));
-      headers.set("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`);
     }
 
     return new Response(result.stream, {
-      status: 206, headers,
+      status: range ? 206 : 200, headers,
       // @ts-ignore - Cloudflare Workers specific flag
       encodeBody: "manual",
     });
@@ -494,3 +491,4 @@ export default {
     ctx.waitUntil(processRunningMigrations(env));
   },
 };
+

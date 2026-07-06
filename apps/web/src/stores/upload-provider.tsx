@@ -122,7 +122,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const { data: dbLogs } = useQuery({
     queryKey: ["logs", "uploads"],
     queryFn: logService.listUploads,
-    refetchInterval: 15000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
     enabled: !!user,
   });
 
@@ -425,3 +428,6 @@ export function useUploadGlobal() {
   if (!context) throw new Error("useUploadGlobal must be used within an UploadProvider");
   return context;
 }
+
+
+

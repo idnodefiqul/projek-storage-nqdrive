@@ -155,6 +155,7 @@ const SETTINGS_PREFIXES = SETTINGS_CHILDREN.map((c) => c.to);
 
 // ─── COLLAPSIBLE ANIMATION ────────────────────────────────────────────────────
 const COLLAPSE_EASE = [0.32, 0.72, 0, 1] as const;
+const SIDEBAR_GROUP_STORAGE_KEY = "nqdrive-sidebar-open-groups";
 
 // ─── SINGLE NAV LINK ──────────────────────────────────────────────────────────
 function NavLink({
@@ -252,13 +253,26 @@ function CollapsibleGroup({
   prefixes: string[];
 }) {
   const location = useLocation();
+  const storageKey = `${SIDEBAR_GROUP_STORAGE_KEY}:${label}`;
   const isAnyChildActive = prefixes.some((p) => location.pathname.startsWith(p));
+  const [open, setOpenState] = React.useState(() => {
+    try {
+      const saved = localStorage.getItem(storageKey);
+      if (saved !== null) return saved === "true";
+    } catch {}
+    return isAnyChildActive;
+  });
+  const setOpen = React.useCallback((value: React.SetStateAction<boolean>) => {
+    setOpenState((previous) => {
+      const next = typeof value === "function" ? (value as (current: boolean) => boolean)(previous) : value;
+      try { localStorage.setItem(storageKey, String(next)); } catch {}
+      return next;
+    });
+  }, [storageKey]);
 
-  // Auto-open when child route active
-  const [open, setOpen] = React.useState(isAnyChildActive);
   React.useEffect(() => {
     if (isAnyChildActive) setOpen(true);
-  }, [isAnyChildActive]);
+  }, [isAnyChildActive, setOpen]);
 
   // Collapsed sidebar: icon with hover flyout
   if (isCollapsed) {
@@ -606,3 +620,5 @@ export function AppSidebar() {
     </>
   );
 }
+
+

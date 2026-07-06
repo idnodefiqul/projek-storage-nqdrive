@@ -3,19 +3,6 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@nqdrive/ui";
 import { migrationService, type MigrationJob } from "../services/migration.service";
 
-/**
- * MigrationProvider — menjalankan migrasi drive antar akun di latar belakang.
- *
- * State job ada di D1 (server). Provider ini hanya "pemencet tombol":
- * selama ada job berjalan, ia memanggil POST /migrations/:id/process berulang
- * (satu batch kecil per panggilan) dan menyimpan respons ke cache react-query
- * sehingga progress bar di sidebar ter-update real-time.
- *
- * Di-mount di level layout dashboard (seperti UploadProvider) — pindah-pindah
- * halaman dashboard tidak menghentikan loop. Kalau tab ditutup, cron worker
- * tiap 10 menit yang melanjutkan.
- */
-
 function maskEmail(email: string): string {
   const [local, domain] = email.split("@");
   if (!local || !domain) return email;
@@ -45,18 +32,25 @@ export function MigrationProvider({ children }: { children: ReactNode }) {
   const { toast } = useToast();
   const runnerActiveRef = useRef(false);
 
-  // Poll pelan sebagai deteksi job (misal job yang dilanjutkan cron / tab lain).
-  // Update real-time datang dari respons /process di loop bawah, bukan dari poll ini.
+  const isDocumentVisible = () =>
+    typeof document === "undefined" || document.visibilityState === "visible";
+
   const { data: activeData } = useQuery({
     queryKey: ["migrations", "active"],
     queryFn: migrationService.listActive,
-    refetchInterval: 15_000,
+    staleTime: 15_000,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
   });
 
   const { data: recentData } = useQuery({
     queryKey: ["migrations", "recent"],
     queryFn: migrationService.listRecent,
-    refetchInterval: 30_000,
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
   });
 
   const activeJobs = activeData?.jobs ?? [];
@@ -85,23 +79,21 @@ export function MigrationProvider({ children }: { children: ReactNode }) {
     [queryClient, toast]
   );
 
-  /**
-   * Loop pemroses: jalan terus selama masih ada job 'running'.
-   * runnerActiveRef menjamin hanya satu loop hidup meski effect terpicu berulang.
-   */
   const runProcessingLoop = useCallback(async () => {
     if (runnerActiveRef.current) return;
+    if (!isDocumentVisible()) return;
     runnerActiveRef.current = true;
 
     try {
       for (;;) {
+        if (!isDocumentVisible()) break;
+
         let jobs: MigrationJob[];
         try {
           const result = await migrationService.listActive();
           jobs = result.jobs;
           queryClient.setQueryData(["migrations", "active"], result);
         } catch {
-          // Jaringan bermasalah — coba lagi nanti lewat poll berikutnya.
           break;
         }
 
@@ -111,7 +103,6 @@ export function MigrationProvider({ children }: { children: ReactNode }) {
           try {
             const { job: updated } = await migrationService.process(job.id);
 
-            // Simpan progress terbaru ke cache agar sidebar langsung ter-update.
             queryClient.setQueryData(
               ["migrations", "active"],
               (old: { jobs: MigrationJob[] } | undefined) => ({
@@ -124,13 +115,10 @@ export function MigrationProvider({ children }: { children: ReactNode }) {
             if (updated.status !== "running") onJobFinished(updated);
           } catch (error) {
             console.error(`Gagal memproses batch migrasi job ${job.id}:`, error);
-            // Jangan hammer server saat error — tunggu sebentar.
             await new Promise((resolve) => setTimeout(resolve, 5000));
           }
         }
 
-        // Jeda singkat antar putaran supaya tidak spin saat item sedang
-        // diproses invocation lain (status 'processing' di server).
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
     } finally {
@@ -138,9 +126,21 @@ export function MigrationProvider({ children }: { children: ReactNode }) {
     }
   }, [queryClient, onJobFinished]);
 
-  // Nyalakan loop setiap kali terdeteksi ada job berjalan.
   useEffect(() => {
     if (activeJobs.length > 0) void runProcessingLoop();
+  }, [activeJobs.length, runProcessingLoop]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible" && activeJobs.length > 0) {
+        void runProcessingLoop();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
   }, [activeJobs.length, runProcessingLoop]);
 
   const startMutation = useMutation({

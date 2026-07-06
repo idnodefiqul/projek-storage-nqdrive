@@ -54,8 +54,10 @@ export function useDashboardMetrics() {
   return useQuery({
     queryKey: ["dashboard", "metrics"],
     queryFn: dashboardService.getMetrics,
-    staleTime: 0,               // selalu anggap stale saat navigasi kembali
-    refetchOnMount: "always",   // selalu fetch ulang saat komponen mount
+    staleTime: 60_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
   });
 }
 
@@ -63,7 +65,9 @@ export function useDashboardAnalytics(days = 30) {
   return useQuery({
     queryKey: ["dashboard", "analytics", days],
     queryFn: () => dashboardService.getAnalytics(days),
-    staleTime: 0,
-    refetchOnMount: "always",
+    staleTime: 300_000,
+    refetchOnMount: false,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
   });
 }
