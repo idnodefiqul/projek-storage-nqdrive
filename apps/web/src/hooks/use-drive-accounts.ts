@@ -62,3 +62,28 @@ export function useSyncAllAccounts() {
     },
   });
 }
+
+
+export function useFormatDriveAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => driveAccountService.format(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["drive-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
+      queryClient.invalidateQueries({ queryKey: ["files"] });
+    },
+  });
+}
+
+export function useFormatAllDriveAccounts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => driveAccountService.formatAll(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["drive-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
+      queryClient.invalidateQueries({ queryKey: ["files"] });
+    },
+  });
+}

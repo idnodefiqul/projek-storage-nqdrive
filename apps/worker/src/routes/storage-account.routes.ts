@@ -12,6 +12,8 @@ import {
 } from "../services/google-oauth.service";
 import { signJwt, verifyJwt } from "../utils/jwt";
 import { calculatePercentage } from "@nqdrive/shared";
+import { StorageProviderFactory } from "@nqdrive/storage";
+import { writeAuditLog } from "../utils/audit";
 import type { Env } from "../config/env";
 import type { PublicDriveAccount, DriveAccount } from "@nqdrive/types";
 
@@ -84,6 +86,53 @@ storageAccountRoutes.get("/accounts/oauth/url", async (c) => {
 
 // ─── Helper ───────────────────────────────────────────────────────────────
 
+
+async function formatDriveAccount(params: {
+  env: Env;
+  account: DriveAccount;
+}): Promise<{ deletedFiles: number }> {
+  const { env, account } = params;
+
+  const connectionService = new GoogleAccountConnectionService(env);
+  const accessToken = await connectionService.getValidAccessToken(account);
+  const provider = StorageProviderFactory.resolve(account.provider);
+
+  // Hapus SEMUA isi drive langsung di provider (Google Drive asli) — termasuk
+  // file lama/orphan yang tidak tercatat di database — lalu kosongkan trash.
+  let deletedFromDrive = 0;
+  if (provider.deleteAllFiles) {
+    const result = await provider.deleteAllFiles({ credentials: { accessToken } });
+    deletedFromDrive = result.deletedCount;
+  } else {
+    // Fallback untuk provider tanpa deleteAllFiles: hapus per file yang tercatat di DB.
+    const { results: files } = await env.DB.prepare(
+      "SELECT id, provider_file_id FROM files WHERE drive_account_id = ?"
+    ).bind(account.id).all<{ id: number; provider_file_id: string }>();
+
+    for (const file of files) {
+      try {
+        await provider.delete({ credentials: { accessToken }, providerFileId: file.provider_file_id });
+        deletedFromDrive++;
+      } catch (err) {
+        console.error(`Gagal hapus file ${file.id} dari provider:`, err);
+      }
+    }
+  }
+
+  // Bersihkan seluruh record file akun ini dari database (list file dashboard).
+  await env.DB.prepare("DELETE FROM files WHERE drive_account_id = ?").bind(account.id).run();
+
+  // Sinkronkan kuota agar progress bar storage langsung mencerminkan drive kosong.
+  try {
+    const quota = await provider.getQuota({ credentials: { accessToken } });
+    const driveAccountRepository = new DriveAccountRepository(env.DB);
+    await driveAccountRepository.updateQuota(account.id, quota);
+  } catch (err) {
+    console.error(`Gagal sync kuota akun ${account.id} setelah format:`, err);
+  }
+
+  return { deletedFiles: deletedFromDrive };
+}
 function toPublic(account: DriveAccount): PublicDriveAccount {
   const {
     refreshTokenEncrypted: _refresh,
@@ -118,7 +167,86 @@ const connectTokenSchema = z.object({
 storageAccountRoutes.get("/accounts", async (c) => {
   const repository = new DriveAccountRepository(c.env.DB);
   const accounts = await repository.findAll();
-  return c.json({ success: true, data: { accounts: accounts.map(toPublic) } });
+  const accountsWithCounts = await Promise.all(
+    accounts.map(async (account) => {
+      const row = await c.env.DB.prepare(
+        "SELECT COUNT(*) as count FROM files WHERE drive_account_id = ?"
+      ).bind(account.id).first<{ count: number }>();
+
+      return { ...toPublic(account), fileCount: row?.count ?? 0 };
+    })
+  );
+
+  return c.json({ success: true, data: { accounts: accountsWithCounts } });
+});
+
+
+// --- POST /api/storage/accounts/format-all ---
+// Hard-delete semua file dari semua akun Google Drive, tapi akun tetap terhubung.
+storageAccountRoutes.post("/accounts/format-all", async (c) => {
+  const driveAccountRepository = new DriveAccountRepository(c.env.DB);
+  const accounts = await driveAccountRepository.findAll();
+  const results: Array<{
+    accountId: number;
+    email: string;
+    deletedFiles: number;
+    status: "ok" | "error";
+    error?: string;
+  }> = [];
+
+  for (const account of accounts) {
+    try {
+      const result = await formatDriveAccount({ env: c.env, account });
+      results.push({ accountId: account.id, email: account.email, deletedFiles: result.deletedFiles, status: "ok" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      console.error(`Gagal format drive akun ${account.id}:`, error);
+      results.push({ accountId: account.id, email: account.email, deletedFiles: 0, status: "error", error: message });
+    }
+  }
+
+  const totalDeletedFiles = results.reduce((sum, item) => sum + item.deletedFiles, 0);
+  return c.json({
+    success: true,
+    data: {
+      message: "Semua drive selesai diformat.",
+      totalDeletedFiles,
+      results,
+    },
+  });
+});
+
+// --- POST /api/storage/accounts/:id/format ---
+// Hard-delete semua file di satu akun Google Drive, tapi akun tetap terhubung.
+storageAccountRoutes.post("/accounts/:id/format", async (c) => {
+  const id = Number(c.req.param("id"));
+  if (isNaN(id)) {
+    return c.json(
+      { success: false, error: { code: "NOT_FOUND", message: "Akun tidak ditemukan." } },
+      404
+    );
+  }
+
+  const driveAccountRepository = new DriveAccountRepository(c.env.DB);
+  const account = await driveAccountRepository.findById(id);
+
+  if (!account) {
+    return c.json(
+      { success: false, error: { code: "NOT_FOUND", message: "Akun tidak ditemukan." } },
+      404
+    );
+  }
+
+  const result = await formatDriveAccount({ env: c.env, account });
+  return c.json({
+    success: true,
+    data: {
+      message: "Drive berhasil diformat.",
+      accountId: account.id,
+      email: account.email,
+      deletedFiles: result.deletedFiles,
+    },
+  });
 });
 
 // ─── GET /api/storage/accounts/:id ────────────────────────────────────────
@@ -164,6 +292,7 @@ storageAccountRoutes.delete("/accounts/:id", async (c) => {
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`
     ).bind(id).run();
+    writeAuditLog(c, { action: "storage.disconnect", status: "warning", detail: account.email });
     return c.json({
       success: true,
       data: { message: `Akun diputus. ${filesCount} file tetap di list — login ulang untuk mengaktifkan download.` },
@@ -171,6 +300,7 @@ storageAccountRoutes.delete("/accounts/:id", async (c) => {
   } else {
     // No files, delete completely
     await repository.delete(id);
+    writeAuditLog(c, { action: "storage.disconnect", status: "warning", detail: account.email });
     return c.json({ success: true, data: { message: "Akun berhasil dihapus." } });
   }
 });
@@ -185,6 +315,7 @@ storageAccountRoutes.post(
 
     try {
       const account = await connectionService.connectViaRefreshToken(refreshToken);
+      writeAuditLog(c, { action: "storage.connect", status: "success", detail: account.email });
       return c.json({ success: true, data: { account: toPublic(account) } }, 201);
     } catch (error) {
       const message =

@@ -5,6 +5,7 @@ import { StorageAllocationService } from "../services/storage-allocation.service
 import { GoogleAccountConnectionService } from "../services/google-account-connection.service";
 import type { Env } from "../config/env";
 import { StorageProviderFactory } from "@nqdrive/storage";
+import { writeAuditLog } from "../utils/audit";
 
 const uploadRoutes = new Hono<{ Bindings: Env }>();
 
@@ -137,6 +138,7 @@ uploadRoutes.post("/finalize", async (c) => {
       folderId,
       sha256Hash,
     });
+    writeAuditLog(c, { action: "file.upload", status: "success", detail: filename });
     return c.json({ success: true, data: { file } }, 201);
   } catch (error) {
     if (error instanceof UploadValidationError) {

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useRef } from "react";
 import {
-  Download, Check, ChevronDown, CheckCircle2, AlertCircle, Share2, ShieldAlert
+  Download, Check, ChevronDown, CheckCircle2, AlertCircle, Share2
 } from "lucide-react";
 import { useToast } from "@nqdrive/ui";
 import { useSettings, useUpdateSettings } from "../hooks/use-settings";
@@ -98,13 +98,6 @@ function PrimaryLinkPage() {
   const [customSharePrefix, setCustomSharePrefix] = useState("");
   const [isSharePrefixDirty, setIsSharePrefixDirty] = useState(false);
 
-  // Bandwidth limit state
-  const [bandwidthLimitGb, setBandwidthLimitGb] = useState("0");
-  const [isBandwidthDirty, setIsBandwidthDirty] = useState(false);
-
-  // Speed limit state
-  const [bandwidthSpeedMbps, setBandwidthSpeedMbps] = useState("0");
-  const [isSpeedDirty, setIsSpeedDirty] = useState(false);
 
   useEffect(() => {
     if (settings) {
@@ -129,14 +122,6 @@ function PrimaryLinkPage() {
         setCustomSharePrefix("");
       }
       setIsSharePrefixDirty(false);
-
-      // Bandwidth limit
-      setBandwidthLimitGb((settings as any).bandwidth_limit_gb ?? "0");
-      setIsBandwidthDirty(false);
-
-      // Speed limit
-      setBandwidthSpeedMbps((settings as any).bandwidth_speed_mbps ?? "0");
-      setIsSpeedDirty(false);
     }
   }, [settings]);
 
@@ -202,41 +187,6 @@ function PrimaryLinkPage() {
     }
   };
 
-  const handleBandwidthSave = async () => {
-    const val = bandwidthLimitGb.trim();
-    if (!val || isNaN(Number(val)) || Number(val) < 0) {
-      showNotification("Batas bandwidth tidak valid.", "error");
-      toast({ title: "Batas bandwidth tidak valid.", variant: "error" });
-      return;
-    }
-    try {
-      await updateSettings.mutateAsync({ bandwidth_limit_gb: val } as any);
-      showNotification("Batas bandwidth harian berhasil disimpan.");
-      toast({ title: "Batas bandwidth harian berhasil disimpan.", variant: "success" });
-      setIsBandwidthDirty(false);
-    } catch {
-      showNotification("Gagal menyimpan batas bandwidth.", "error");
-      toast({ title: "Gagal menyimpan batas bandwidth.", variant: "error" });
-    }
-  };
-
-  const handleSpeedSave = async () => {
-    const val = bandwidthSpeedMbps.trim();
-    if (!val || isNaN(Number(val)) || Number(val) < 0) {
-      showNotification("Batas kecepatan tidak valid.", "error");
-      toast({ title: "Batas kecepatan tidak valid.", variant: "error" });
-      return;
-    }
-    try {
-      await updateSettings.mutateAsync({ bandwidth_speed_mbps: val } as any);
-      showNotification("Batas kecepatan download berhasil disimpan.");
-      toast({ title: "Batas kecepatan download berhasil disimpan.", variant: "success" });
-      setIsSpeedDirty(false);
-    } catch {
-      showNotification("Gagal menyimpan batas kecepatan.", "error");
-      toast({ title: "Gagal menyimpan batas kecepatan.", variant: "error" });
-    }
-  };
 
   // Preview URLs
   const previewDirectUrl = () => {
@@ -265,10 +215,10 @@ function PrimaryLinkPage() {
         {/* Header */}
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
-            <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">Link &amp; Bandwidth Settings</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">Link Settings</h1>
           </div>
           <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Konfigurasi direct download link, format halaman share file, dan batas kuota bandwidth download harian.
+            Konfigurasi direct download link dan format halaman share file.
           </p>
 
           {/* Toast Notification */}
@@ -420,97 +370,6 @@ function PrimaryLinkPage() {
                 >
                   <Check className="h-3.5 w-3.5" />
                   Simpan Format Share
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 3. BANDWIDTH LIMITER */}
-        <div className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 px-5 sm:px-6 py-5 sm:py-6">
-            {/* Left: Info */}
-            <div className="flex flex-1 items-start gap-3.5 min-w-0">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-100 dark:ring-amber-800">
-                <ShieldAlert className="h-4.5 w-4.5 text-amber-500 dark:text-amber-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Bandwidth Limiter</h3>
-                <p className="text-[13px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
-                  Batasi total kuota download harian per alamat IP. Kuota ini hanya untuk monitoring &amp; menampilkan status di halaman download. 
-                  Kecepatan download selalu mengikuti <strong>Speed Limiter</strong> di bawah. Gunakan nilai <strong>0</strong> untuk menonaktifkan.
-                </p>
-              </div>
-            </div>
-
-            {/* Right: Input + Action */}
-            <div className="sm:w-[320px] shrink-0 flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={bandwidthLimitGb}
-                  onChange={(e) => { setBandwidthLimitGb(e.target.value); setIsBandwidthDirty(true); }}
-                  placeholder="10"
-                  min="0"
-                  className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-                />
-                <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 font-mono shrink-0">GB / Hari</span>
-              </div>
-
-              <div className="mt-1 flex justify-end">
-                <button
-                  onClick={handleBandwidthSave}
-                  disabled={!isBandwidthDirty || updateSettings.isPending}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 text-xs font-semibold text-white shadow-sm shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  Simpan Batasan Bandwidth
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 4. SPEED LIMITER (per-device) */}
-        <div className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
-          <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 px-5 sm:px-6 py-5 sm:py-6">
-            {/* Left: Info */}
-            <div className="flex flex-1 items-start gap-3.5 min-w-0">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 dark:bg-blue-900/20 ring-1 ring-blue-100 dark:ring-blue-800">
-                <Download className="h-4.5 w-4.5 text-blue-500 dark:text-blue-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Speed Limiter (Per Device)</h3>
-                <p className="text-[13px] text-zinc-500 dark:text-zinc-400 mt-0.5 leading-relaxed">
-                  Batasi kecepatan download maksimal per perangkat/koneksi. Berlaku untuk <strong>semua download</strong> dari semua device (browser, Pixel, iPhone, dll). 
-                  Gunakan nilai <strong>0</strong> untuk kecepatan tanpa batas.
-                </p>
-              </div>
-            </div>
-
-            {/* Right: Input + Action */}
-            <div className="sm:w-[320px] shrink-0 flex flex-col gap-2">
-              <div className="flex items-center gap-2">
-                <input
-                  type="number"
-                  value={bandwidthSpeedMbps}
-                  onChange={(e) => { setBandwidthSpeedMbps(e.target.value); setIsSpeedDirty(true); }}
-                  placeholder="1"
-                  min="0"
-                  step="0.5"
-                  className="h-10 w-full rounded-lg border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-900 outline-none transition-all focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
-                />
-                <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 font-mono shrink-0">MB/s</span>
-              </div>
-
-              <div className="mt-1 flex justify-end">
-                <button
-                  onClick={handleSpeedSave}
-                  disabled={!isSpeedDirty || updateSettings.isPending}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-emerald-500 px-3.5 text-xs font-semibold text-white shadow-sm shadow-emerald-500/20 transition-all hover:bg-emerald-600 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  Simpan Batas Kecepatan
                 </button>
               </div>
             </div>

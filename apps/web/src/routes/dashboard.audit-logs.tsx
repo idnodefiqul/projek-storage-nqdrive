@@ -1,15 +1,12 @@
 ﻿import { createFileRoute } from "@tanstack/react-router";
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   useReactTable,
   getCoreRowModel,
-  getFilteredRowModel,
   getSortedRowModel,
-  getPaginationRowModel,
   flexRender,
   type ColumnDef,
   type SortingState,
-  type ColumnFiltersState,
 } from "@tanstack/react-table";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -18,7 +15,7 @@ import {
 import {
   Activity, ShieldCheck, AlertTriangle, XCircle, LogIn, Users,
   Search, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
-  Download, Copy, Eye, ArrowUpDown, Filter, X, ChevronDown,
+  Download, Copy, Eye, ArrowUpDown, Filter, X, ChevronDown, Loader2,
   TrendingUp, TrendingDown,
 } from "lucide-react";
 import {
@@ -30,6 +27,7 @@ import {
 import { cn } from "@nqdrive/ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { PageTransition } from "../components/page-transition";
+import { apiRequest } from "../lib/client";
 
 export const Route = createFileRoute("/dashboard/audit-logs")({
   component: AuditLogsPage,
@@ -38,115 +36,63 @@ export const Route = createFileRoute("/dashboard/audit-logs")({
 type LogStatus = "success" | "warning" | "error" | "info";
 
 interface AuditLogEntry {
-  id: string;
+  id: number;
   status: LogStatus;
   action: string;
   user: string;
-  role: string;
   ip: string;
   country: string;
-  device: string;
-  browser: string;
-  os: string;
-  timestamp: string;
-  method: string;
-  endpoint: string;
-  responseCode: number;
-  requestId: string;
+  user_agent: string;
+  detail: string | null;
+  created_at: string;
 }
 
-const ACTIONS = [
-  "login","logout","file.upload","file.delete","file.download",
-  "settings.update","user.create","user.delete","api-key.create",
-  "api-key.revoke","storage.connect","storage.disconnect","password.change",
-  "2fa.enable","2fa.disable","trash.purge","folder.create","folder.delete",
-];
-const USERS = ["admin","fiqul","operator1","devops"];
-const COUNTRIES = ["Indonesia","Singapore","United States","Germany","Japan","Netherlands"];
-const BROWSERS = ["Chrome 126","Firefox 128","Safari 18","Edge 126","Brave 1.67"];
-const OS_LIST = ["Windows 11","macOS 15","Ubuntu 24.04","Android 14","iOS 18"];
-const DEVICES = ["Desktop","Mobile","Tablet"];
-const METHODS = ["GET","POST","PUT","PATCH","DELETE"];
-const ENDPOINTS = [
-  "/api/auth/login","/api/auth/logout","/api/upload","/api/files",
-  "/api/folders","/api/settings","/api/security","/api/api-keys",
-  "/api/storage","/api/trash","/api/dashboard","/api/me",
-];
-
-function randomItem<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]!;
+interface StatsResponse {
+  total: number;
+  success: number;
+  warning: number;
+  error: number;
+  info: number;
+  trend: { date: string; events: number }[];
 }
 
-function generateDummyLogs(count: number): AuditLogEntry[] {
-  const logs: AuditLogEntry[] = [];
-  const now = Date.now();
-  for (let i = 0; i < count; i++) {
-    const action = randomItem(ACTIONS);
-    const isLogin = action === "login";
-    const roll = Math.random();
-    let status: LogStatus;
-    if (isLogin && roll > 0.85) status = "error";
-    else if (roll > 0.92) status = "warning";
-    else if (roll > 0.96) status = "error";
-    else if (roll > 0.82) status = "info";
-    else status = "success";
-    logs.push({
-      id: `log-${String(i + 1).padStart(5, "0")}`,
-      status,
-      action,
-      user: randomItem(USERS),
-      role: "admin",
-      ip: `${Math.floor(Math.random() * 223) + 1}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`,
-      country: randomItem(COUNTRIES),
-      device: randomItem(DEVICES),
-      browser: randomItem(BROWSERS),
-      os: randomItem(OS_LIST),
-      timestamp: new Date(now - i * 1000 * 60 * Math.floor(Math.random() * 30 + 1)).toISOString(),
-      method: randomItem(METHODS),
-      endpoint: randomItem(ENDPOINTS),
-      responseCode: status === "error" ? randomItem([400,401,403,500]) : status === "warning" ? 429 : 200,
-      requestId: `req_${Math.random().toString(36).slice(2, 14)}`,
-    });
-  }
-  return logs;
+function getBrowser(ua: string): string {
+  if (!ua) return "-";
+  if (ua.includes("Edg") || ua.includes("Edge")) return "Edge";
+  if (ua.includes("Chrome") && !ua.includes("Edg")) return "Chrome";
+  if (ua.includes("Firefox")) return "Firefox";
+  if (ua.includes("Safari") && !ua.includes("Chrome")) return "Safari";
+  if (ua.includes("OPR") || ua.includes("Opera")) return "Opera";
+  return ua.slice(0, 20) + (ua.length > 20 ? "…" : "");
 }
 
-const DUMMY_LOGS = generateDummyLogs(200);
-
-const TREND_DATA = Array.from({ length: 14 }, (_, i) => {
-  const d = new Date();
-  d.setDate(d.getDate() - (13 - i));
-  return {
-    date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-    events: Math.floor(Math.random() * 80 + 20),
-  };
-});
-
-const SEVERITY_DATA = [
-  { name: "Success", value: DUMMY_LOGS.filter((l) => l.status === "success").length, color: "#10b981" },
-  { name: "Info", value: DUMMY_LOGS.filter((l) => l.status === "info").length, color: "#3b82f6" },
-  { name: "Warning", value: DUMMY_LOGS.filter((l) => l.status === "warning").length, color: "#f59e0b" },
-  { name: "Error", value: DUMMY_LOGS.filter((l) => l.status === "error").length, color: "#ef4444" },
-];
-
-interface StatCardProps {
-  label: string;
-  value: number;
-  icon: React.ElementType;
-  color: string;
-  change: number;
+function getOS(ua: string): string {
+  if (!ua) return "-";
+  if (ua.includes("Windows NT 10")) return "Windows 10";
+  if (ua.includes("Windows NT 11")) return "Windows 11";
+  if (ua.includes("Windows")) return "Windows";
+  if (ua.includes("Mac OS X") || ua.includes("macOS")) return "macOS";
+  if (ua.includes("Linux") && !ua.includes("Android")) return "Linux";
+  if (ua.includes("Android")) return "Android";
+  if (ua.includes("iOS") || ua.includes("iPhone") || ua.includes("iPad")) return "iOS";
+  return ua.slice(0, 20);
 }
 
-const STAT_CARDS: StatCardProps[] = [
-  { label: "Total Events", value: DUMMY_LOGS.length, icon: Activity, color: "text-brand-500", change: 12.4 },
-  { label: "Success", value: DUMMY_LOGS.filter((l) => l.status === "success").length, icon: ShieldCheck, color: "text-emerald-500", change: 8.2 },
-  { label: "Warning", value: DUMMY_LOGS.filter((l) => l.status === "warning").length, icon: AlertTriangle, color: "text-amber-500", change: -3.1 },
-  { label: "Error", value: DUMMY_LOGS.filter((l) => l.status === "error").length, icon: XCircle, color: "text-red-500", change: 2.7 },
-  { label: "Failed Login", value: DUMMY_LOGS.filter((l) => l.action === "login" && l.status === "error").length, icon: LogIn, color: "text-rose-500", change: -5.0 },
-  { label: "Active Sessions", value: 4, icon: Users, color: "text-blue-500", change: 0 },
-];
+const STATUS_MAP: Record<LogStatus, { variant: "success" | "warning" | "destructive" | "default"; label: string }> = {
+  success: { variant: "success", label: "Success" },
+  warning: { variant: "warning", label: "Warning" },
+  error: { variant: "destructive", label: "Error" },
+  info: { variant: "default", label: "Info" },
+};
 
-function StatCard({ label, value, icon: Icon, color, change, index }: StatCardProps & { index: number }) {
+function StatusBadge({ status }: { status: LogStatus }) {
+  const { variant, label } = STATUS_MAP[status];
+  return <Badge variant={variant} className="text-[10px] px-2 py-0.5">{label}</Badge>;
+}
+
+function StatCard({ label, value, icon: Icon, color, change, index }: {
+  label: string; value: number; icon: React.ElementType; color: string; change: number; index: number;
+}) {
   const isPositive = change > 0;
   const isNeutral = change === 0;
   return (
@@ -169,7 +115,7 @@ function StatCard({ label, value, icon: Icon, color, change, index }: StatCardPr
           <div className="mt-3 flex items-center gap-1">
             {isPositive ? <TrendingUp className="h-3.5 w-3.5 text-emerald-500" /> : <TrendingDown className="h-3.5 w-3.5 text-red-500" />}
             <span className={cn("text-[11px] font-semibold", isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
-              {isPositive ? "+" : ""}{change}%
+              {isPositive ? "+" : ""}{change.toFixed(1)}%
             </span>
             <span className="text-[11px] text-zinc-400 dark:text-zinc-500">vs yesterday</span>
           </div>
@@ -179,30 +125,15 @@ function StatCard({ label, value, icon: Icon, color, change, index }: StatCardPr
   );
 }
 
-const STATUS_MAP: Record<LogStatus, { variant: "success" | "warning" | "destructive" | "default"; label: string }> = {
-  success: { variant: "success", label: "Success" },
-  warning: { variant: "warning", label: "Warning" },
-  error: { variant: "destructive", label: "Error" },
-  info: { variant: "default", label: "Info" },
-};
-
-function StatusBadge({ status }: { status: LogStatus }) {
-  const { variant, label } = STATUS_MAP[status];
-  return <Badge variant={variant} className="text-[10px] px-2 py-0.5">{label}</Badge>;
-}
-
 interface FilterState {
   status: string;
   user: string;
   action: string;
-  country: string;
-  browser: string;
-  os: string;
   dateFrom: string;
   dateTo: string;
 }
 
-const EMPTY_FILTERS: FilterState = { status: "", user: "", action: "", country: "", browser: "", os: "", dateFrom: "", dateTo: "" };
+const EMPTY_FILTERS: FilterState = { status: "", user: "", action: "", dateFrom: "", dateTo: "" };
 
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
   return (
@@ -234,8 +165,8 @@ function downloadFile(content: string, filename: string, type: string) {
 }
 
 function exportCSV(logs: AuditLogEntry[]) {
-  const headers = ["ID","Status","Action","User","IP","Country","Device","Browser","OS","Method","Endpoint","Response Code","Timestamp","Request ID"];
-  const rows = logs.map((l) => [l.id,l.status,l.action,l.user,l.ip,l.country,l.device,l.browser,l.os,l.method,l.endpoint,l.responseCode,l.timestamp,l.requestId].join(","));
+  const headers = ["ID","Status","Action","User","IP","Country","Browser","OS","Timestamp"];
+  const rows = logs.map((l) => [l.id, l.status, l.action, l.user, l.ip, l.country, getBrowser(l.user_agent), getOS(l.user_agent), l.created_at].join(","));
   downloadFile([headers.join(","), ...rows].join("\n"), `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`, "text/csv");
 }
 
@@ -245,38 +176,132 @@ function exportJSON(logs: AuditLogEntry[]) {
 
 function AuditLogsPage() {
   const [search, setSearch] = useState("");
-  const [sorting, setSorting] = useState<SortingState>([{ id: "timestamp", desc: true }]);
-  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [sorting, setSorting] = useState<SortingState>([{ id: "created_at", desc: true }]);
   const [filters, setFilters] = useState<FilterState>(EMPTY_FILTERS);
   const [showFilters, setShowFilters] = useState(false);
   const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
+  const [total, setTotal] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
+  const [pageIndex, setPageIndex] = useState(0);
+  const [pageSize, setPageSize] = useState(10);
+
+  const [stats, setStats] = useState<StatsResponse | null>(null);
+  const [isLoadingStats, setIsLoadingStats] = useState(true);
+
+  const [filterOptions, setFilterOptions] = useState<{ actions: string[]; users: string[] }>({ actions: [], users: [] });
+
   const activeFilterCount = useMemo(() => Object.values(filters).filter(Boolean).length, [filters]);
 
-  const filteredData = useMemo(() => {
-    return DUMMY_LOGS.filter((log) => {
-      if (filters.status && log.status !== filters.status) return false;
-      if (filters.user && log.user !== filters.user) return false;
-      if (filters.action && log.action !== filters.action) return false;
-      if (filters.country && log.country !== filters.country) return false;
-      if (filters.browser && !log.browser.startsWith(filters.browser)) return false;
-      if (filters.os && log.os !== filters.os) return false;
-      if (filters.dateFrom && log.timestamp < filters.dateFrom) return false;
-      if (filters.dateTo && log.timestamp > filters.dateTo + "T23:59:59") return false;
-      if (search) {
-        const q = search.toLowerCase();
-        return (
-          log.action.toLowerCase().includes(q) ||
-          log.user.toLowerCase().includes(q) ||
-          log.ip.includes(q) ||
-          log.country.toLowerCase().includes(q) ||
-          log.id.toLowerCase().includes(q)
-        );
-      }
-      return true;
-    });
-  }, [filters, search]);
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+
+    const params = new URLSearchParams();
+    params.set("limit", String(pageSize));
+    params.set("offset", String(pageIndex * pageSize));
+    if (filters.status) params.set("status", filters.status);
+    if (filters.user) params.set("user", filters.user);
+    if (filters.action) params.set("action", filters.action);
+    if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+    if (filters.dateTo) params.set("dateTo", filters.dateTo);
+    if (debouncedSearch) params.set("search", debouncedSearch);
+
+    apiRequest<{ logs: AuditLogEntry[]; total: number }>(`/audit-logs?${params}`)
+      .then((res) => {
+        if (!cancelled) {
+          setLogs(res.logs);
+          setTotal(res.total);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setIsLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [pageIndex, pageSize, filters, debouncedSearch]);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest<StatsResponse>("/audit-logs/stats")
+      .then((res) => {
+        if (!cancelled) setStats(res);
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setIsLoadingStats(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiRequest<{ actions: string[]; users: string[] }>("/audit-logs/filters")
+      .then((res) => {
+        if (!cancelled) setFilterOptions(res);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value;
+    setSearch(v);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(v);
+      setPageIndex(0);
+    }, 300);
+  };
+
+  useEffect(() => {
+    return () => clearTimeout(debounceRef.current);
+  }, []);
+
+  const setFilter = useCallback((key: keyof FilterState, value: string) => {
+    setFilters((f) => ({ ...f, [key]: value }));
+    setPageIndex(0);
+  }, []);
+
+  const handleClearFilters = useCallback(() => {
+    setFilters(EMPTY_FILTERS);
+    setSearch("");
+    setDebouncedSearch("");
+    setPageIndex(0);
+  }, []);
+
+  const statCards = useMemo((): { label: string; value: number; icon: React.ElementType; color: string; change: number }[] => {
+    if (!stats) return [];
+    const t = stats.trend;
+    const yesterday = t.length >= 2 ? t[t.length - 1]!.events : 0;
+    const prevDay = t.length >= 3 ? t[t.length - 2]!.events : 0;
+    const trendChange = prevDay > 0 ? ((yesterday - prevDay) / prevDay) * 100 : 0;
+    return [
+      { label: "Total Events", value: stats.total, icon: Activity, color: "text-brand-500", change: Math.round(trendChange * 10) / 10 },
+      { label: "Success", value: stats.success, icon: ShieldCheck, color: "text-emerald-500", change: 0 },
+      { label: "Warning", value: stats.warning, icon: AlertTriangle, color: "text-amber-500", change: 0 },
+      { label: "Error", value: stats.error, icon: XCircle, color: "text-red-500", change: 0 },
+      { label: "Info", value: stats.info, icon: LogIn, color: "text-blue-500", change: 0 },
+      { label: "Active Sessions", value: 4, icon: Users, color: "text-blue-500", change: 0 },
+    ];
+  }, [stats]);
+
+  const trendData = useMemo(() => stats?.trend ?? [], [stats]);
+
+  const severityData = useMemo(() => {
+    if (!stats) return [];
+    return [
+      { name: "Success", value: stats.success, color: "#10b981" },
+      { name: "Info", value: stats.info, color: "#3b82f6" },
+      { name: "Warning", value: stats.warning, color: "#f59e0b" },
+      { name: "Error", value: stats.error, color: "#ef4444" },
+    ];
+  }, [stats]);
 
   const columns = useMemo<ColumnDef<AuditLogEntry>[]>(() => [
     {
@@ -307,21 +332,14 @@ function AuditLogsPage() {
       cell: ({ row }) => <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">{row.original.ip}</span>,
     },
     { accessorKey: "country", header: "Country", size: 110 },
-    { accessorKey: "device", header: "Device", size: 90 },
     {
-      accessorKey: "browser",
+      id: "browser",
       header: "Browser",
       size: 110,
-      cell: ({ row }) => <span className="text-xs">{row.original.browser}</span>,
+      cell: ({ row }) => <span className="text-xs">{getBrowser(row.original.user_agent)}</span>,
     },
     {
-      accessorKey: "os",
-      header: "OS",
-      size: 120,
-      cell: ({ row }) => <span className="text-xs">{row.original.os}</span>,
-    },
-    {
-      accessorKey: "timestamp",
+      accessorKey: "created_at",
       header: ({ column }) => (
         <button className="flex items-center gap-1 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" onClick={() => column.toggleSorting()}>
           Timestamp <ArrowUpDown className="h-3 w-3" />
@@ -330,7 +348,7 @@ function AuditLogsPage() {
       size: 170,
       cell: ({ row }) => (
         <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
-          {new Date(row.original.timestamp).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          {new Date(row.original.created_at).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
         </span>
       ),
     },
@@ -367,23 +385,23 @@ function AuditLogsPage() {
     },
   ], []);
 
-  const table = useReactTable({
-    data: filteredData,
-    columns,
-    state: { sorting, columnFilters, globalFilter: search },
-    onSortingChange: setSorting,
-    onColumnFiltersChange: setColumnFilters,
-    getCoreRowModel: getCoreRowModel(),
-    getFilteredRowModel: getFilteredRowModel(),
-    getSortedRowModel: getSortedRowModel(),
-    getPaginationRowModel: getPaginationRowModel(),
-    initialState: { pagination: { pageSize: 10 } },
-  });
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
 
-  const handleClearFilters = useCallback(() => {
-    setFilters(EMPTY_FILTERS);
-    setSearch("");
-  }, []);
+  const table = useReactTable({
+    data: logs,
+    columns,
+    pageCount,
+    state: { sorting, pagination: { pageIndex, pageSize } },
+    onSortingChange: setSorting,
+    onPaginationChange: (updater) => {
+      const next = typeof updater === "function" ? updater({ pageIndex, pageSize }) : updater;
+      setPageIndex(next.pageIndex);
+      setPageSize(next.pageSize);
+    },
+    manualPagination: true,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+  });
 
   return (
     <PageTransition>
@@ -393,26 +411,40 @@ function AuditLogsPage() {
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Monitor and review all system activity and security events.</p>
         </motion.div>
 
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-          {STAT_CARDS.map((card, i) => (
-            <StatCard key={card.label} {...card} index={i} />
-          ))}
-        </div>
+        {isLoadingStats ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Card key={i} className="p-4 sm:p-5">
+                <div className="h-[72px] animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
+              </Card>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+            {statCards.map((card, i) => (
+              <StatCard key={card.label} {...card} index={i} />
+            ))}
+          </div>
+        )}
 
         <div className="grid gap-4 lg:grid-cols-3">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.15 }} className="lg:col-span-2">
             <Card className="p-4 sm:p-5">
               <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Activity Trend</h3>
               <div className="h-[220px] sm:h-[260px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={TREND_DATA} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" className="stroke-zinc-200 dark:stroke-zinc-800" />
-                    <XAxis dataKey="date" tick={{ fontSize: 11 }} className="fill-zinc-500 dark:fill-zinc-400" />
-                    <YAxis tick={{ fontSize: 11 }} className="fill-zinc-500 dark:fill-zinc-400" />
-                    <RechartsTooltip contentStyle={{ borderRadius: 12, border: "1px solid #e4e4e7", fontSize: 12, boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }} />
-                    <Line type="monotone" dataKey="events" stroke="#6366f1" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
-                  </LineChart>
-                </ResponsiveContainer>
+                {trendData.length === 0 ? (
+                  <div className="flex h-full items-center justify-center text-sm text-zinc-400">No trend data yet</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-zinc-200 dark:stroke-zinc-800" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11 }} className="fill-zinc-500 dark:fill-zinc-400" />
+                      <YAxis tick={{ fontSize: 11 }} className="fill-zinc-500 dark:fill-zinc-400" />
+                      <RechartsTooltip contentStyle={{ borderRadius: 12, border: "1px solid #e4e4e7", fontSize: 12, boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }} />
+                      <Line type="monotone" dataKey="events" stroke="#6366f1" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </Card>
           </motion.div>
@@ -421,17 +453,21 @@ function AuditLogsPage() {
             <Card className="p-4 sm:p-5 h-full">
               <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Event Severity</h3>
               <div className="h-[220px] sm:h-[260px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={SEVERITY_DATA} cx="50%" cy="45%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value" stroke="none">
-                      {SEVERITY_DATA.map((entry) => (
-                        <Cell key={entry.name} fill={entry.color} />
-                      ))}
-                    </Pie>
-                    <Legend verticalAlign="bottom" iconType="circle" iconSize={8} formatter={(value: string) => <span className="text-xs text-zinc-600 dark:text-zinc-400">{value}</span>} />
-                    <RechartsTooltip contentStyle={{ borderRadius: 12, border: "1px solid #e4e4e7", fontSize: 12 }} />
-                  </PieChart>
-                </ResponsiveContainer>
+                {severityData.length === 0 || severityData.every((d) => d.value === 0) ? (
+                  <div className="flex h-full items-center justify-center text-sm text-zinc-400">No events yet</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={severityData} cx="50%" cy="45%" innerRadius={55} outerRadius={80} paddingAngle={3} dataKey="value" stroke="none">
+                        {severityData.map((entry) => (
+                          <Cell key={entry.name} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <Legend verticalAlign="bottom" iconType="circle" iconSize={8} formatter={(value: string) => <span className="text-xs text-zinc-600 dark:text-zinc-400">{value}</span>} />
+                      <RechartsTooltip contentStyle={{ borderRadius: 12, border: "1px solid #e4e4e7", fontSize: 12 }} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                )}
               </div>
             </Card>
           </motion.div>
@@ -443,7 +479,12 @@ function AuditLogsPage() {
               <div className="flex flex-1 items-center gap-2">
                 <div className="relative flex-1 max-w-sm">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
-                  <Input placeholder="Search logs..." value={search} onChange={(e) => setSearch(e.target.value)} className="h-9 pl-9 text-sm" />
+                  <Input
+                    placeholder="Search logs..."
+                    value={search}
+                    onChange={handleSearchChange}
+                    className="h-9 pl-9 text-sm"
+                  />
                 </div>
                 <Button variant="outline" size="sm" onClick={() => setShowFilters((v) => !v)} className={cn("h-9 gap-1.5", showFilters && "border-brand-500 text-brand-600 dark:text-brand-400")}>
                   <Filter className="h-3.5 w-3.5" />
@@ -459,10 +500,10 @@ function AuditLogsPage() {
                 )}
               </div>
               <div className="flex items-center gap-2">
-                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={() => exportCSV(filteredData)}>
+                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={() => exportCSV(logs)}>
                   <Download className="h-3.5 w-3.5" /> CSV
                 </Button>
-                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={() => exportJSON(filteredData)}>
+                <Button variant="outline" size="sm" className="h-9 gap-1.5 text-xs" onClick={() => exportJSON(logs)}>
                   <Download className="h-3.5 w-3.5" /> JSON
                 </Button>
               </div>
@@ -471,20 +512,18 @@ function AuditLogsPage() {
             <AnimatePresence>
               {showFilters && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }} className="overflow-hidden">
-                  <div className="mt-3 grid grid-cols-2 gap-3 border-t border-zinc-100 pt-3 dark:border-zinc-800 sm:grid-cols-3 lg:grid-cols-7">
+                  <div className="mt-3 grid grid-cols-2 gap-3 border-t border-zinc-100 pt-3 dark:border-zinc-800 sm:grid-cols-3 lg:grid-cols-5">
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Date From</label>
-                      <input type="date" value={filters.dateFrom} onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))} className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200" />
+                      <input type="date" value={filters.dateFrom} onChange={(e) => setFilter("dateFrom", e.target.value)} className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200" />
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Date To</label>
-                      <input type="date" value={filters.dateTo} onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))} className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200" />
+                      <input type="date" value={filters.dateTo} onChange={(e) => setFilter("dateTo", e.target.value)} className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200" />
                     </div>
-                    <FilterSelect label="Status" value={filters.status} onChange={(v) => setFilters((f) => ({ ...f, status: v }))} options={["success","warning","error","info"]} />
-                    <FilterSelect label="User" value={filters.user} onChange={(v) => setFilters((f) => ({ ...f, user: v }))} options={USERS} />
-                    <FilterSelect label="Action" value={filters.action} onChange={(v) => setFilters((f) => ({ ...f, action: v }))} options={ACTIONS} />
-                    <FilterSelect label="Country" value={filters.country} onChange={(v) => setFilters((f) => ({ ...f, country: v }))} options={COUNTRIES} />
-                    <FilterSelect label="Browser" value={filters.browser} onChange={(v) => setFilters((f) => ({ ...f, browser: v }))} options={BROWSERS.map((b) => b.split(" ")[0]!)} />
+                    <FilterSelect label="Status" value={filters.status} onChange={(v) => setFilter("status", v)} options={["success","warning","error","info"]} />
+                    <FilterSelect label="User" value={filters.user} onChange={(v) => setFilter("user", v)} options={filterOptions.users} />
+                    <FilterSelect label="Action" value={filters.action} onChange={(v) => setFilter("action", v)} options={filterOptions.actions} />
                   </div>
                 </motion.div>
               )}
@@ -507,7 +546,16 @@ function AuditLogsPage() {
                 ))}
               </TableHeader>
               <TableBody>
-                {table.getRowModel().rows.length === 0 ? (
+                {isLoading ? (
+                  <TableRow>
+                    <TableCell colSpan={columns.length} className="h-32 text-center">
+                      <div className="flex items-center justify-center gap-2 text-sm text-zinc-400">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading logs...
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : logs.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={columns.length} className="h-32 text-center text-sm text-zinc-400">
                       No logs found matching your criteria.
@@ -530,27 +578,27 @@ function AuditLogsPage() {
             <div className="flex flex-col items-center justify-between gap-3 border-t border-zinc-200 px-4 py-3 dark:border-zinc-800 sm:flex-row">
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
                 Showing{" "}
-                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{table.getState().pagination.pageIndex * table.getState().pagination.pageSize + 1}</span>
+                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{total === 0 ? 0 : pageIndex * pageSize + 1}</span>
                 {" - "}
-                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{Math.min((table.getState().pagination.pageIndex + 1) * table.getState().pagination.pageSize, filteredData.length)}</span>
+                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{Math.min((pageIndex + 1) * pageSize, total)}</span>
                 {" of "}
-                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{filteredData.length}</span> logs
+                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{total}</span> logs
               </p>
               <div className="flex items-center gap-1.5">
-                <select value={table.getState().pagination.pageSize} onChange={(e) => table.setPageSize(Number(e.target.value))} className="h-8 rounded-lg border border-zinc-200 bg-white px-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPageIndex(0); }} className="h-8 rounded-lg border border-zinc-200 bg-white px-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                   {[10, 20, 50].map((size) => <option key={size} value={size}>{size} / page</option>)}
                 </select>
-                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => table.setPageIndex(0)} disabled={!table.getCanPreviousPage()}>
+                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setPageIndex(0)} disabled={pageIndex === 0}>
                   <ChevronsLeft className="h-3.5 w-3.5" />
                 </Button>
-                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()}>
+                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setPageIndex((p) => p - 1)} disabled={pageIndex === 0}>
                   <ChevronLeft className="h-3.5 w-3.5" />
                 </Button>
-                <span className="px-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">{table.getState().pagination.pageIndex + 1} / {table.getPageCount()}</span>
-                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => table.nextPage()} disabled={!table.getCanNextPage()}>
+                <span className="px-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">{pageIndex + 1} / {pageCount}</span>
+                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setPageIndex((p) => p + 1)} disabled={pageIndex >= pageCount - 1}>
                   <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
-                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => table.setPageIndex(table.getPageCount() - 1)} disabled={!table.getCanNextPage()}>
+                <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setPageIndex(pageCount - 1)} disabled={pageIndex >= pageCount - 1}>
                   <ChevronsRight className="h-3.5 w-3.5" />
                 </Button>
               </div>
@@ -581,22 +629,19 @@ function AuditLogsPage() {
                 </DialogTitle>
               </DialogHeader>
               <DialogContent>
-                <div className="grid gap-3 text-sm">
+                <div className="grid gap-3 text-sm max-h-[60vh] overflow-y-auto pr-1">
                   {([
-                    ["Request ID", selectedLog.requestId, true],
+                    ["ID", String(selectedLog.id), true],
                     ["User", selectedLog.user, false],
-                    ["Role", selectedLog.role, false],
                     ["Action", selectedLog.action, true],
                     ["IP Address", selectedLog.ip, true],
                     ["Country", selectedLog.country, false],
-                    ["Browser", selectedLog.browser, false],
-                    ["Operating System", selectedLog.os, false],
-                    ["Device", selectedLog.device, false],
-                    ["Request Method", selectedLog.method, true],
-                    ["Endpoint", selectedLog.endpoint, true],
-                    ["Response Code", String(selectedLog.responseCode), true],
+                    ["Browser", getBrowser(selectedLog.user_agent), false],
+                    ["Operating System", getOS(selectedLog.user_agent), false],
+                    ["User Agent", selectedLog.user_agent, false],
+                    ["Detail", selectedLog.detail ?? "-", true],
                     ["Status", selectedLog.status, false],
-                    ["Timestamp", new Date(selectedLog.timestamp).toLocaleString("id-ID", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }), false],
+                    ["Timestamp", new Date(selectedLog.created_at).toLocaleString("id-ID", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }), false],
                   ] as [string, string, boolean][]).map(([label, value, mono]) => (
                     <div key={label} className="flex items-start justify-between gap-4 border-b border-zinc-100 pb-2.5 last:border-0 dark:border-zinc-800">
                       <span className="text-zinc-500 dark:text-zinc-400 shrink-0">{label}</span>

@@ -5,6 +5,7 @@ import { FolderRepository } from "../database/folder.repository";
 import { DriveAccountRepository } from "../database/drive-account.repository";
 import { GoogleAccountConnectionService } from "../services/google-account-connection.service";
 import { StorageProviderFactory } from "@nqdrive/storage";
+import { writeAuditLog } from "../utils/audit";
 import type { Env } from "../config/env";
 
 const trashRoutes = new Hono<{ Bindings: Env }>();
@@ -76,6 +77,7 @@ trashRoutes.post("/restore/file/:id", async (c) => {
   }
 
   await fileRepository.restore(id);
+  writeAuditLog(c, { action: "trash.restore-file", status: "info", detail: `File ID: ${id}` });
   return c.json({ success: true, data: { message: "File berhasil dipulihkan." } });
 });
 
@@ -145,6 +147,7 @@ trashRoutes.post("/restore/folder/:id", async (c) => {
   };
   await restoreFilesRecursive(id);
 
+  writeAuditLog(c, { action: "trash.restore-folder", status: "info", detail: `Folder ID: ${id}` });
   return c.json({ success: true, data: { message: "Folder berhasil dipulihkan." } });
 });
 
@@ -280,6 +283,7 @@ trashRoutes.delete("/empty", async (c) => {
     await folderRepository.delete(folder.id);
   }
 
+  writeAuditLog(c, { action: "trash.empty", status: "warning", detail: `${trashedFiles.length} files, ${trashedFolders.length} folders` });
   return c.json({
     success: true,
     data: {

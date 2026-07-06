@@ -1,11 +1,23 @@
 import { apiRequest } from "../lib/client";
 import type { PublicDriveAccount } from "@nqdrive/types";
 
+export type DriveAccountWithFileCount = PublicDriveAccount & { fileCount: number };
+
 export const driveAccountService = {
-  list: () => apiRequest<{ accounts: PublicDriveAccount[] }>("/storage/accounts"),
+  list: () => apiRequest<{ accounts: DriveAccountWithFileCount[] }>("/storage/accounts"),
 
   remove: (id: number) =>
     apiRequest<{ message: string }>(`/storage/accounts/${id}`, { method: "DELETE" }),
+
+  format: (id: number) =>
+    apiRequest<{ message: string; accountId: number; email: string; deletedFiles: number }>(`/storage/accounts/${id}/format`, { method: "POST" }),
+
+  formatAll: () =>
+    apiRequest<{
+      message: string;
+      totalDeletedFiles: number;
+      results: Array<{ accountId: number; email: string; deletedFiles: number; status: "ok" | "error"; error?: string }>;
+    }>("/storage/accounts/format-all", { method: "POST" }),
 };
 
 export const googleDriveService = {

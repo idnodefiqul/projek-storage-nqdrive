@@ -11,70 +11,6 @@ import { SettingsRepository } from "../database/settings.repository";
 import { enforceDownloadSecurity } from "../utils/security";
 import type { Env } from "../config/env";
 
-export function throttleStream(
-  stream: ReadableStream<Uint8Array>,
-  maxBytesPerSecond: number
-): ReadableStream<Uint8Array> {
-  const reader = stream.getReader();
-  // Chunk kecil = 16KB, kirim bertahap supaya speed limit akurat
-  const SLICE_SIZE = 16 * 1024;
-  let bucket = 0; // bytes yang boleh dikirim sekarang
-  let lastRefill = Date.now();
-
-  return new ReadableStream<Uint8Array>({
-    async pull(controller) {
-      try {
-        const { done, value } = await reader.read();
-        if (done) {
-          controller.close();
-          return;
-        }
-        if (!value || value.length === 0) return;
-
-        // Pecah chunk besar jadi potongan kecil
-        let offset = 0;
-        while (offset < value.length) {
-          // Refill bucket berdasarkan waktu yang berlalu
-          const now = Date.now();
-          const elapsed = (now - lastRefill) / 1000;
-          bucket += elapsed * maxBytesPerSecond;
-          // Cap bucket supaya tidak burst terlalu besar
-          if (bucket > maxBytesPerSecond) {
-            bucket = maxBytesPerSecond;
-          }
-          lastRefill = now;
-
-          // Kalau bucket kosong, tunggu sampai cukup untuk 1 slice
-          if (bucket < SLICE_SIZE) {
-            const waitBytes = SLICE_SIZE - bucket;
-            const waitMs = (waitBytes / maxBytesPerSecond) * 1000;
-            await new Promise((r) => setTimeout(r, waitMs));
-            // Refill setelah tunggu
-            const afterWait = Date.now();
-            bucket += ((afterWait - lastRefill) / 1000) * maxBytesPerSecond;
-            if (bucket > maxBytesPerSecond) bucket = maxBytesPerSecond;
-            lastRefill = afterWait;
-          }
-
-          // Kirim sebanyak yang bucket izinkan, max SLICE_SIZE
-          const canSend = Math.min(SLICE_SIZE, Math.floor(bucket), value.length - offset);
-          if (canSend <= 0) continue;
-
-          const slice = value.subarray(offset, offset + canSend);
-          controller.enqueue(slice);
-          bucket -= canSend;
-          offset += canSend;
-        }
-      } catch (err) {
-        controller.error(err);
-      }
-    },
-    cancel(reason) {
-      return reader.cancel(reason);
-    }
-  });
-}
-
 const downloadRoutes = new Hono<{ Bindings: Env }>();
 
 function safeContentDisposition(filename: string): string {
@@ -191,18 +127,7 @@ async function handleDownload(c: Context<{ Bindings: Env }>) {
       headers.set("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`);
     }
 
-    // Apply speed limit — ALWAYS throttle if bandwidth_speed_mbps is set (per-device speed cap)
-    let finalStream = result.stream;
-    const bwSettings = await settingsRepo.getMany(["bandwidth_speed_mbps"]);
-    const speedMbps = bwSettings["bandwidth_speed_mbps"] ? Number(bwSettings["bandwidth_speed_mbps"]) : 0;
-
-    // Always apply speed limit if configured
-    if (speedMbps > 0) {
-      const bytesPerSecond = speedMbps * 1024 * 1024; // MB/s → bytes/s
-      finalStream = throttleStream(result.stream, bytesPerSecond);
-    }
-
-    return new Response(finalStream, {
+    return new Response(result.stream, {
       status: 206,
       headers,
       // @ts-ignore

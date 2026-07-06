@@ -1,4 +1,4 @@
-﻿import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
 import { useState, useCallback, useRef, type DragEvent, useEffect, useMemo } from "react";
 import {
@@ -6,7 +6,7 @@ import {
   Folder as FolderIcon, FolderPlus, Upload,
   ChevronRight, UploadCloud, CheckCircle2, XCircle,
   FileIcon, X, Loader2, Home, MoreVertical, Lock, Globe, EyeOff as EyeOffIcon,
-  ChevronLeft, ChevronsLeft, ChevronsRight, Pencil
+  ChevronLeft, ChevronsLeft, ChevronsRight, Pencil, AlertTriangle, HardDrive
 } from "lucide-react";
 import {
   useReactTable,
@@ -21,6 +21,7 @@ import {
 } from "@nqdrive/ui";
 import { formatBytes, formatSpeed } from "@nqdrive/shared";
 import { useFiles, useDeleteFile, useUpdateFileVisibility, useRenameFile } from "../hooks/use-files";
+import { useFormatAllDriveAccounts, useDriveAccounts } from "../hooks/use-drive-accounts";
 import { useFolderByPath, useCreateFolder, useDeleteFolder, useRenameFolder } from "../hooks/use-folders";
 import { useUpload } from "../hooks/use-upload";
 import { useMinLoading } from "../hooks/use-min-loading";
@@ -346,6 +347,74 @@ function PagBtn({ children, onClick, disabled, title }: { children: React.ReactN
 
 // --- FILES PAGE ---
 
+
+const FORMAT_ALL_CONFIRM_TEXT = "FORMAT SEMUA";
+
+function ConfirmFormatAllDrivesDialog({
+  open,
+  onClose,
+  onConfirm,
+  totalFiles,
+  isPending,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  totalFiles: number;
+  isPending: boolean;
+}) {
+  const [confirmText, setConfirmText] = useState("");
+  const matches = confirmText === FORMAT_ALL_CONFIRM_TEXT;
+
+  const handleClose = () => { setConfirmText(""); onClose(); };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogHeader>
+        <div className="flex items-center gap-3 mb-1">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+            <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+          </div>
+          <DialogTitle>Format All Drive?</DialogTitle>
+        </div>
+        <DialogDescription className="pl-[52px]">
+          Semua <strong className="text-zinc-900 dark:text-zinc-100">{totalFiles} file</strong> dari semua akun Google Drive
+          akan dihapus permanen dan tidak dapat dikembalikan.
+        </DialogDescription>
+      </DialogHeader>
+      <div className="mx-4 mb-2 rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-3">
+        <p className="text-xs text-red-700 dark:text-red-400 font-medium">
+          Tindakan ini tidak bisa dibatalkan. Semua file akan hilang selamanya dari Google Drive. Akun tetap terhubung.
+        </p>
+      </div>
+      <div className="mx-4 mb-2 flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          Ketik <strong className="text-zinc-900 dark:text-zinc-100 select-all">FORMAT SEMUA</strong> untuk konfirmasi
+        </label>
+        <Input
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value)}
+          placeholder="FORMAT SEMUA"
+          className="font-mono text-sm"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </div>
+      <DialogFooter>
+        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={handleClose} disabled={isPending}>
+          Batal
+        </Button>
+        <Button variant="destructive" onClick={onConfirm} disabled={!matches || isPending}>
+          {isPending ? (
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Memformat...</>
+          ) : (
+            <><HardDrive className="mr-2 h-4 w-4" />Format All Drive</>
+          )}
+        </Button>
+      </DialogFooter>
+    </Dialog>
+  );
+}
 function FilesPage() {
   const { toast } = useToast();
   const searchParams = Route.useSearch();
@@ -390,6 +459,10 @@ function FilesPage() {
   // Delete confirm states
   const [fileToDelete, setFileToDelete] = useState<FileWithAccount | null>(null);
   const [folderToDelete, setFolderToDelete] = useState<Folder | null>(null);
+  const [isFormatAllOpen, setIsFormatAllOpen] = useState(false);
+  const formatAllDrives = useFormatAllDriveAccounts();
+  const { data: driveAccountsData } = useDriveAccounts();
+  const totalFilesAllAccounts = driveAccountsData?.accounts.reduce((s, a) => s + ((a as any).fileCount ?? 0), 0) ?? 0;
 
   // - Data fetching -
   // Selalu resolve path aktif - termasuk saat searching - agar folderId tetap tersedia
@@ -513,6 +586,17 @@ function FilesPage() {
       });
     } finally {
       setFileToDelete(null);
+    }
+  };
+
+  const handleFormatAllConfirm = async () => {
+    try {
+      const result = await formatAllDrives.mutateAsync();
+      toast({ title: `${result.totalDeletedFiles} file berhasil dihapus dari semua drive`, variant: "success" });
+    } catch (error) {
+      toast({ title: "Gagal memformat semua drive", description: error instanceof Error ? error.message : undefined, variant: "error" });
+    } finally {
+      setIsFormatAllOpen(false);
     }
   };
 
@@ -895,6 +979,13 @@ function FilesPage() {
 
       <FilePreviewDialog file={previewFile} onClose={() => setPreviewFile(null)} />
 
+      <ConfirmFormatAllDrivesDialog
+        open={isFormatAllOpen}
+        onClose={() => setIsFormatAllOpen(false)}
+        onConfirm={handleFormatAllConfirm}
+        totalFiles={totalFilesAllAccounts}
+        isPending={formatAllDrives.isPending}
+      />
       <UploadDialog
         open={isUploadOpen}
         onOpenChange={setIsUploadOpen}

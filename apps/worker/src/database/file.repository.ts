@@ -252,6 +252,26 @@ export class FileRepository {
   }
 
   /**
+   * Pindahkan record file ke akun drive lain (dipakai fitur migrasi antar akun).
+   * Dipanggil SETELAH copy di provider sukses, SEBELUM file sumber dihapus —
+   * sehingga download tidak pernah menunjuk lokasi yang sudah tidak ada.
+   */
+  async updateProviderLocation(
+    id: number,
+    driveAccountId: number,
+    providerFileId: string
+  ): Promise<void> {
+    await this.db
+      .prepare(
+        `UPDATE files
+         SET drive_account_id = ?, provider_file_id = ?, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`
+      )
+      .bind(driveAccountId, providerFileId, id)
+      .run();
+  }
+
+  /**
    * List semua file yang sedang di Trash (deleted_at IS NOT NULL).
    * Digunakan untuk halaman Trash dashboard.
    */

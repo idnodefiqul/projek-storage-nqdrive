@@ -3,15 +3,15 @@ import { useEffect, useState } from "react";
 import {
   Download, ShieldCheck, FileText, FileArchive, FileImage,
   FileAudio, FileVideo, FileCode, File as FileIcon,
-  Activity, Info as InfoIcon, Loader2, Gauge, CheckCircle2,
-  Zap, UserX, RefreshCw, Sparkles, Home, Shield, Globe2, Menu, X, Share2, Copy, Link2, Mail, Send, MessageCircle, Moon, Sun,
+  Activity, Loader2, Gauge, CheckCircle2,
+  Zap, UserX, RefreshCw, Sparkles, Home, Shield, Globe2, Menu, X, Share2, Copy, Link2, Mail, Send, MessageCircle, Moon, Sun, CircleX,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { Button, Dialog, DialogContent, Particles } from "@nqdrive/ui";
 import { formatBytes } from "@nqdrive/shared";
 import { logoMainPng } from "../assets";
 import QRCode from "qrcode";
-import { applyBrandColors, useTheme } from "../stores/theme-provider";
+import { applyBrandColors, applyBrandFromDb, useTheme } from "../stores/theme-provider";
 
 export const Route = createFileRoute("/$prefix/$shareCode")({
   component: DownloadPage,
@@ -23,15 +23,6 @@ interface FileInfoData {
   mimeType: string;
   slug: string;
   downloadCount: number;
-  downloadUrl: string;
-  bandwidth: {
-    ip: string;
-    bytesUsed: number;
-    limitGb: number;
-    isThrottled: boolean;
-    speedMbps: number;
-    country?: string | null;
-  };
 }
 
 interface PublicConfig {
@@ -40,11 +31,6 @@ interface PublicConfig {
 }
 
 const SITE_NAME = (import.meta.env.VITE_SITE_NAME as string) || "NQDRIVE";
-
-function countryLabel(country?: string | null) {
-  if (!country || country.length !== 2) return "Unknown";
-  return country.toUpperCase();
-}
 function getFileTypeIcon(mime: string) {
   const m = mime.toLowerCase();
   if (m.includes("zip") || m.includes("rar") || m.includes("tar") || m.includes("gzip") || m.includes("7z")) {
@@ -124,11 +110,11 @@ function DownloadPage() {
         if (json.success && json.data) {
           const cfg = json.data as PublicConfig;
           setConfig(cfg);
-          if (cfg.brand_color) applyBrandColors(cfg.brand_color);
-          const storedTheme = localStorage.getItem("nqdrive-theme");
-          const themeMode = storedTheme === "dark" || storedTheme === "light" ? storedTheme : cfg.theme_mode;
-          if (themeMode === "dark") document.documentElement.classList.add("dark");
-          else if (themeMode === "light") document.documentElement.classList.remove("dark");
+          if (cfg.theme_mode === "dark" || cfg.theme_mode === "light") {
+            applyBrandFromDb(cfg.brand_color, cfg.theme_mode);
+          } else if (cfg.brand_color) {
+            applyBrandColors(cfg.brand_color);
+          }
         }
       })
       .catch(console.error);
@@ -158,19 +144,31 @@ function DownloadPage() {
     document.body.style.overflow = mobileMenuOpen ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [mobileMenuOpen]);
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (!fileInfo || downloading) return;
     setDownloading(true);
 
-    const a = document.createElement("a");
-    a.href = `${WORKER_BASE}${fileInfo.downloadUrl}`;
-    a.download = fileInfo.filename;
-    a.style.display = "none";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    try {
+      const res = await fetch(`${WORKER_BASE}/resource/${prefix}/${shareCode}/getlinkUrl`, {
+        headers: { "X-App-Client": "nqdrive-web" },
+      });
+      const json = await res.json() as any;
+      if (!res.ok || !json.success || !json.data?.downloadUrl) {
+        throw new Error(json.error?.message || "Gagal mendapatkan link download.");
+      }
 
-    setTimeout(() => setDownloading(false), 1500);
+      const a = document.createElement("a");
+      a.href = json.data.downloadUrl;
+      a.download = fileInfo.filename;
+      a.style.display = "none";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e: any) {
+      alert(e.message || "Gagal mendapatkan link download.");
+    } finally {
+      setTimeout(() => setDownloading(false), 1500);
+    }
   };
 
   if (loading) {
@@ -184,24 +182,6 @@ function DownloadPage() {
     );
   }
 
-  if (error || !fileInfo) {
-    return (
-      <div className="flex min-h-screen w-full flex-col items-center justify-center bg-zinc-50 p-6 dark:bg-zinc-950">
-        <div className="w-full max-w-md overflow-hidden rounded-2xl border border-zinc-200 bg-white p-8 text-center shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
-            <FileIcon className="h-8 w-8 text-red-600 dark:text-red-400" />
-          </div>
-          <h1 className="mb-2 text-xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">File Tidak Tersedia</h1>
-          <p className="mb-8 text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
-            {error || "Tautan yang Anda tuju mungkin salah, telah kedaluwarsa, atau file sudah dihapus oleh pemiliknya."}
-          </p>
-          <Link to="/" className="inline-flex h-11 items-center justify-center rounded-xl bg-zinc-900 px-8 text-sm font-medium text-white transition-colors hover:bg-zinc-800 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200">
-            Kembali ke Beranda
-          </Link>
-        </div>
-      </div>
-    );
-  }
 
 
   const shareUrl = typeof window !== "undefined" ? window.location.href : "";
@@ -210,16 +190,7 @@ function DownloadPage() {
   const copyShareLink = async () => {
     await navigator.clipboard.writeText(shareUrl);
   };
-  const bw = fileInfo.bandwidth;
-  const hasBwLimit = bw.limitGb > 0;
-  const bwPercent = hasBwLimit
-    ? Math.min(100, (bw.bytesUsed / (bw.limitGb * 1024 * 1024 * 1024)) * 100)
-    : 0;
-  const speedLabel = bw.isThrottled
-    ? `${bw.speedMbps > 0 ? bw.speedMbps + " MB/s" : "Kecepatan penuh"} (kuota habis)`
-    : bw.speedMbps > 0
-      ? `${bw.speedMbps} MB/s`
-      : "Kecepatan penuh";
+  const isFileMissing = !!error || !fileInfo;
 
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-hidden bg-zinc-50 selection:bg-brand-500/30 dark:bg-zinc-950">
@@ -266,7 +237,7 @@ function DownloadPage() {
             animate="show"
             exit="hidden"
             variants={{
-              show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
+              show: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
               hidden: { opacity: 0 }
             }}
             className="flex flex-col gap-6 p-8"
@@ -303,7 +274,7 @@ function DownloadPage() {
           <div className="p-6">
             <div className="mb-6 flex flex-col items-center justify-center gap-3">
               {qrDataUrl ? (
-                <div className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800">
+                <div className="rounded-xl bg-white p-3 shadow-sm ring-1 ring-zinc-200 dark:bg-zinc-950 dark:ring-zinc-800">
                   <img src={qrDataUrl} alt="QR Code" className="h-40 w-40 rounded-lg" />
                 </div>
               ) : (
@@ -360,124 +331,133 @@ function DownloadPage() {
           className="w-full max-w-5xl space-y-6"
         >
           <motion.div variants={item}>
-            <div className="grid grid-cols-1 gap-6 rounded-2xl border border-brand-200/60 bg-white/95 p-6 shadow-lg shadow-brand-500/5 dark:border-white/10 dark:from-zinc-900 dark:via-zinc-900/95 dark:to-brand-950/30 sm:p-8 lg:grid-cols-[auto_1fr_320px] lg:items-center">
-              {/* Icon file besar (kiri) */}
-              <div className="flex justify-center lg:justify-start">
-                <div className="flex h-24 w-24 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800/40">
-                  {getFileTypeIcon(fileInfo.mimeType)}
-                </div>
-              </div>
-
-              {/* Informasi file (tengah) */}
-              <div className="min-w-0 text-center lg:text-left">
-                <h1 className="line-clamp-2 break-words text-xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-2xl" title={fileInfo.filename}>
-                  {fileInfo.filename}
-                </h1>
-                <p className="mt-1.5 text-sm font-medium text-zinc-500 dark:text-zinc-400">
-                  {formatBytes(fileInfo.sizeBytes)}
-                </p>
-
-                <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
-                  <CheckCircle2 className="h-4 w-4" />
-                  File is safe and ready to download
-                </div>
-
-                <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:max-w-sm lg:mx-0">
-                  <div className="flex flex-col gap-0.5">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">File Type</dt>
-                    <dd className="font-semibold text-zinc-800 dark:text-zinc-200">{getFileTypeLabel(fileInfo.mimeType)}</dd>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Size</dt>
-                    <dd className="font-semibold text-zinc-800 dark:text-zinc-200">{formatBytes(fileInfo.sizeBytes)}</dd>
-                  </div>
-                  <div className="flex flex-col gap-0.5">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Downloads</dt>
-                    <dd className="font-semibold text-zinc-800 dark:text-zinc-200">{fileInfo.downloadCount}x</dd>
-                  </div>
-                </dl>
-              </div>
-
-              {/* Card Download (kanan) */}
-              <div className="rounded-xl border border-brand-200/70 bg-white/70 p-5 shadow-sm dark:border-brand-500/20 dark:bg-zinc-950/40">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-base font-bold text-zinc-900 dark:text-white">Free Download</h2>
-                  <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-brand-700 dark:bg-brand-500/20 dark:text-brand-200 dark:ring-1 dark:ring-brand-500/30">
-                    <Sparkles className="h-3 w-3" /> Free
-                  </span>
-                </div>
-                <div className="mb-4 space-y-3 text-sm">
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                      <Activity className="h-4 w-4" /> Bandwidth Limit
-                    </span>
-                    <span className="font-semibold text-zinc-800 dark:text-zinc-200">
-                      {hasBwLimit ? `${bw.limitGb} GB / hari` : "Unlimited"}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
-                      <Gauge className="h-4 w-4" /> Download Speed
-                    </span>
-                    <span className={`font-semibold ${bw.isThrottled ? "text-orange-600 dark:text-orange-400" : "text-zinc-800 dark:text-zinc-200"}`}>
-                      {speedLabel}
-                    </span>
-                  </div>
-
-                  {hasBwLimit && (
-                    <div>
-                      <div className="h-1.5 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-700">
-                        <div
-                          className={`h-full rounded-full transition-all duration-1000 ${bw.isThrottled ? "bg-orange-500" : "bg-brand-500"}`}
-                          style={{ width: `${bwPercent}%` }}
-                        />
-                      </div>
-                      <p className="mt-1.5 text-right text-xs text-zinc-400 dark:text-zinc-500">
-                        {formatBytes(bw.bytesUsed)} terpakai
-                      </p>
+            <div className="grid grid-cols-1 gap-6 rounded-2xl border border-brand-200/60 bg-white/95 p-6 shadow-lg shadow-brand-500/5 dark:border-white/10 dark:bg-zinc-900/95 sm:p-8 lg:grid-cols-[auto_1fr_320px] lg:items-center">
+              {isFileMissing ? (
+                <>
+                  <div className="flex justify-center lg:justify-start">
+                    <div className="flex h-24 w-24 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800/40">
+                      <CircleX className="h-11 w-11 text-red-500 dark:text-red-400" />
                     </div>
-                  )}
-                </div>
+                  </div>
 
-                <motion.button
-                  onClick={handleDownload}
-                  disabled={downloading}
-                  whileHover={{ scale: downloading ? 1 : 1.02 }}
-                  whileTap={{ scale: downloading ? 1 : 0.97 }}
-                  className="group relative flex h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-brand-500 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 disabled:pointer-events-none disabled:opacity-90"
-                >
-                  {downloading ? (
-                    <><Loader2 className="h-5 w-5 animate-spin" /> Mengunduh...</>
-                  ) : (
-                    <><Download className="h-5 w-5 transition-transform group-hover:-translate-y-0.5" /> Download</>
-                  )}
-                  <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />
-                </motion.button>
+                  <div className="min-w-0 text-center lg:text-left">
+                    <h1 className="line-clamp-2 break-words text-xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-2xl">
+                      File Not Found
+                    </h1>
+                    <p className="mt-1.5 max-w-xl text-sm font-medium leading-relaxed text-zinc-500 dark:text-zinc-400">
+                      The file you are looking for may have been removed, expired, or the download link is invalid.
+                    </p>
+                  </div>
 
-                <Button variant="outline" size="sm" onClick={() => setShareOpen(true)} className="mt-3 w-full justify-center gap-2 border-brand-200 text-brand-700 hover:bg-brand-50 hover:text-brand-800 dark:border-brand-500/30 dark:text-brand-300 dark:hover:bg-brand-900/30">
-                  <Share2 className="h-4 w-4" /> Share
-                </Button>
+                  <div className="rounded-xl border border-brand-200/70 bg-white/70 p-5 shadow-sm dark:border-brand-500/20 dark:bg-zinc-950/40">
+                    <Link
+                      to="/"
+                      className="group relative flex h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-brand-500 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-600"
+                    >
+                      <Home className="h-5 w-5 transition-transform group-hover:-translate-y-0.5" />
+                      Go to Homepage
+                      <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />
+                    </Link>
+                  </div>
+                </>
+              ) : fileInfo ? (
+                <>
+                  {/* Icon file besar (kiri) */}
+                  <div className="flex justify-center lg:justify-start">
+                    <div className="flex h-24 w-24 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-800/40">
+                      {getFileTypeIcon(fileInfo.mimeType)}
+                    </div>
+                  </div>
 
-                {bw.isThrottled && (
-                  <p className="mt-3 flex items-start gap-1.5 text-xs leading-relaxed text-orange-600 dark:text-orange-400">
-                    <InfoIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                    Kuota bandwidth harian terlampaui. Download tetap berjalan dengan kecepatan terbatas.
-                  </p>
-                )}
-              </div>
+                  {/* Informasi file (tengah) */}
+                  <div className="min-w-0 text-center lg:text-left">
+                    <h1 className="line-clamp-2 break-words text-xl font-bold tracking-tight text-zinc-900 dark:text-white sm:text-2xl" title={fileInfo.filename}>
+                      {fileInfo.filename}
+                    </h1>
+                    <p className="mt-1.5 text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                      {formatBytes(fileInfo.sizeBytes)}
+                    </p>
+
+                    <div className="mt-4 inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300">
+                      <CheckCircle2 className="h-4 w-4" />
+                      File is safe and ready to download
+                    </div>
+
+                    <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:max-w-sm lg:mx-0">
+                      <div className="flex flex-col gap-0.5">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">File Type</dt>
+                        <dd className="font-semibold text-zinc-800 dark:text-zinc-200">{getFileTypeLabel(fileInfo.mimeType)}</dd>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Size</dt>
+                        <dd className="font-semibold text-zinc-800 dark:text-zinc-200">{formatBytes(fileInfo.sizeBytes)}</dd>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <dt className="text-xs font-medium uppercase tracking-wide text-zinc-400 dark:text-zinc-500">Downloads</dt>
+                        <dd className="font-semibold text-zinc-800 dark:text-zinc-200">{fileInfo.downloadCount}x</dd>
+                      </div>
+                    </dl>
+                  </div>
+
+                  {/* Card Download (kanan) */}
+                  <div className="rounded-xl border border-brand-200/70 bg-white/70 p-5 shadow-sm dark:border-brand-500/20 dark:bg-zinc-950/40">
+                    <div className="mb-4 flex items-center justify-between">
+                      <h2 className="text-base font-bold text-zinc-900 dark:text-white">Premium Download</h2>
+                      <span className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-brand-700 dark:bg-brand-500/20 dark:text-brand-200 dark:ring-1 dark:ring-brand-500/30">
+                        <Sparkles className="h-3 w-3" /> Premium
+                      </span>
+                    </div>
+                    <div className="mb-4 space-y-3 text-sm">
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
+                          <Activity className="h-4 w-4" /> Bandwidth Limit
+                        </span>
+                        <span className="font-semibold text-zinc-800 dark:text-zinc-200">
+                          Unlimited
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="flex items-center gap-1.5 text-zinc-500 dark:text-zinc-400">
+                          <Gauge className="h-4 w-4" /> Download Speed
+                        </span>
+                        <span className="font-semibold text-zinc-800 dark:text-zinc-200">Unlimited</span>
+                      </div>
+                    </div>
+
+                    <motion.button
+                      onClick={handleDownload}
+                      disabled={downloading}
+                      whileHover={{ scale: downloading ? 1 : 1.02 }}
+                      whileTap={{ scale: downloading ? 1 : 0.97 }}
+                      className="group relative flex h-12 w-full items-center justify-center gap-2 overflow-hidden rounded-xl bg-brand-500 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-600 disabled:pointer-events-none disabled:opacity-90"
+                    >
+                      {downloading ? (
+                        <><Loader2 className="h-5 w-5 animate-spin" /> Mengunduh...</>
+                      ) : (
+                        <><Download className="h-5 w-5 transition-transform group-hover:-translate-y-0.5" /> Download</>
+                      )}
+                      <div className="absolute inset-0 -translate-x-full bg-gradient-to-r from-transparent via-white/20 to-transparent transition-transform duration-1000 group-hover:translate-x-full" />
+                    </motion.button>
+
+                    <Button variant="outline" size="sm" onClick={() => setShareOpen(true)} className="mt-3 w-full justify-center gap-2 border-brand-200 text-brand-700 hover:bg-brand-50 hover:text-brand-800 dark:border-brand-500/30 dark:text-brand-300 dark:hover:bg-brand-900/30">
+                      <Share2 className="h-4 w-4" /> Share
+                    </Button>
+                  </div>
+                </>
+              ) : null}
             </div>
           </motion.div>
 
           <motion.div variants={item}>
-            <div className="flex flex-col gap-4 rounded-2xl border border-brand-200/60 bg-white/95 p-6 shadow-lg shadow-brand-500/5 dark:border-white/10 dark:from-zinc-900 dark:via-zinc-900/95 dark:to-brand-950/30 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-4 rounded-2xl border border-brand-200/60 bg-white/95 p-6 shadow-lg shadow-brand-500/5 dark:border-white/10 dark:bg-zinc-900/95 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-start gap-4">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-500/10 text-brand-600 dark:text-brand-400">
                   <Sparkles className="h-5 w-5" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-zinc-900 dark:text-white">Free Tier</h3>
+                  <h3 className="text-base font-bold text-zinc-900 dark:text-white">Premium Download</h3>
                   <p className="mt-0.5 max-w-md text-sm text-zinc-500 dark:text-zinc-400">
-                    Anda menggunakan paket gratis. Nikmati unduhan tanpa registrasi dengan batas wajar yang berlaku untuk semua pengguna.
+                    Premium unlimited access is active for this file. Downloads run without quota limits, registration, or artificial speed caps.
                   </p>
                 </div>
               </div>
@@ -487,7 +467,7 @@ function DownloadPage() {
                     <Gauge className="h-3.5 w-3.5" /> Download Speed
                   </div>
                   <div className="mt-1 text-sm font-bold text-zinc-800 dark:text-zinc-200">
-                    {bw.isThrottled ? (bw.speedMbps > 0 ? `${bw.speedMbps} MB/s` : "Unlimited") : bw.speedMbps > 0 ? `${bw.speedMbps} MB/s` : "Unlimited"}
+                    Unlimited
                   </div>
                 </div>
                 <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 px-4 py-3 dark:border-zinc-800 dark:bg-zinc-800/30">
@@ -495,7 +475,7 @@ function DownloadPage() {
                     <Activity className="h-3.5 w-3.5" /> Bandwidth Limit
                   </div>
                   <div className="mt-1 text-sm font-bold text-zinc-800 dark:text-zinc-200">
-                    {hasBwLimit ? `${bw.limitGb} GB / hari` : "Unlimited"}
+                    Unlimited
                   </div>
                 </div>
               </div>
@@ -530,8 +510,7 @@ function DownloadPage() {
             Protected by {SITE_NAME}
           </p>
           <p className="flex flex-wrap items-center justify-center gap-2 text-xs text-zinc-400 dark:text-zinc-500">
-            <span>Your IP: {bw.ip}</span>
-            <span className="inline-flex items-center gap-1">{countryLabel(bw.country)}</span>
+            <span>Unlimited Premium Access</span>
           </p>
           <p className="text-xs text-zinc-400 dark:text-zinc-500">
             &copy; {new Date().getFullYear()} {SITE_NAME}. All rights reserved.

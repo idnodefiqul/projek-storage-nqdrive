@@ -6,7 +6,7 @@ import { useLogin, useMe } from "../hooks/auth";
 import { Particles } from "@nqdrive/ui";
 import { LoadingOverlay } from "../components/overlay";
 import { logoLoginPng } from "../assets";
-import { useTheme } from "../stores/theme-provider";
+import { applyBrandColors, useTheme } from "../stores/theme-provider";
 
 export const Route = createFileRoute("/login")({
   component: LoginPage,
@@ -50,6 +50,22 @@ function LoginPage() {
       return () => clearTimeout(timer);
     }
   }, [isCheckingAuth, user, navigate]);
+
+  // Sync brand color & theme mode dari /config publik (DB = source of truth)
+  useEffect(() => {
+    const WORKER_BASE = (import.meta.env.VITE_WORKER_URL as string | undefined) ?? "";
+    fetch(`${WORKER_BASE}/config`, { headers: { "X-App-Client": "nqdrive-web" } })
+      .then((res) => res.json())
+      .then((json: any) => {
+        if (json?.success && json?.data) {
+          const cfg = json.data as { brand_color?: string; theme_mode?: string };
+          if (cfg.brand_color) applyBrandColors(cfg.brand_color);
+          if (cfg.theme_mode === "dark") document.documentElement.classList.add("dark");
+          else if (cfg.theme_mode === "light") document.documentElement.classList.remove("dark");
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Fetch public settings (Turnstile config) on mount
   useEffect(() => {

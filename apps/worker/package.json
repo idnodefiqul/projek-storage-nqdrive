@@ -8,8 +8,8 @@
     "build": "tsc --noEmit",
     "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
-    "db:migrate:local": "wrangler d1 migrations apply nqdrive-db --local",
-    "db:migrate:remote": "wrangler d1 migrations apply nqdrive-db --remote",
+    "db:migrate:local": "wrangler d1 execute nqdrive-db --local --file=./dbcloud.sql",
+    "db:migrate:remote": "wrangler d1 execute nqdrive-db --remote --file=./dbcloud.sql",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {

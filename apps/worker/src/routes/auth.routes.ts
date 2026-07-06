@@ -10,6 +10,7 @@ import { verifyTOTP } from "../utils/totp";
 import { UserRepository } from "../database/user.repository";
 import { signJwt, verifyJwt } from "../utils/jwt";
 import { extractRealIp } from "../utils/ip-parser";
+import { writeAuditLog } from "../utils/audit";
 import type { Env } from "../config/env";
 
 const authRoutes = new Hono<{ Bindings: Env }>();
@@ -181,9 +182,11 @@ authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
     ].join("; ");
 
     c.header("Set-Cookie", cookieAttributes);
+    writeAuditLog(c, { action: "login", status: "success", user: user.username, detail: "Login berhasil" });
     return c.json({ success: true, data: { user: { id: user.id, username: user.username, email: user.email } } });
   } catch (error) {
     if (error instanceof AuthError) {
+      writeAuditLog(c, { action: "login", status: "error", user: input.username, detail: error.message });
       if (maxAttempts > 0) {
         const nowSeconds = Math.floor(Date.now() / 1000);
         const attempt = await c.env.DB.prepare("SELECT * FROM login_attempts WHERE ip = ?").bind(ip).first<LoginAttemptRow>();
@@ -278,8 +281,10 @@ authRoutes.post("/login/2fa", async (c) => {
     ].join("; ");
 
     c.header("Set-Cookie", cookieAttributes);
+    writeAuditLog(c, { action: "login.2fa", status: "success", user: user.username, detail: "Login 2FA berhasil" });
     return c.json({ success: true, data: { user: { id: user.id, username: user.username, email: user.email } } });
   } catch (err) {
+    writeAuditLog(c, { action: "login.2fa", status: "error", detail: "Verifikasi 2FA gagal" });
     return c.json({ success: false, error: { message: "Verifikasi 2FA kedaluwarsa atau tidak valid." } }, 401);
   }
 });
@@ -301,6 +306,7 @@ authRoutes.post("/logout", requireAuth, (c) => {
   ].join("; ");
 
   c.header("Set-Cookie", clearCookie);
+  writeAuditLog(c, { action: "logout", status: "info" });
   return c.json({ success: true, data: { message: "Logout berhasil." } });
 });
 
@@ -339,6 +345,7 @@ authRoutes.post(
 
     try {
       await authService.changePassword(payload.sub, input);
+      writeAuditLog(c, { action: "password.change", status: "success", detail: "Password berhasil diubah" });
       return c.json({ success: true, data: { message: "Password berhasil diubah." } });
     } catch (error) {
       if (error instanceof AuthError) {

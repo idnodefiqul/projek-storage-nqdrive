@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Button, Card, CardHeader, CardTitle, CardContent, Dialog } from "@nqdrive/ui";
 import { useTheme } from "../stores/theme-provider";
+import { useUpdateSettings } from "../hooks/use-settings";
 import { logoMainPng } from "../assets";
 
 export const Route = createFileRoute("/")({
@@ -50,10 +51,21 @@ function LandingPage() {
 }
 
 function Navbar({ isAuthenticated }: { isAuthenticated: boolean }) {
-  const { theme, toggleTheme } = useTheme();
+  const { theme, toggleTheme, brandColor } = useTheme();
+  const updateSettings = useUpdateSettings();
   const { scrollY } = useScroll();
   const [isScrolled, setIsScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Toggle theme. Kalau sudah login (admin), simpan ke DB seperti dashboard/topbar
+  // supaya pilihan theme persist & tidak ke-override lagi oleh DB saat pindah halaman.
+  const handleToggleTheme = () => {
+    const next = theme === "light" ? "dark" : "light";
+    toggleTheme();
+    if (isAuthenticated) {
+      updateSettings.mutate({ theme_mode: next, brand_color: brandColor });
+    }
+  };
 
   useMotionValueEvent(scrollY, "change", (latest) => {
     setIsScrolled(latest > 20);
@@ -89,7 +101,7 @@ function Navbar({ isAuthenticated }: { isAuthenticated: boolean }) {
           <Link to="/privacy-policy" className="text-sm font-medium text-zinc-600 hover:text-brand-600 dark:text-zinc-400 dark:hover:text-brand-400">
             Privacy Policy
           </Link>
-          <Button variant="ghost" size="icon" onClick={toggleTheme} className="rounded-full">
+          <Button variant="ghost" size="icon" onClick={handleToggleTheme} className="rounded-full">
             {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
           </Button>
           {isAuthenticated ? (
@@ -127,7 +139,7 @@ function Navbar({ isAuthenticated }: { isAuthenticated: boolean }) {
             animate="show"
             exit="hidden"
             variants={{
-              show: { transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
+              show: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.1 } },
               hidden: { opacity: 0 }
             }}
             className="flex flex-col gap-6 p-8"
@@ -149,7 +161,7 @@ function Navbar({ isAuthenticated }: { isAuthenticated: boolean }) {
               </Link>
             </motion.div>
             <motion.div variants={menuItem} className="pt-6 border-t border-zinc-200 dark:border-zinc-800">
-              <button onClick={() => { toggleTheme(); setMobileMenuOpen(false); }} className="flex w-full items-center gap-3 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
+              <button onClick={() => { handleToggleTheme(); setMobileMenuOpen(false); }} className="flex w-full items-center gap-3 text-2xl font-bold text-zinc-900 dark:text-zinc-100">
                 {theme === "light" ? <Moon className="h-6 w-6 text-brand-500" /> : <Sun className="h-6 w-6 text-brand-500" />}
                 {theme === "light" ? "Dark Mode" : "Light Mode"}
               </button>

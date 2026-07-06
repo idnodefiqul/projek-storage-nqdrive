@@ -208,6 +208,97 @@ export class GoogleDriveProvider implements StorageProvider {
     }
   }
 
+  /**
+   * Format drive: hapus permanen SEMUA file yang dimiliki akun ini di Google Drive
+   * asli — bukan hanya file yang tercatat di database aplikasi.
+   *
+   * Langkah:
+   *   1. List seluruh file milik akun ('me' in owners) dengan pagination, sehingga
+   *      file lama / sisa upload yang tidak tercatat di DB ikut terjaring.
+   *   2. Hapus permanen per batch 100 file lewat endpoint batch Drive API —
+   *      1 subrequest per 100 file, aman dari limit subrequest Cloudflare Workers.
+   *   3. Kosongkan trash agar kuota storage benar-benar kembali kosong.
+   */
+  async deleteAllFiles(params: { credentials: ProviderCredentials }): Promise<{ deletedCount: number }> {
+    const accessToken = params.credentials.accessToken;
+    if (!accessToken) {
+      throw new Error("Missing accessToken in credentials for Google Drive deleteAllFiles");
+    }
+
+    // Step 1: kumpulkan seluruh file ID milik akun ini (paginated).
+    const fileIds: string[] = [];
+    let pageToken: string | undefined;
+    do {
+      const url = new URL(`${GOOGLE_DRIVE_API_BASE}/files`);
+      url.searchParams.set("q", "'me' in owners and trashed = false");
+      url.searchParams.set("fields", "nextPageToken, files(id)");
+      url.searchParams.set("pageSize", "1000");
+      url.searchParams.set("spaces", "drive");
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+      const listResponse = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!listResponse.ok) {
+        throw new Error(
+          `Failed to list Google Drive files: ${listResponse.status} ${await listResponse.text()}`
+        );
+      }
+
+      const data = (await listResponse.json()) as {
+        nextPageToken?: string;
+        files?: Array<{ id: string }>;
+      };
+      for (const file of data.files ?? []) fileIds.push(file.id);
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+
+    // Step 2: hapus permanen per batch (maks 100 call per batch request Drive API).
+    const BATCH_SIZE = 100;
+    for (let offset = 0; offset < fileIds.length; offset += BATCH_SIZE) {
+      const batch = fileIds.slice(offset, offset + BATCH_SIZE);
+      const boundary = `batch_nqdrive_format_${offset}`;
+      const body =
+        batch
+          .map(
+            (id, index) =>
+              `--${boundary}\r\n` +
+              `Content-Type: application/http\r\n` +
+              `Content-ID: <item-${offset + index}>\r\n\r\n` +
+              `DELETE /drive/v3/files/${id} HTTP/1.1\r\n\r\n`
+          )
+          .join("") + `--${boundary}--\r\n`;
+
+      const batchResponse = await fetch("https://www.googleapis.com/batch/drive/v3", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": `multipart/mixed; boundary=${boundary}`,
+        },
+        body,
+      });
+      if (!batchResponse.ok) {
+        throw new Error(
+          `Failed to batch-delete Google Drive files: ${batchResponse.status} ${await batchResponse.text()}`
+        );
+      }
+    }
+
+    // Step 3: kosongkan trash. Kegagalan di sini tidak menggagalkan format —
+    // file utama sudah terhapus permanen di step 2.
+    const trashResponse = await fetch(`${GOOGLE_DRIVE_API_BASE}/files/trash`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!trashResponse.ok && trashResponse.status !== 404) {
+      console.error(
+        `Failed to empty Google Drive trash: ${trashResponse.status} ${await trashResponse.text().catch(() => "")}`
+      );
+    }
+
+    return { deletedCount: fileIds.length };
+  }
+
   async getQuota(params: { credentials: ProviderCredentials }): Promise<StorageQuota> {
     const accessToken = params.credentials.accessToken;
     if (!accessToken) {
@@ -236,6 +327,120 @@ export class GoogleDriveProvider implements StorageProvider {
       usedBytes,
       availableBytes: Math.max(0, totalBytes - usedBytes),
     };
+  }
+
+  /**
+   * List semua file (bukan folder) milik akun ini, dengan pagination.
+   * Dipakai migrasi untuk menjaring file yang tidak tercatat di database aplikasi.
+   * Folder dikecualikan karena files.copy tidak mendukung folder.
+   */
+  async listFiles(params: {
+    credentials: ProviderCredentials;
+  }): Promise<Array<{ providerFileId: string; filename: string; sizeBytes: number }>> {
+    const accessToken = params.credentials.accessToken;
+    if (!accessToken) throw new Error("Missing accessToken for Google Drive listFiles");
+
+    const files: Array<{ providerFileId: string; filename: string; sizeBytes: number }> = [];
+    let pageToken: string | undefined;
+    do {
+      const url = new URL(`${GOOGLE_DRIVE_API_BASE}/files`);
+      url.searchParams.set(
+        "q",
+        "'me' in owners and trashed = false and mimeType != 'application/vnd.google-apps.folder'"
+      );
+      url.searchParams.set("fields", "nextPageToken, files(id, name, size)");
+      url.searchParams.set("pageSize", "1000");
+      url.searchParams.set("spaces", "drive");
+      if (pageToken) url.searchParams.set("pageToken", pageToken);
+
+      const response = await fetch(url.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!response.ok) {
+        throw new Error(
+          `Failed to list Google Drive files: ${response.status} ${await response.text()}`
+        );
+      }
+
+      const data = (await response.json()) as {
+        nextPageToken?: string;
+        files?: Array<{ id: string; name: string; size?: string }>;
+      };
+      for (const file of data.files ?? []) {
+        files.push({
+          providerFileId: file.id,
+          filename: file.name,
+          sizeBytes: Number(file.size ?? 0),
+        });
+      }
+      pageToken = data.nextPageToken;
+    } while (pageToken);
+
+    return files;
+  }
+
+  /**
+   * Share file ke email lain sebagai reader — langkah 1 migrasi antar akun.
+   * sendNotificationEmail=false supaya akun target tidak dibanjiri email notifikasi.
+   */
+  async shareToUser(params: {
+    credentials: ProviderCredentials;
+    providerFileId: string;
+    email: string;
+  }): Promise<void> {
+    const { credentials, providerFileId, email } = params;
+    const accessToken = credentials.accessToken;
+    if (!accessToken) throw new Error("Missing accessToken for Google Drive shareToUser");
+
+    const response = await fetch(
+      `${GOOGLE_DRIVE_API_BASE}/files/${providerFileId}/permissions?sendNotificationEmail=false`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ role: "reader", type: "user", emailAddress: email }),
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to share Google Drive file: ${response.status} ${await response.text()}`
+      );
+    }
+  }
+
+  /**
+   * Salin file (yang sudah di-share ke akun ini) menjadi milik akun ini —
+   * langkah 2 migrasi antar akun. Server-side copy: data tidak lewat worker.
+   */
+  async copyFile(params: {
+    credentials: ProviderCredentials;
+    providerFileId: string;
+    filename: string;
+  }): Promise<{ providerFileId: string }> {
+    const { credentials, providerFileId, filename } = params;
+    const accessToken = credentials.accessToken;
+    if (!accessToken) throw new Error("Missing accessToken for Google Drive copyFile");
+
+    const response = await fetch(`${GOOGLE_DRIVE_API_BASE}/files/${providerFileId}/copy`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: filename }),
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Failed to copy Google Drive file: ${response.status} ${await response.text()}`
+      );
+    }
+
+    const data = (await response.json()) as { id: string };
+    return { providerFileId: data.id };
   }
 
   async rename(params: { credentials: ProviderCredentials; providerFileId: string; newName: string }): Promise<void> {

@@ -15,7 +15,7 @@ import { useSettings, useUpdateSettings } from "../hooks/use-settings";
 import { useMinLoading } from "../hooks/use-min-loading";
 import { SettingsSkeleton } from "../components/skeletons";
 import { PageTransition } from "../components/page-transition";
-import { apiRequest } from "../lib/client";
+import { apiRequest, ApiClientError } from "../lib/client";
 import { motion, AnimatePresence } from "framer-motion";
 
 export const Route = createFileRoute("/dashboard/security")({
@@ -67,8 +67,13 @@ function SecurityPage() {
     try {
       const res = await apiRequest<{ items: BlockedIpItem[] }>("/security/blocked-ips");
       setBlockedIps(res.items);
-    } catch {
-      toast({ title: "Failed to load blocked IPs", variant: "error" });
+    } catch (err) {
+      // Jangan tampilkan toast kalau gagal karena sesi berakhir / logout (401) â€”
+      // kalau tidak, notif "Failed to load blocked IPs" ikut muncul di halaman login.
+      const status = err instanceof ApiClientError ? err.statusCode : 0;
+      if (status !== 401 && localStorage.getItem("nqdrive_is_logged_in") !== "false") {
+        toast({ title: "Failed to load blocked IPs", variant: "error" });
+      }
     } finally {
       setIsLoadingIps(false);
     }
@@ -212,7 +217,7 @@ function SecurityPage() {
           <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Manage rate limiting, captcha, two-factor authentication, and IP blocking.</p>
         </motion.div>
 
-        {/* ——— Overview Cards ——— */}
+        {/* ï¿½ï¿½ï¿½ Overview Cards ï¿½ï¿½ï¿½ */}
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {[
             { label: "Login Rate Limit", value: rateLimitLogin === "0" ? "Off" : `${rateLimitLogin} attempts`, icon: Gauge, color: "text-blue-500" },
@@ -237,7 +242,7 @@ function SecurityPage() {
         </div>
 
         <div className="grid gap-6 lg:grid-cols-2">
-          {/* ——— General Security ——— */}
+          {/* ï¿½ï¿½ï¿½ General Security ï¿½ï¿½ï¿½ */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.1 }}>
             <Card className="p-5 sm:p-6 h-full">
               <div className="flex items-center gap-3 mb-5">
@@ -287,7 +292,7 @@ function SecurityPage() {
             </Card>
           </motion.div>
 
-          {/* ——— Turnstile Captcha ——— */}
+          {/* ï¿½ï¿½ï¿½ Turnstile Captcha ï¿½ï¿½ï¿½ */}
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.15 }}>
             <Card className="p-5 sm:p-6 h-full">
               <div className="flex items-center gap-3 mb-5">
@@ -336,7 +341,7 @@ function SecurityPage() {
           </motion.div>
         </div>
 
-        {/* ——— Two-Factor Authentication ——— */}
+        {/* ï¿½ï¿½ï¿½ Two-Factor Authentication ï¿½ï¿½ï¿½ */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.2 }}>
           <Card className="p-5 sm:p-6">
             <div className="flex items-center justify-between mb-5">
@@ -389,7 +394,7 @@ function SecurityPage() {
                       <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400 mb-1.5">Secret Key</p>
                       <div className="flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 px-3 py-2 bg-zinc-50 dark:bg-zinc-900">
                         <code className="flex-1 text-xs font-mono text-zinc-700 dark:text-zinc-300 break-all">
-                          {showSecret ? totpGenData.secret : "••••••••••••••••"}
+                          {showSecret ? totpGenData.secret : "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½"}
                         </code>
                         <button onClick={() => setShowSecret(!showSecret)} className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300">
                           {showSecret ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
@@ -457,7 +462,7 @@ function SecurityPage() {
           </Card>
         </motion.div>
 
-        {/* ——— IP Blacklist ——— */}
+        {/* ï¿½ï¿½ï¿½ IP Blacklist ï¿½ï¿½ï¿½ */}
         <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.25 }}>
           <Card className="overflow-hidden">
             <div className="flex items-center justify-between p-5 sm:p-6 pb-0 sm:pb-0">
@@ -488,7 +493,7 @@ function SecurityPage() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">No blocked IPs</p>
-                    <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">All clear — no IPs are currently blocked.</p>
+                    <p className="text-xs text-zinc-400 dark:text-zinc-500 mt-0.5">All clear â€” no IPs are currently blocked.</p>
                   </div>
                 </div>
               ) : (

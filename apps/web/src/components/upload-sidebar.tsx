@@ -1,8 +1,9 @@
 import { useEffect } from "react";
-import { X, CheckCircle2, Loader2, XCircle, ArrowUpCircle, Trash2, FileCheck, Pause, Play } from "lucide-react";
+import { X, CheckCircle2, Loader2, XCircle, Send, Trash2, FileCheck, Pause, Play, ArrowLeftRight } from "lucide-react";
 import { Button, Progress } from "@nqdrive/ui";
 import { formatBytes } from "@nqdrive/shared";
 import { useUploadGlobal } from "../stores/upload-provider";
+import { useMigrationGlobal, maskEmail } from "../stores/migration-provider";
 import { motion, AnimatePresence } from "framer-motion";
 
 const PANEL_TRANSITION = {
@@ -44,7 +45,14 @@ export function UploadSidebar() {
     clearRecent,
   } = useUploadGlobal();
 
+  const { activeJobs: migrationJobs, recentJobs: recentMigrations, cancelMigration } = useMigrationGlobal();
+
   const handleClose = () => setUploadSidebarOpen(false);
+
+  const handleCancelMigration = (jobId: number, sourceEmail: string, targetEmail: string) => {
+    if (!confirm(`Batalkan migrasi ${maskEmail(sourceEmail)} → ${maskEmail(targetEmail)}?\n\nFile yang sudah terlanjur dipindahkan tetap berada di akun tujuan.`)) return;
+    void cancelMigration(jobId);
+  };
 
   // All items in items state represent the active queue (uploading, hashing, queued, paused, error)
   const activeItems = items;
@@ -83,8 +91,8 @@ export function UploadSidebar() {
               transition={CONTENT_TRANSITION}
             >
               <div className="flex items-center gap-2">
-                <ArrowUpCircle className="h-5 w-5 text-brand-500" />
-                <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Progress Upload</h2>
+                <Send className="h-5 w-5 text-brand-500" />
+                <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Progress</h2>
               </div>
               <button
                 onClick={handleClose}
@@ -191,6 +199,109 @@ export function UploadSidebar() {
                         </div>
                       );
                     })}
+                  </div>
+                )}
+              </motion.div>
+
+              {/* Active Migrations section */}
+              <motion.div
+                className="space-y-4"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 12 }}
+                transition={{ ...CONTENT_TRANSITION, delay: 0.15 }}
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                    Migrasi ({migrationJobs.length})
+                  </h3>
+                  {migrationJobs.length > 0 && (
+                    <span className="text-[10px] bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">
+                      Berjalan
+                    </span>
+                  )}
+                </div>
+
+                {migrationJobs.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-6 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-xl bg-zinc-50/50 dark:bg-zinc-900/30">
+                    <ArrowLeftRight className="h-7 w-7 text-zinc-300 dark:text-zinc-700" />
+                    <p className="text-xs text-zinc-400 mt-2">Tidak ada migrasi aktif</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {migrationJobs.map((job) => {
+                      const percent = job.totalFiles > 0 ? (job.migratedFiles / job.totalFiles) * 100 : 0;
+                      return (
+                        <div
+                          key={job.id}
+                          className="p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/10 space-y-2 relative"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate flex items-center gap-1.5">
+                                <ArrowLeftRight className="h-3 w-3 shrink-0 text-amber-500" />
+                                <span className="truncate">
+                                  {maskEmail(job.sourceEmail)} → {maskEmail(job.targetEmail)}
+                                </span>
+                              </p>
+                              <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 mt-0.5">
+                                <span>{job.migratedFiles}/{job.totalFiles} file</span>
+                                <span>•</span>
+                                <span>{formatBytes(job.migratedBytes)} / {formatBytes(job.totalBytes)}</span>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => handleCancelMigration(job.id, job.sourceEmail, job.targetEmail)}
+                              className="text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg p-1 transition-colors shrink-0"
+                              title="Batalkan migrasi"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+
+                          <div className="space-y-1">
+                            <Progress value={percent} className="h-1.5 bg-zinc-200 dark:bg-zinc-800" indicatorClassName="bg-amber-500" />
+                            <div className="flex justify-between items-center text-[9px] text-zinc-400 font-mono">
+                              <span>
+                                Migrasi berjalan{job.failedFiles > 0 ? ` • ${job.failedFiles} gagal` : ""}
+                              </span>
+                              <span>{percent.toFixed(0)}%</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Recent migrations */}
+                {recentMigrations.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
+                      Recent Migrasi ({recentMigrations.length})
+                    </h3>
+                    {recentMigrations.map((job) => (
+                      <div
+                        key={job.id}
+                        className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">
+                            {maskEmail(job.sourceEmail)} → {maskEmail(job.targetEmail)}
+                          </p>
+                          <p className="text-[10px] text-zinc-400 mt-0.5">
+                            {job.migratedFiles}/{job.totalFiles} file • {formatBytes(job.migratedBytes)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {job.status === "completed" && <BadgeSuccess />}
+                          {job.status === "cancelled" && (
+                            <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500">Batal</span>
+                          )}
+                          {job.status === "failed" && <TooltipError message={job.error ?? "Migrasi gagal"} />}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 )}
               </motion.div>

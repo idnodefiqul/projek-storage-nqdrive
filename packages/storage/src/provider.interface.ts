@@ -89,6 +89,43 @@ export interface StorageProvider {
   /** Permanently deletes a file from the provider. */
   delete(params: { credentials: ProviderCredentials; providerFileId: string }): Promise<void>;
 
+  /**
+   * Menghapus permanen SEMUA file milik akun ini langsung di provider —
+   * termasuk file yang tidak tercatat di database aplikasi (file lama,
+   * sisa upload gagal, dsb.) — lalu mengosongkan trash provider.
+   * Dipakai fitur "Format Drive" agar drive benar-benar kosong.
+   * Opsional: provider tanpa metode ini di-fallback ke delete per file.
+   */
+  deleteAllFiles?(params: { credentials: ProviderCredentials }): Promise<{ deletedCount: number }>;
+
+  /**
+   * List semua file (bukan folder) milik akun ini di provider.
+   * Dipakai fitur migrasi untuk menjaring file yang tidak tercatat di database.
+   */
+  listFiles?(params: {
+    credentials: ProviderCredentials;
+  }): Promise<Array<{ providerFileId: string; filename: string; sizeBytes: number }>>;
+
+  /**
+   * Membagikan satu file ke user lain (email) agar akun tujuan bisa membacanya.
+   * Dipakai fitur migrasi antar akun: share (token sumber) → copy (token target).
+   */
+  shareToUser?(params: {
+    credentials: ProviderCredentials;
+    providerFileId: string;
+    email: string;
+  }): Promise<void>;
+
+  /**
+   * Menyalin file yang sudah di-share ke akun pemilik `credentials` (server-side
+   * copy — tanpa streaming data lewat worker). Mengembalikan file ID baru di akun target.
+   */
+  copyFile?(params: {
+    credentials: ProviderCredentials;
+    providerFileId: string;
+    filename: string;
+  }): Promise<{ providerFileId: string }>;
+
   /** Fetches current quota (total/used/available) for the connected account. */
   getQuota(params: { credentials: ProviderCredentials }): Promise<StorageQuota>;
 

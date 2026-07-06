@@ -4,16 +4,18 @@ import type { Env } from "./config/env";
 import { registerStorageProviders } from "./config/bootstrap";
 import { authRoutes, systemStateRoutes, meRoutes } from "./routes/auth.routes";
 import { storageAccountRoutes } from "./routes/storage-account.routes";
+import { migrationRoutes } from "./routes/migration.routes";
 import { folderRoutes } from "./routes/folder.routes";
 import { fileRoutes } from "./routes/file.routes";
 import { uploadRoutes } from "./routes/upload.routes";
-import { downloadRoutes, throttleStream } from "./routes/download.routes";
+import { downloadRoutes, buildDownloadPath } from "./routes/download.routes";
 import { logRoutes } from "./routes/log.routes";
 import { apiKeyRoutes } from "./routes/api-key.routes";
 import { dashboardRoutes } from "./routes/dashboard.routes";
 import { trashRoutes } from "./routes/trash.routes";
 import { settingsRoutes } from "./routes/settings.routes";
 import { securityApiRoutes } from "./routes/security.routes";
+import { auditLogRoutes } from "./routes/audit-log.routes";
 import { SettingsRepository } from "./database/settings.repository";
 import { DownloadService, FileNotAccessibleError } from "./services/download.service";
 import { DownloadLogRepository } from "./database/download-log.repository";
@@ -22,6 +24,7 @@ import { extractRealIp } from "./utils/ip-parser";
 import { resolveCountry } from "./utils/geo-resolver";
 import { syncDriveAccounts } from "./cron/sync-drive-accounts";
 import { purgeExpiredTrash } from "./cron/purge-trash";
+import { processRunningMigrations } from "./cron/process-migrations";
 import { enforceDownloadSecurity } from "./utils/security";
 
 /**
@@ -31,14 +34,17 @@ const app = new Hono<{ Bindings: Env }>();
 
 app.onError((err, c) => {
   console.error("Unhandled error:", err);
+
+  const isProduction = c.env.APP_ENV === "production";
+
   return c.json(
-    { 
-      success: false, 
-      error: { 
-        code: "INTERNAL_ERROR", 
-        message: err.message,
-        stack: err.stack
-      } 
+    {
+      success: false,
+      error: {
+        code: "INTERNAL_ERROR",
+        message: isProduction ? "Internal server error" : err.message,
+        ...(isProduction ? {} : { stack: err.stack }),
+      },
     },
     500
   );
@@ -79,45 +85,8 @@ app.use(
 );
 
 // Register all StorageProvider implementations once per request.
-let dbInitialized = false;
 app.use("*", async (c, next) => {
   registerStorageProviders(c.env);
-  
-  // Bootstrap security tables dynamically only ONCE
-  if (!dbInitialized) {
-    try {
-      await c.env.DB.prepare(`
-        CREATE TABLE IF NOT EXISTS login_attempts (
-          ip TEXT PRIMARY KEY,
-          attempts INTEGER NOT NULL DEFAULT 0,
-          locked_until INTEGER NOT NULL DEFAULT 0
-        )
-      `).run();
-      await c.env.DB.prepare(`
-        CREATE TABLE IF NOT EXISTS download_attempts (
-          ip TEXT PRIMARY KEY,
-          attempts INTEGER NOT NULL DEFAULT 0,
-          last_attempt INTEGER NOT NULL DEFAULT 0
-        )
-      `).run();
-
-      // Add TOTP fields to users table dynamically if they don't exist
-      try {
-        await c.env.DB.prepare("ALTER TABLE users ADD COLUMN totp_secret TEXT").run();
-      } catch {}
-      try {
-        await c.env.DB.prepare("ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0").run();
-      } catch {}
-      try {
-        await c.env.DB.prepare("ALTER TABLE users ADD COLUMN backup_codes TEXT").run();
-      } catch {}
-
-      dbInitialized = true;
-    } catch (err) {
-      console.error("Failed to bootstrap security tables:", err);
-    }
-  }
-
   await next();
 });
 
@@ -147,18 +116,33 @@ const apiGuardMiddleware = async (
   // Protected instead by the signed `state` JWT verified inside the handler.
   if (pathname === "/api/storage/accounts/oauth/callback") return next();
 
-  const appClient  = c.req.header("X-App-Client");
-  const authBearer = c.req.header("Authorization");
+  const appClient    = c.req.header("X-App-Client");
+  const authBearer   = c.req.header("Authorization");
+  const secFetchSite = c.req.header("Sec-Fetch-Site");
+  const origin       = c.req.header("Origin");
 
-  const isOfficialWebApp  = appClient === "nqdrive-web";
-  const isApiKeyAccess    = typeof authBearer === "string" && authBearer.startsWith("Bearer ");
+  // (3) Jalur API key programatik = jalur legitimate terpisah.
+  // Lolos TANPA perlu Sec-Fetch-Site/Origin sama sekali.
+  const isApiKeyAccess = typeof authBearer === "string" && authBearer.startsWith("Bearer ");
+  if (isApiKeyAccess) return next();
 
-  // Blokir SEMUA request yang bukan dari web app atau API key - tanpa pengecualian
-  if (!isOfficialWebApp && !isApiKeyAccess) {
-    return new Response(null, { status: 404 });
+  // Jalur web app resmi: WAJIB X-App-Client (tetap) DAN bukti request benar-benar
+  // berasal dari browser same-origin - lapisan kedua yang tidak bisa dipalsukan
+  // lewat JS/fetch() biasa dari luar browser.
+  const isOfficialWebApp = appClient === "nqdrive-web";
+  //   (1) Sec-Fetch-Site di-set otomatis oleh browser; JS/fetch() tidak bisa override.
+  //       Request browser same-origin (lewat proxy Pages Function) => "same-origin".
+  const isBrowserSameOrigin = secFetchSite === "same-origin";
+  //   (2) Fallback: Origin cocok dengan allowlist resmi.
+  const isAllowedOrigin = typeof origin === "string" && ALLOWED_ORIGINS.has(origin);
+
+  if (isOfficialWebApp && (isBrowserSameOrigin || isAllowedOrigin)) {
+    return next();
   }
 
-  await next();
+  // Selain itu - termasuk curl/Postman yang cuma memalsukan X-App-Client tanpa
+  // Sec-Fetch-Site/Origin yang valid - DITOLAK dengan blank 404.
+  return new Response(null, { status: 404 });
 };
 
 for (const path of PROTECTED_PATHS) {
@@ -170,7 +154,11 @@ app.get("/", () => new Response(null, { status: 404 }));
 
 app.route("/api/auth", authRoutes);
 app.route("/api/me", meRoutes);
+// storageAccountRoutes HARUS di-mount lebih dulu: callback OAuth Google di
+// dalamnya terdaftar sebelum requireAuth, sedangkan migrationRoutes memasang
+// requireAuth pada "*" — kalau dibalik, Google (tanpa cookie sesi) kena 401.
 app.route("/api/storage", storageAccountRoutes);
+app.route("/api/storage", migrationRoutes);
 app.route("/api/folders", folderRoutes);
 // Public preview stream - validates signed token, no auth/headers needed.
 // Used by <img src> and <video src> in the dashboard.
@@ -267,6 +255,7 @@ app.route("/api/trash", trashRoutes);
 app.route("/api/settings", settingsRoutes);
 // Security routes
 app.route("/api/security", securityApiRoutes);
+app.route("/api/audit-logs", auditLogRoutes);
 // /captcha - public Turnstile config for login page only
 app.get("/captcha", async (c) => {
   const clientHeader = c.req.header("X-App-Client");
@@ -307,6 +296,43 @@ app.get("/config", async (c) => {
   });
 });
 
+app.get("/resource/:prefix/:shareCode/getlinkUrl", async (c) => {
+  const clientHeader = c.req.header("X-App-Client");
+  if (clientHeader !== "nqdrive-web") {
+    return new Response(null, { status: 404 });
+  }
+
+  const prefix = c.req.param("prefix");
+  const shareCode = c.req.param("shareCode");
+
+  const repo = new SettingsRepository(c.env.DB);
+  const prefixSetting = await repo.get("share_page_prefix") ?? "p";
+  let expectedPrefix = prefixSetting;
+  if (prefixSetting.startsWith("custom:")) expectedPrefix = prefixSetting.slice(7);
+
+  if (prefix !== expectedPrefix) {
+    return c.json({ success: false, error: { message: "File tidak ditemukan." } }, 404);
+  }
+
+  const file = await c.env.DB.prepare(
+    `SELECT f.slug, a.refresh_token_encrypted
+     FROM files f
+     JOIN drive_accounts a ON f.drive_account_id = a.id
+     WHERE f.share_code = ? AND f.deleted_at IS NULL AND f.visibility = 'public'`
+  ).bind(shareCode).first<any>();
+
+  if (!file || !file.refresh_token_encrypted) {
+    return c.json({ success: false, error: { message: "File tidak ditemukan atau telah dihapus." } }, 404);
+  }
+
+  const downloadEndpoint = await repo.get("download_endpoint") ?? "default";
+  const path = buildDownloadPath(file.slug, shareCode, downloadEndpoint);
+  const origin = new URL(c.req.url).origin;
+  const downloadUrl = `${origin}${path}`;
+
+  return c.json({ success: true, data: { downloadUrl } });
+});
+
 // /resource/:prefix/:shareCode - public file metadata
 app.get("/resource/:prefix/:shareCode", async (c) => {
   const clientHeader = c.req.header("X-App-Client");
@@ -326,15 +352,12 @@ app.get("/resource/:prefix/:shareCode", async (c) => {
     return c.json({ success: false, error: { message: "File tidak ditemukan." } }, 404);
   }
 
-  const ipAddress = extractRealIp(c);
-  const cfCountry = (c.req.raw.cf?.country as string) || null;
-  const country = await resolveCountry(ipAddress, cfCountry);
 
   const file = await c.env.DB.prepare(
     `SELECT f.id, f.filename, f.size_bytes, f.mime_type, f.sha256_hash, f.slug, a.refresh_token_encrypted 
      FROM files f
      JOIN drive_accounts a ON f.drive_account_id = a.id
-     WHERE f.share_code = ? AND f.deleted_at IS NULL`
+     WHERE f.share_code = ? AND f.deleted_at IS NULL AND f.visibility = 'public'`
   ).bind(shareCode).first<any>();
 
   // Sembunyikan halaman download sepenuhnya jika akun Google terputus
@@ -342,34 +365,11 @@ app.get("/resource/:prefix/:shareCode", async (c) => {
     return c.json({ success: false, error: { message: "File tidak ditemukan atau telah dihapus." } }, 404);
   }
 
-  const limitGbStr = await repo.get("bandwidth_limit_gb");
-  const limitGb = limitGbStr ? Number(limitGbStr) : 0;
-  const speedMbpsStr = await repo.get("bandwidth_speed_mbps");
-  const speedMbps = speedMbpsStr ? Number(speedMbpsStr) : 0;
-  
-  let bytesUsed = 0;
-  if (limitGb > 0) {
-    const row = await c.env.DB.prepare(
-      "SELECT COALESCE(SUM(bytes_served), 0) as total FROM download_logs WHERE ip_address = ? AND created_at > datetime('now', '-24 hours')"
-    ).bind(ipAddress).first<{ total: number }>();
-    bytesUsed = row?.total ?? 0;
-  }
-
-  const limitBytes = limitGb * 1024 * 1024 * 1024;
-  const isThrottled = limitGb > 0 && bytesUsed > limitBytes;
-  const downloadEndpoint = await repo.get("download_endpoint") ?? "default";
-  let downloadUrl = "";
-  if (downloadEndpoint === "download") downloadUrl = `/${shareCode}/download/${file.slug}`;
-  else if (downloadEndpoint === "dl") downloadUrl = `/${shareCode}/dl/${file.slug}`;
-  else if (downloadEndpoint === "get") downloadUrl = `/${shareCode}/get/${file.slug}`;
-  else if (downloadEndpoint === "query") downloadUrl = `/${shareCode}/${file.slug}?download`;
-  else if (downloadEndpoint.startsWith("custom:")) downloadUrl = `/${shareCode}/${downloadEndpoint.slice(7)}/${file.slug}`;
-  else downloadUrl = `/${shareCode}/${file.slug}/download`;
-
   const dlCountRow = await c.env.DB.prepare(
     "SELECT COUNT(*) as cnt FROM download_logs WHERE file_id = ?"
   ).bind(file.id).first<{ cnt: number }>();
   const downloadCount = dlCountRow?.cnt ?? 0;
+
   return c.json({
     success: true,
     data: {
@@ -378,16 +378,7 @@ app.get("/resource/:prefix/:shareCode", async (c) => {
       mimeType: file.mime_type,
       sha256Hash: file.sha256_hash,
       slug: file.slug,
-      downloadCount,
-      downloadUrl,
-      bandwidth: {
-        ip: ipAddress,
-        bytesUsed,
-        limitGb,
-        isThrottled,
-        speedMbps,
-        country,
-      }
+      downloadCount
     }
   });
 });
@@ -479,18 +470,7 @@ app.get("/:prefix/:slug{[^/]+\\.[^/]+}", async (c) => {
       headers.set("Content-Range", `bytes 0-${totalSize - 1}/${totalSize}`);
     }
 
-    // Apply speed limit — ALWAYS throttle if bandwidth_speed_mbps is set
-    let finalStream = result.stream;
-    const bwSettings = await settingsRepo.getMany(["bandwidth_speed_mbps"]);
-    const speedMbps = bwSettings["bandwidth_speed_mbps"] ? Number(bwSettings["bandwidth_speed_mbps"]) : 0;
-
-    // Always apply speed limit if configured
-    if (speedMbps > 0) {
-      const bytesPerSecond = speedMbps * 1024 * 1024;
-      finalStream = throttleStream(result.stream, bytesPerSecond);
-    }
-
-    return new Response(finalStream, {
+    return new Response(result.stream, {
       status: 206, headers,
       // @ts-ignore - Cloudflare Workers specific flag
       encodeBody: "manual",
@@ -509,5 +489,8 @@ export default {
     ctx.waitUntil(syncDriveAccounts(env));
     // Auto-purge item Trash yang sudah lebih dari 30 hari
     ctx.waitUntil(purgeExpiredTrash(env));
+    // Backstop migrasi antar akun: lanjutkan job yang masih berjalan
+    // saat tidak ada tab dashboard terbuka
+    ctx.waitUntil(processRunningMigrations(env));
   },
 };

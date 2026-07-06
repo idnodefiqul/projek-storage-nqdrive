@@ -1,7 +1,9 @@
 @import "tailwindcss";
 
-/* Scan komponen UI dari packages/ui agar class-nya masuk ke CSS output */
-@source "../../../packages/ui/src";
+/* Scan komponen UI dari packages/ui agar class-nya masuk ke CSS output.
+   Path relatif terhadap file CSS ini (apps/web/src/styles/) → butuh 4x "../"
+   untuk mencapai root repo, baru packages/ui/src. */
+@source "../../../../packages/ui/src";
 
 /*
   NQDRIVE Theme

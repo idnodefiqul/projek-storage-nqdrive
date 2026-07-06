@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { requireAuth, getAuthPayload } from "../middleware/require-auth.middleware";
 import { generateSecret, verifyTOTP } from "../utils/totp";
+import { writeAuditLog } from "../utils/audit";
 import type { Env } from "../config/env";
 
 const securityApiRoutes = new Hono<{ Bindings: Env }>();
@@ -56,7 +57,7 @@ securityApiRoutes.post("/blocked-ips/unblock", requireAuth, async (c) => {
 
   await db.prepare("DELETE FROM login_attempts WHERE ip = ?").bind(ip).run();
   await db.prepare("DELETE FROM download_attempts WHERE ip = ?").bind(ip).run();
-
+  writeAuditLog(c, { action: "security.unblock-ip", status: "success", detail: ip });
   return c.json({ success: true, data: { message: `Blokir IP ${ip} berhasil dihapus.` } });
 });
 
@@ -114,6 +115,7 @@ securityApiRoutes.post("/2fa/enable", requireAuth, async (c) => {
     "UPDATE users SET totp_secret = ?, totp_enabled = 1, backup_codes = ? WHERE id = ?"
   ).bind(body.secret, backupCodesStr, payload.sub).run();
 
+  writeAuditLog(c, { action: "2fa.enable", status: "success" });
   return c.json({ success: true, data: { message: "2FA berhasil diaktifkan." } });
 });
 
@@ -124,6 +126,7 @@ securityApiRoutes.post("/2fa/disable", requireAuth, async (c) => {
     "UPDATE users SET totp_secret = NULL, totp_enabled = 0, backup_codes = NULL WHERE id = ?"
   ).bind(payload.sub).run();
 
+  writeAuditLog(c, { action: "2fa.disable", status: "warning" });
   return c.json({ success: true, data: { message: "2FA berhasil dinonaktifkan." } });
 });
 

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { requireAuth } from "../middleware/require-auth.middleware";
 import { FolderRepository } from "../database/folder.repository";
 import { FileRepository } from "../database/file.repository";
+import { writeAuditLog } from "../utils/audit";
 import type { Env } from "../config/env";
 
 const folderRoutes = new Hono<{ Bindings: Env }>();
@@ -129,6 +130,7 @@ folderRoutes.post("/", zValidator("json", createFolderSchema), async (c) => {
     parentFolderId: input.parentFolderId ?? null,
   });
 
+  writeAuditLog(c, { action: "folder.create", status: "success", detail: input.name });
   return c.json({ success: true, data: { folder } }, 201);
 });
 
@@ -143,6 +145,7 @@ folderRoutes.patch("/:id", zValidator("json", renameFolderSchema), async (c) => 
   }
 
   await repository.rename(id, name);
+  writeAuditLog(c, { action: "folder.rename", status: "success", detail: name });
   return c.json({ success: true, data: { message: "Folder berhasil diganti nama." } });
 });
 
@@ -185,6 +188,7 @@ folderRoutes.delete("/:id", async (c) => {
   };
   await softDeleteFilesRecursive(id);
 
+  writeAuditLog(c, { action: "folder.delete", status: "warning", detail: existing.name });
   return c.json({ success: true, data: { message: "Folder dipindahkan ke Trash." } });
 });
 

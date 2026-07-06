@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { requireAuth } from "../middleware/require-auth.middleware";
 import { SettingsRepository } from "../database/settings.repository";
+import { writeAuditLog } from "../utils/audit";
 import type { Env } from "../config/env";
 
 /**
@@ -21,9 +22,7 @@ const ALLOWED_KEYS = [
   "turnstile_enabled",
   "turnstile_sitekey",
   "turnstile_secretkey",
-  "share_page_prefix",
-  "bandwidth_limit_gb",
-  "bandwidth_speed_mbps"
+  "share_page_prefix"
 ] as const;
 type SettingKey = (typeof ALLOWED_KEYS)[number];
 
@@ -47,8 +46,6 @@ settingsRoutes.get("/", requireAuth, async (c) => {
       turnstile_sitekey: settings["turnstile_sitekey"] ?? "",
       turnstile_secretkey: settings["turnstile_secretkey"] ?? "",
       share_page_prefix: settings["share_page_prefix"] ?? "p",
-      bandwidth_limit_gb: settings["bandwidth_limit_gb"] ?? "0",
-      bandwidth_speed_mbps: settings["bandwidth_speed_mbps"] ?? "0",
     },
   });
 });
@@ -75,9 +72,7 @@ settingsRoutes.patch("/", requireAuth, async (c) => {
         key === "rate_limit_download" ||
         key === "turnstile_enabled" ||
         key === "turnstile_sitekey" ||
-        key === "turnstile_secretkey" ||
-        key === "bandwidth_limit_gb" ||
-        key === "bandwidth_speed_mbps"
+        key === "turnstile_secretkey"
       ) {
         updates[key] = value;
         continue;
@@ -136,6 +131,8 @@ settingsRoutes.patch("/", requireAuth, async (c) => {
   }
 
   await repo.setMany(updates);
+
+  writeAuditLog(c, { action: "settings.update", status: "success", detail: Object.keys(updates).join(", ") });
 
   return c.json({ success: true, data: { updated: Object.keys(updates) } });
 });

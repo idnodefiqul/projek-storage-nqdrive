@@ -1,4 +1,4 @@
-import { Sun, Moon, Palette, ArrowUpCircle } from "lucide-react";
+import { Sun, Moon, Palette, Send } from "lucide-react";
 import { Button } from "@nqdrive/ui";
 import { useTheme } from "../stores/theme-provider";
 import { useUpdateSettings } from "../hooks/use-settings";
@@ -6,10 +6,12 @@ import { SidebarTrigger } from "./sidebar";
 import { ThemeSidebar } from "./theme-sidebar";
 import { UploadSidebar } from "./upload-sidebar";
 import { useUploadGlobal } from "../stores/upload-provider";
+import { useMigrationGlobal } from "../stores/migration-provider";
 
 export function Topbar() {
   const { theme, toggleTheme, brandColor, setThemeSidebarOpen } = useTheme();
   const { items, setUploadSidebarOpen } = useUploadGlobal();
+  const { activeJobs: migrationJobs } = useMigrationGlobal();
   const updateSettings = useUpdateSettings();
 
   const handleToggleTheme = () => {
@@ -22,10 +24,15 @@ export function Topbar() {
   const activeItems = items.filter(
     (i) => i.status === "uploading" || i.status === "hashing"
   );
-  const activeCount = activeItems.length;
+  // Migrasi drive yang berjalan ikut dihitung di badge + ring progress
+  const activeCount = activeItems.length + migrationJobs.length;
 
-  const totalBytes = activeItems.reduce((s, i) => s + i.progress.totalBytes, 0);
-  const uploadedBytes = activeItems.reduce((s, i) => s + i.progress.uploadedBytes, 0);
+  const totalBytes =
+    activeItems.reduce((s, i) => s + i.progress.totalBytes, 0) +
+    migrationJobs.reduce((s, j) => s + j.totalBytes, 0);
+  const uploadedBytes =
+    activeItems.reduce((s, i) => s + i.progress.uploadedBytes, 0) +
+    migrationJobs.reduce((s, j) => s + j.migratedBytes, 0);
   const overallPercent = totalBytes > 0 ? (uploadedBytes / totalBytes) * 100 : 0;
 
   // SVG circle calculations for circular progress indicator
@@ -54,7 +61,7 @@ export function Topbar() {
           <button
             onClick={() => setUploadSidebarOpen(true)}
             className="relative flex h-9 w-9 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 transition-colors shrink-0"
-            aria-label="Upload Progress"
+            aria-label="Progress Upload & Migrasi"
           >
             {activeCount > 0 ? (
               <>
@@ -81,13 +88,13 @@ export function Topbar() {
                   />
                 </svg>
                 {/* Slightly larger, static icon (no bounce) */}
-                <ArrowUpCircle className="h-[18px] w-[18px] text-brand-500 relative z-10" />
+                <Send className="h-[18px] w-[18px] text-brand-500 relative z-10" />
                 <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white shadow-sm shadow-red-500/30">
                   {activeCount}
                 </span>
               </>
             ) : (
-              <ArrowUpCircle className="h-5 w-5" />
+              <Send className="h-5 w-5" />
             )}
           </button>
         </div>

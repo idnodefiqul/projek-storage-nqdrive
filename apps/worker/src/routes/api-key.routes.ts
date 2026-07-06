@@ -4,6 +4,7 @@ import { zValidator } from "@hono/zod-validator";
 import { requireAuth } from "../middleware/require-auth.middleware";
 import { ApiKeyRepository } from "../database/api-key.repository";
 import { generateApiKey } from "../utils/api-key";
+import { writeAuditLog } from "../utils/audit";
 import type { Env } from "../config/env";
 import type { ApiKey } from "@nqdrive/types";
 
@@ -38,6 +39,7 @@ apiKeyRoutes.post("/", zValidator("json", createApiKeySchema), async (c) => {
   const { fullKey, prefix, hash } = await generateApiKey();
   const apiKey = await repository.create({ name, keyHash: hash, keyPrefix: prefix });
 
+  writeAuditLog(c, { action: "api-key.create", status: "success", detail: name });
   return c.json({ success: true, data: { apiKey: toPublic(apiKey), fullKey } }, 201);
 });
 
@@ -45,6 +47,7 @@ apiKeyRoutes.delete("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const repository = new ApiKeyRepository(c.env.DB);
   await repository.revoke(id);
+  writeAuditLog(c, { action: "api-key.revoke", status: "warning", detail: `ID: ${id}` });
   return c.json({ success: true, data: { message: "API key berhasil dicabut." } });
 });
 

@@ -3,12 +3,12 @@ import { useState, useEffect } from "react";
 import {
   Eye, EyeOff, Database, RefreshCw, Plus, Trash2, KeyRound,
   CheckCircle2, XCircle, Loader2, ExternalLink, AlertCircle,
-  ChevronDown, ShieldCheck,
+  ChevronDown, ShieldCheck, AlertTriangle, HardDrive, ArrowLeftRight, Power,
 } from "lucide-react";
 import {
   Card, CardContent, CardHeader, CardTitle, Badge, Progress, Skeleton,
   TooltipProvider, Tooltip, TooltipTrigger, TooltipContent,
-  Button, Dialog, DialogHeader, DialogTitle, DialogDescription, useToast,
+  Button, Dialog, DialogHeader, DialogTitle, DialogDescription, DialogFooter, Input, useToast,
   Avatar, AvatarImage, AvatarFallback,
 } from "@nqdrive/ui";
 import { formatBytes } from "@nqdrive/shared";
@@ -17,8 +17,11 @@ import {
   useDriveAccounts, useDeleteDriveAccount,
   useConnectGoogleAccountViaToken, useValidateRefreshToken,
   useGoogleOAuthUrl,
+  useFormatDriveAccount,
 } from "../hooks/use-drive-accounts";
 import { useMinLoading } from "../hooks/use-min-loading";
+import { useMigrationGlobal } from "../stores/migration-provider";
+import type { DriveAccountWithFileCount } from "../services/drive-account.service";
 import { PageTransition } from "../components/page-transition";
 import { CardGridSkeleton } from "../components/skeletons";
 import { ApiClientError } from "../lib/client";
@@ -289,6 +292,274 @@ function AddAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
 
 // ─── MAIN PAGE ────────────────────────────────────────────────────────────────
 
+
+function ConfirmFormatDriveDialog({
+  open,
+  onClose,
+  onConfirm,
+  accountEmail,
+  fileCount,
+  isPending,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  accountEmail: string;
+  fileCount: number;
+  isPending: boolean;
+}) {
+  const [confirmText, setConfirmText] = useState("");
+  const matches = confirmText === accountEmail;
+
+  const handleClose = () => { setConfirmText(""); onClose(); };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogHeader>
+        <div className="flex items-center gap-3 mb-1">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+            <AlertTriangle className="h-5 w-5 text-red-600 dark:text-red-400" />
+          </div>
+          <DialogTitle>Format Drive?</DialogTitle>
+        </div>
+        <DialogDescription className="pl-[52px]">
+          <strong className="text-zinc-900 dark:text-zinc-100">Seluruh isi Google Drive</strong> akun{" "}
+          <strong className="text-zinc-900 dark:text-zinc-100">{accountEmail}</strong>{" "}
+          akan dihapus permanen — termasuk{" "}
+          <strong className="text-zinc-900 dark:text-zinc-100">{fileCount} file</strong> yang tercatat
+          di dashboard, file lain di drive, dan isi trash. Akun tetap terhubung.
+        </DialogDescription>
+      </DialogHeader>
+      <div className="mx-4 mb-2 rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-3">
+        <p className="text-xs text-red-700 dark:text-red-400 font-medium">
+          Tindakan ini tidak bisa dibatalkan. Seluruh file akan hilang selamanya dari Google Drive.
+        </p>
+      </div>
+      <div className="mx-4 mb-2 flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          Ketik <strong className="text-zinc-900 dark:text-zinc-100 select-all">{accountEmail}</strong> untuk konfirmasi
+        </label>
+        <Input
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value)}
+          placeholder={accountEmail}
+          className="font-mono text-sm"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </div>
+      <DialogFooter>
+        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={handleClose} disabled={isPending}>
+          Batal
+        </Button>
+        <Button variant="destructive" onClick={onConfirm} disabled={!matches || isPending}>
+          {isPending ? (
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Memformat...</>
+          ) : (
+            <><HardDrive className="mr-2 h-4 w-4" />Format Drive</>
+          )}
+        </Button>
+      </DialogFooter>
+    </Dialog>
+  );
+}
+const MIGRATION_RESERVE_BYTES = 1 * 1024 * 1024 * 1024; // cadangan 1 GB, sama dengan worker
+
+function ConfirmMigrateDriveDialog({
+  open,
+  onClose,
+  onConfirm,
+  sourceAccount,
+  accounts,
+  isPending,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: (targetAccountId: number) => void;
+  sourceAccount: { id: number; email: string; fileCount: number; usedBytes: number } | null;
+  accounts: DriveAccountWithFileCount[];
+  isPending: boolean;
+}) {
+  const [targetId, setTargetId] = useState<number | null>(null);
+  const [confirmText, setConfirmText] = useState("");
+
+  // Reset pilihan setiap dialog dibuka — dialog ditutup programatik setelah
+  // sukses sehingga handleClose tidak selalu terpanggil.
+  useEffect(() => {
+    if (open) {
+      setTargetId(null);
+      setConfirmText("");
+    }
+  }, [open]);
+
+  const sourceEmail = sourceAccount?.email ?? "";
+  const matches = confirmText === sourceEmail && targetId !== null;
+  const neededBytes = (sourceAccount?.usedBytes ?? 0) + MIGRATION_RESERVE_BYTES;
+
+  // Kandidat target: akun lain yang online. Yang ruangnya kurang tetap tampil tapi disabled.
+  const candidates = accounts.filter((account) => account.id !== sourceAccount?.id);
+
+  const handleClose = () => {
+    setTargetId(null);
+    setConfirmText("");
+    onClose();
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
+      <DialogHeader>
+        <div className="flex items-center gap-3 mb-1">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-900/30">
+            <ArrowLeftRight className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+          </div>
+          <DialogTitle>Migrasi Isi Drive?</DialogTitle>
+        </div>
+        <DialogDescription className="pl-[52px]">
+          <strong className="text-zinc-900 dark:text-zinc-100">Seluruh isi Google Drive</strong> akun{" "}
+          <strong className="text-zinc-900 dark:text-zinc-100">{sourceEmail}</strong>{" "}
+          ({formatBytes(sourceAccount?.usedBytes ?? 0)}) akan dipindahkan ke akun tujuan —
+          termasuk <strong className="text-zinc-900 dark:text-zinc-100">{sourceAccount?.fileCount ?? 0} file</strong>{" "}
+          yang tercatat di dashboard dan file lain di drive — lalu dihapus dari drive sumber.
+          Selama proses, file public disembunyikan sementara dari page download dan otomatis
+          public kembali begitu selesai pindah.
+        </DialogDescription>
+      </DialogHeader>
+
+      {/* Pilih akun tujuan */}
+      <div className="mx-4 mb-2 flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          Pindahkan ke akun
+        </label>
+        <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto">
+          {candidates.length === 0 && (
+            <p className="text-xs text-zinc-400 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-lg p-3 text-center">
+              Tidak ada akun lain yang terhubung.
+            </p>
+          )}
+          {candidates.map((account) => {
+            const isOnline = account.status === "online";
+            const hasSpace = account.availableStorageBytes >= neededBytes;
+            const selectable = isOnline && hasSpace;
+            const isSelected = targetId === account.id;
+            return (
+              <button
+                key={account.id}
+                type="button"
+                disabled={!selectable}
+                onClick={() => setTargetId(account.id)}
+                className={`flex items-center justify-between gap-2 rounded-lg border p-2.5 text-left transition-colors ${
+                  isSelected
+                    ? "border-brand-500 bg-brand-50 dark:bg-brand-950/30"
+                    : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700"
+                } ${!selectable ? "opacity-50 cursor-not-allowed" : ""}`}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">
+                    {maskEmail(account.email)}
+                  </p>
+                  <p className="text-[10px] text-zinc-400 mt-0.5">
+                    Sisa ruang: {formatBytes(account.availableStorageBytes)}
+                    {!isOnline && " • Offline"}
+                    {isOnline && !hasSpace && " • Ruang tidak cukup"}
+                  </p>
+                </div>
+                {isSelected && <CheckCircle2 className="h-4 w-4 shrink-0 text-brand-500" />}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="mx-4 mb-2 rounded-lg border border-red-200 bg-red-50 dark:border-red-800 dark:bg-red-950/30 p-3">
+        <p className="text-xs text-red-700 dark:text-red-400 font-medium">
+          Setelah migrasi selesai, seluruh file akan dihapus permanen dari drive sumber.
+          Proses berjalan di latar belakang — pantau di panel progress. Tindakan ini tidak
+          bisa dibatalkan untuk file yang sudah terlanjur dipindahkan.
+        </p>
+      </div>
+
+      <div className="mx-4 mb-2 flex flex-col gap-1.5">
+        <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+          Ketik <strong className="text-zinc-900 dark:text-zinc-100 select-all">{sourceEmail}</strong> untuk konfirmasi
+        </label>
+        <Input
+          value={confirmText}
+          onChange={(e) => setConfirmText(e.target.value)}
+          placeholder={sourceEmail}
+          className="font-mono text-sm"
+          autoComplete="off"
+          spellCheck={false}
+        />
+      </div>
+
+      <DialogFooter>
+        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={handleClose} disabled={isPending}>
+          Batal
+        </Button>
+        <Button variant="destructive" onClick={() => targetId !== null && onConfirm(targetId)} disabled={!matches || isPending}>
+          {isPending ? (
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Memulai...</>
+          ) : (
+            <><ArrowLeftRight className="mr-2 h-4 w-4" />Mulai Migrasi</>
+          )}
+        </Button>
+      </DialogFooter>
+    </Dialog>
+  );
+}
+
+function ConfirmDeleteAccountDialog({
+  open,
+  onClose,
+  onConfirm,
+  accountEmail,
+  fileCount,
+  isPending,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onConfirm: () => void;
+  accountEmail: string;
+  fileCount: number;
+  isPending: boolean;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogHeader>
+        <div className="flex items-center gap-3 mb-1">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
+            <Power className="h-5 w-5 text-red-600 dark:text-red-400" />
+          </div>
+          <DialogTitle>Are you sure?</DialogTitle>
+        </div>
+        <DialogDescription className="pl-[52px]">
+          Disconnect akun <strong className="text-zinc-900 dark:text-zinc-100">{accountEmail}</strong>{" "}
+          dari sistem?
+        </DialogDescription>
+      </DialogHeader>
+      <div className="mx-4 mb-2 rounded-lg border border-amber-200 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/30 p-3">
+        <p className="text-xs text-amber-700 dark:text-amber-400">
+          {fileCount > 0
+            ? `${fileCount} file yang tercatat tetap ada di list dashboard, tapi tidak bisa didownload sampai akun ini login ulang dengan Google. File di Google Drive tidak dihapus.`
+            : "Akun ini tidak memiliki file yang tercatat dan akan dihapus dari daftar. File di Google Drive tidak dihapus."}
+        </p>
+      </div>
+      <DialogFooter>
+        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={onClose} disabled={isPending}>
+          No
+        </Button>
+        <Button variant="destructive" onClick={onConfirm} disabled={isPending}>
+          {isPending ? (
+            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Disconnecting...</>
+          ) : (
+            <><Power className="mr-2 h-4 w-4" />Yes, Disconnect</>
+          )}
+        </Button>
+      </DialogFooter>
+    </Dialog>
+  );
+}
+
 function GoogleDrivePage() {
   const { toast } = useToast();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -321,15 +592,54 @@ function GoogleDrivePage() {
   const { data: accountsData, isLoading: isAccountsQueryLoading } = useDriveAccounts();
   const isAccountsLoading = useMinLoading(isAccountsQueryLoading, 600);
   const deleteAccount = useDeleteDriveAccount();
+  const formatDrive = useFormatDriveAccount();
+  const [formatTarget, setFormatTarget] = useState<{ id: number; email: string; fileCount: number } | null>(null);
+  const { startMigration, isStarting: isMigrationStarting, activeJobs } = useMigrationGlobal();
+  const [migrateSource, setMigrateSource] = useState<{ id: number; email: string; fileCount: number; usedBytes: number } | null>(null);
 
-  const handleDelete = async (id: number, email: string) => {
-    if (!confirm(`Putuskan akun "${email}"?\n\nFile tetap di list. Login ulang dengan Google untuk mengaktifkan download kembali.`)) return;
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; email: string; fileCount: number } | null>(null);
+
+  const handleDeleteConfirm = async () => {
+    if (!deleteTarget) return;
     try {
-      await deleteAccount.mutateAsync(id);
+      await deleteAccount.mutateAsync(deleteTarget.id);
       toast({ title: "Akun berhasil diputus", variant: "success" });
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Gagal menghapus akun.";
       toast({ title: "Gagal", description: msg, variant: "error" });
+    } finally {
+      setDeleteTarget(null);
+    }
+  };
+
+  const handleMigrateConfirm = async (targetAccountId: number) => {
+    if (!migrateSource) return;
+    try {
+      await startMigration(migrateSource.id, targetAccountId);
+      toast({
+        title: "Migrasi dimulai",
+        description: "Proses berjalan di latar belakang. Pantau progressnya lewat icon Send di pojok kanan atas.",
+        variant: "success",
+      });
+      setMigrateSource(null);
+    } catch (error) {
+      toast({
+        title: "Gagal memulai migrasi",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      });
+    }
+  };
+
+  const handleFormatConfirm = async () => {
+    if (!formatTarget) return;
+    try {
+      const result = await formatDrive.mutateAsync(formatTarget.id);
+      toast({ title: `${result.deletedFiles} file berhasil dihapus dari ${formatTarget.email}`, variant: "success" });
+    } catch (error) {
+      toast({ title: "Gagal memformat drive", description: error instanceof Error ? error.message : undefined, variant: "error" });
+    } finally {
+      setFormatTarget(null);
     }
   };
 
@@ -476,15 +786,39 @@ function GoogleDrivePage() {
                                   </Badge>
                                   {isSyncing && <RefreshCw className="h-3 w-3 animate-spin text-blue-500" />}
                                 </div>
-                                <button
-                                  type="button"
-                                  onClick={() => handleDelete(account.id, account.email)}
-                                  disabled={deleteAccount.isPending}
-                                  className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-950/50"
-                                  title="Hapus Akun"
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </button>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => setMigrateSource({
+                                      id: account.id,
+                                      email: account.email,
+                                      fileCount: (account as any).fileCount ?? 0,
+                                      usedBytes: account.usedStorageBytes,
+                                    })}
+                                    disabled={activeJobs.some((job) => job.sourceAccountId === account.id || job.targetAccountId === account.id)}
+                                    className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-brand-50 hover:text-brand-500 disabled:opacity-40 dark:hover:bg-brand-950/50"
+                                    title="Migrasi Isi Drive ke Akun Lain"
+                                  >
+                                    <ArrowLeftRight className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setFormatTarget({ id: account.id, email: account.email, fileCount: (account as any).fileCount ?? 0 })}
+                                    className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-950/50"
+                                    title="Format Drive"
+                                  >
+                                    <HardDrive className="h-4 w-4" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteTarget({ id: account.id, email: account.email, fileCount: (account as any).fileCount ?? 0 })}
+                                    disabled={deleteAccount.isPending}
+                                    className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-950/50"
+                                    title="Disconnect Akun"
+                                  >
+                                    <Power className="h-4 w-4" />
+                                  </button>
+                                </div>
                               </div>
 
                               {/* Last synced */}
@@ -519,6 +853,30 @@ function GoogleDrivePage() {
           </AnimatePresence>
         </div>
 
+        <ConfirmFormatDriveDialog
+          open={!!formatTarget}
+          onClose={() => setFormatTarget(null)}
+          onConfirm={handleFormatConfirm}
+          accountEmail={formatTarget?.email ?? ""}
+          fileCount={formatTarget?.fileCount ?? 0}
+          isPending={formatDrive.isPending}
+        />
+        <ConfirmMigrateDriveDialog
+          open={!!migrateSource}
+          onClose={() => setMigrateSource(null)}
+          onConfirm={handleMigrateConfirm}
+          sourceAccount={migrateSource}
+          accounts={accountsData?.accounts ?? []}
+          isPending={isMigrationStarting}
+        />
+        <ConfirmDeleteAccountDialog
+          open={!!deleteTarget}
+          onClose={() => setDeleteTarget(null)}
+          onConfirm={handleDeleteConfirm}
+          accountEmail={deleteTarget?.email ?? ""}
+          fileCount={deleteTarget?.fileCount ?? 0}
+          isPending={deleteAccount.isPending}
+        />
         <AddAccountDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
       </div>
     </PageTransition>

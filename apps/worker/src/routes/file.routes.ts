@@ -7,6 +7,7 @@ import { DriveAccountRepository } from "../database/drive-account.repository";
 import { GoogleAccountConnectionService } from "../services/google-account-connection.service";
 import { StorageProviderFactory } from "@nqdrive/storage";
 import { DEFAULT_PAGE_SIZE } from "@nqdrive/shared";
+import { writeAuditLog } from "../utils/audit";
 import type { Env } from "../config/env";
 import type { PaginatedData, FileWithAccount } from "@nqdrive/types";
 
@@ -134,6 +135,7 @@ fileRoutes.patch("/:id/rename", zValidator("json", renameFileSchema), async (c) 
   const existing = await repository.findById(id);
   if (!existing) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
   await repository.rename(id, filename);
+  writeAuditLog(c, { action: "file.rename", status: "success", detail: filename });
   return c.json({ success: true, data: { message: "File berhasil diganti nama." } });
 });
 
@@ -146,6 +148,7 @@ fileRoutes.patch("/:id/visibility", zValidator("json", updateFileVisibilitySchem
   const existing = await repository.findById(id);
   if (!existing) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
   await repository.updateVisibility(id, visibility);
+  writeAuditLog(c, { action: "file.visibility", status: "info", detail: `${existing.filename} → ${visibility}` });
   return c.json({ success: true, data: { message: "Visibilitas file berhasil diperbarui." } });
 });
 
@@ -157,6 +160,7 @@ fileRoutes.delete("/:id", async (c) => {
   const file = await fileRepository.findById(id);
   if (!file) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
   await fileRepository.softDelete(id);
+  writeAuditLog(c, { action: "file.delete", status: "warning", detail: file.filename });
   return c.json({ success: true, data: { message: "File dipindahkan ke Trash." } });
 });
 
