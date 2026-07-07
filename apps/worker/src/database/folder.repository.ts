@@ -1,4 +1,5 @@
 import type { Folder } from "@nqdrive/types";
+import { slugifyFilename } from "@nqdrive/shared";
 
 interface FolderRow {
   id: number;
@@ -9,6 +10,7 @@ interface FolderRow {
   updated_at: string;
   deleted_at: string | null;
   original_parent_folder_id: number | null;
+  share_uuid: string | null;
 }
 
 function rowToFolder(row: FolderRow): Folder {
@@ -21,6 +23,7 @@ function rowToFolder(row: FolderRow): Folder {
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at ?? undefined,
     originalParentFolderId: row.original_parent_folder_id ?? undefined,
+    shareUuid: row.share_uuid ?? undefined,
   };
 }
 
@@ -237,5 +240,78 @@ export class FolderRepository {
       .prepare("SELECT COUNT(*) as count FROM folders WHERE deleted_at IS NOT NULL")
       .first<{ count: number }>();
     return row?.count ?? 0;
+  }
+  /** Tandai folder sebagai public dengan UUID share v4. */
+  async setPublic(id: number, uuid: string): Promise<void> {
+    await this.db
+      .prepare("UPDATE folders SET share_uuid = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL")
+      .bind(uuid, id)
+      .run();
+  }
+
+  /** Cabut status public folder. */
+  async setPrivate(id: number): Promise<void> {
+    await this.db
+      .prepare("UPDATE folders SET share_uuid = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+      .bind(id)
+      .run();
+  }
+
+  /** Cari folder root yang di-share publik berdasarkan share UUID. */
+  async findByShareUuid(uuid: string): Promise<Folder | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM folders WHERE share_uuid = ? AND deleted_at IS NULL")
+      .bind(uuid)
+      .first<FolderRow>();
+    return row ? rowToFolder(row) : null;
+  }
+
+  /**
+   * Telusuri path relatif dari folder root yang SUDAH diverifikasi public oleh caller.
+   * Method ini tidak mengecek share_uuid lagi.
+   * segments kosong => kembalikan folder root itu sendiri.
+   * Kembalikan null bila salah satu segmen tidak ditemukan.
+   */
+  async resolveSubfolder(rootId: number, segments: string[]): Promise<Folder | null> {
+    if (segments.length === 0) return this.findById(rootId);
+
+    let currentParentId = rootId;
+    let current: Folder | null = null;
+
+    for (const segment of segments) {
+      const row = await this.db
+        .prepare("SELECT * FROM folders WHERE name = ? AND parent_folder_id = ? AND deleted_at IS NULL LIMIT 1")
+        .bind(segment, currentParentId)
+        .first<FolderRow>();
+      if (!row) return null;
+      current = rowToFolder(row);
+      currentParentId = current.id;
+    }
+
+    return current;
+  }
+  /**
+   * Sama seperti resolveSubfolder tapi match berdasarkan slug, bukan nama exact.
+   * Setiap segmen di-slugify lalu dibandingkan dengan slugify(folder.name).
+   */
+  async resolveSubfolderBySlug(rootId: number, slugSegments: string[]): Promise<Folder | null> {
+    if (slugSegments.length === 0) return this.findById(rootId);
+
+    let currentParentId = rootId;
+    let current: Folder | null = null;
+
+    for (const slugSeg of slugSegments) {
+      const { results } = await this.db
+        .prepare("SELECT * FROM folders WHERE parent_folder_id = ? AND deleted_at IS NULL")
+        .bind(currentParentId)
+        .all<FolderRow>();
+
+      const match = results.find((r) => slugifyFilename(r.name) === slugSeg);
+      if (!match) return null;
+      current = rowToFolder(match);
+      currentParentId = current.id;
+    }
+
+    return current;
   }
 }

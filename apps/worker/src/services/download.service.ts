@@ -1,5 +1,6 @@
 import { StorageProviderFactory } from "@nqdrive/storage";
 import { FileRepository } from "../database/file.repository";
+import { FolderRepository } from "../database/folder.repository";
 import { DriveAccountRepository } from "../database/drive-account.repository";
 import { DownloadLogRepository } from "../database/download-log.repository";
 import { GoogleAccountConnectionService } from "./google-account-connection.service";
@@ -163,6 +164,59 @@ export class DownloadService {
       isPartial: range !== null,
       // Pass-through header langsung dari Google Drive — ini yang kita butuhkan
       // di route handler agar Content-Length dan Content-Range 100% akurat.
+      contentRange: result.contentRange,
+      contentLength: result.contentLength,
+    };
+  }
+  async streamPublicFolderFile(
+    shareUuid: string,
+    pathSegments: string[],
+    range: ParsedRange | null
+  ): Promise<StreamDownloadResult> {
+    const folderRepository = new FolderRepository(this.env.DB);
+    const root = await folderRepository.findByShareUuid(shareUuid);
+    if (!root) throw new FileNotAccessibleError("Folder tidak ditemukan.");
+
+    if (pathSegments.length === 0) {
+      throw new FileNotAccessibleError("Nama file tidak ada di path.");
+    }
+
+    const filename = pathSegments[pathSegments.length - 1]!;
+    const subfolderSegments = pathSegments.slice(0, -1);
+
+    const targetFolder = subfolderSegments.length === 0
+      ? root
+      : await folderRepository.resolveSubfolderBySlug(root.id, subfolderSegments);
+
+    if (!targetFolder) throw new FileNotAccessibleError("Subfolder tidak ditemukan.");
+
+    const file = await this.fileRepository.findByFolderIdAndSlug(targetFolder.id, filename);
+    if (!file) throw new FileNotAccessibleError("File tidak ditemukan.");
+
+    const account = await this.driveAccountRepository.findById(file.driveAccountId);
+    if (!account) throw new Error(`Drive account ${file.driveAccountId} for file ${file.id} not found`);
+
+    const accessToken = await this.connectionService.getValidAccessToken(account);
+    const provider = StorageProviderFactory.resolve(account.provider);
+
+    const result = await provider.download({
+      credentials: { accessToken },
+      providerFileId: file.providerFileId,
+      rangeStart: range?.start,
+      rangeEnd: range?.end,
+    });
+
+    if (!range || range.start === 0) {
+      await this.fileRepository.incrementDownloadCount(file.id).catch(console.error);
+    }
+
+    return {
+      file,
+      stream: result.stream,
+      sizeBytes: range ? range.end - range.start + 1 : result.sizeBytes,
+      totalFileSizeBytes: file.sizeBytes > 0 ? file.sizeBytes : result.sizeBytes,
+      mimeType: file.mimeType || result.mimeType,
+      isPartial: range !== null,
       contentRange: result.contentRange,
       contentLength: result.contentLength,
     };

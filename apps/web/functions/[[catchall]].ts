@@ -20,13 +20,15 @@ const DEFAULT_WORKER_ORIGIN = "https://apiweb.fiqul.id";
 
 function looksLikeDownloadPath(pathname: string): boolean {
   if (pathname.startsWith("/download/")) return true;
+  if (pathname.startsWith("/public/folder/")) return true;
 
   if (
     pathname === "/" ||
     pathname.startsWith("/dashboard") ||
     pathname.startsWith("/login") ||
     pathname.startsWith("/api/") ||
-    pathname.startsWith("/s/")
+    pathname.startsWith("/s/") ||
+    pathname.startsWith("/folder/")
   ) {
     return false;
   }

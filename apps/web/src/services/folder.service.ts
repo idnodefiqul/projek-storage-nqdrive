@@ -52,4 +52,10 @@ export const folderService = {
     apiRequest<{ message: string }>(`/folders/${id}`, { method: "PATCH", body: { name } }),
 
   remove: (id: number) => apiRequest<{ message: string }>(`/folders/${id}`, { method: "DELETE" }),
+
+  share: (id: number) =>
+    apiRequest<{ shareUuid: string; pageUrl: string }>(`/folders/${id}/share`, { method: "POST" }),
+
+  unshare: (id: number) =>
+    apiRequest<{ message: string }>(`/folders/${id}/share`, { method: "DELETE" }),
 };

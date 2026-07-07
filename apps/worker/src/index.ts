@@ -331,6 +331,67 @@ app.get("/resource/:prefix/:shareCode/getlinkUrl", async (c) => {
   return c.json({ success: true, data: { downloadUrl } });
 });
 
+
+app.get("/resource/folder/:uuid", async (c) => {
+  const clientHeader = c.req.header("X-App-Client");
+  if (clientHeader !== "nqdrive-web") {
+    return new Response(null, { status: 404 });
+  }
+
+  const uuid = c.req.param("uuid");
+  // Query param key = nama folder yang di-share (bukan "path").
+  // Contoh: ?Musik=subfolder/lain — key "Musik" diabaikan, value = subpath.
+  const queryEntries = Object.entries(c.req.query() as Record<string, string>);
+  const rawPath = queryEntries.length > 0 ? (queryEntries[0]![1] ?? "") : "";
+
+  const { FolderRepository } = await import("./database/folder.repository");
+  const { FileRepository } = await import("./database/file.repository");
+  const folderRepo = new FolderRepository(c.env.DB);
+  const fileRepo = new FileRepository(c.env.DB);
+
+  const root = await folderRepo.findByShareUuid(uuid);
+  if (!root) {
+    return c.json({ success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan atau tidak dibagikan." } }, 404);
+  }
+
+  const segments = rawPath.split("/").map((s) => decodeURIComponent(s.trim())).filter(Boolean);
+  const target = segments.length === 0 ? root : await folderRepo.resolveSubfolderBySlug(root.id, segments);
+
+  if (!target) {
+    return c.json({ success: false, error: { code: "NOT_FOUND", message: "Subfolder tidak ditemukan." } }, 404);
+  }
+
+  // Build breadcrumb: ancestor chain from root to target (excluding root itself)
+  const breadcrumb: string[] = [];
+  if (target.id !== root.id) {
+    const ancestors = await folderRepo.getAncestors(target.id);
+    const rootIdx = ancestors.findIndex((a) => a.id === root.id);
+    for (let i = rootIdx + 1; i < ancestors.length; i++) {
+      breadcrumb.push(ancestors[i]!.name);
+    }
+  }
+
+  const [subfolders, files] = await Promise.all([
+    folderRepo.findByParent(target.id),
+    fileRepo.listByFolderId(target.id),
+  ]);
+
+  return c.json({
+    success: true,
+    data: {
+      rootName: root.name,
+      folderName: target.name,
+      currentPath: rawPath,
+      breadcrumb,
+      subfolders,
+      files: files.map((f) => ({
+        filename: f.filename,
+        sizeBytes: f.sizeBytes,
+        mimeType: f.mimeType,
+      })),
+    },
+  });
+});
 // /resource/:prefix/:shareCode - public file metadata
 app.get("/resource/:prefix/:shareCode", async (c) => {
   const clientHeader = c.req.header("X-App-Client");
@@ -383,6 +444,76 @@ app.get("/resource/:prefix/:shareCode", async (c) => {
 // /system/state - setup status (sebelumnya /api/auth/setup-status)
 app.route("/system", systemStateRoutes);
 
+
+app.get("/public/folder/:uuid/:path{.+}", async (c) => {
+  try {
+    const securityCheck = await enforceDownloadSecurity(c);
+    if (securityCheck) return securityCheck;
+
+    const uuid = c.req.param("uuid");
+    const rawPath = c.req.param("path");
+    const rangeHeader = c.req.header("Range");
+
+    const segments = rawPath.split("/").map((s) => decodeURIComponent(s));
+    const downloadService = new DownloadService(c.env);
+    const downloadLogRepository = new DownloadLogRepository(c.env.DB);
+
+    const range = parseRangeHeader(rangeHeader, Number.MAX_SAFE_INTEGER);
+    const result = await downloadService.streamPublicFolderFile(uuid, segments, range);
+
+    let totalSize = result.totalFileSizeBytes;
+    if (result.contentRange) {
+      const match = result.contentRange.match(/\/(\d+)$/);
+      if (match) totalSize = Number(match[1]);
+    }
+
+    if ((!result.file.sizeBytes || result.file.sizeBytes <= 0) && totalSize > 0) {
+      c.executionCtx.waitUntil(downloadService.fixFileSizeInDb(result.file.id, totalSize));
+    }
+
+    const ipAddress = extractRealIp(c);
+    const cfCountry = (c.req.raw.cf?.country as string) || null;
+    const userAgent = c.req.header("User-Agent") ?? null;
+    const isFirstRequest = !range || range.start === 0;
+    if (isFirstRequest) {
+      c.executionCtx.waitUntil(
+        resolveCountry(ipAddress, cfCountry).then((country) =>
+          downloadLogRepository.createIfNotDuplicate({
+            fileId: result.file.id, ipAddress, country, userAgent,
+            bytesServed: totalSize, status: "completed",
+          })
+        )
+      );
+    }
+
+    const sanitized = result.file.filename.replace(/[\x00-\x1f\x7f]/g, "").replace(/"/g, "'");
+    const encoded = encodeURIComponent(result.file.filename);
+    const headers = new Headers();
+    headers.set("Content-Type", result.file.mimeType || result.mimeType);
+    headers.set("Accept-Ranges", "bytes");
+    headers.set("Content-Disposition", `attachment; filename="${sanitized}"; filename*=UTF-8''${encoded}`);
+    headers.set("Cache-Control", "public, max-age=3600, no-transform");
+
+    if (range && result.contentRange) {
+      headers.set("Content-Length", String(result.contentLength ?? (range.end - range.start + 1)));
+      headers.set("Content-Range", result.contentRange);
+    } else if (range) {
+      headers.set("Content-Length", String(range.end - range.start + 1));
+      headers.set("Content-Range", `bytes ${range.start}-${range.end}/${totalSize}`);
+    } else {
+      headers.set("Content-Length", String(totalSize));
+    }
+
+    return new Response(result.stream, {
+      status: range ? 206 : 200, headers,
+      // @ts-ignore
+      encodeBody: "manual",
+    });
+  } catch (error) {
+    if (error instanceof FileNotAccessibleError) return c.text("Not Found", 404);
+    throw error;
+  }
+});
 // Public download routes - mounted WITHOUT /api prefix on purpose.
 // Mounted LAST so it never shadows /api/* routes.
 app.route("/", downloadRoutes);

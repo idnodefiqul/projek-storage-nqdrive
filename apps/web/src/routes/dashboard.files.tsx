@@ -6,7 +6,7 @@ import {
   Folder as FolderIcon, FolderPlus, Upload,
   ChevronRight, UploadCloud, CheckCircle2, XCircle,
   FileIcon, X, Loader2, Home, MoreVertical, Lock, Globe, EyeOff as EyeOffIcon,
-  ChevronLeft, ChevronsLeft, ChevronsRight, Pencil, AlertTriangle, HardDrive
+  ChevronLeft, ChevronsLeft, ChevronsRight, Pencil, AlertTriangle, HardDrive, Share2, Link2, Globe2
 } from "lucide-react";
 import {
   useReactTable,
@@ -22,7 +22,7 @@ import {
 import { formatBytes, formatSpeed } from "@nqdrive/shared";
 import { useFiles, useDeleteFile, useUpdateFileVisibility, useRenameFile } from "../hooks/use-files";
 import { useFormatAllDriveAccounts, useDriveAccounts } from "../hooks/use-drive-accounts";
-import { useFolderByPath, useCreateFolder, useDeleteFolder, useRenameFolder } from "../hooks/use-folders";
+import { useFolderByPath, useCreateFolder, useDeleteFolder, useRenameFolder, useShareFolder, useUnshareFolder } from "../hooks/use-folders";
 import { useUpload } from "../hooks/use-upload";
 import { useMinLoading } from "../hooks/use-min-loading";
 import { useSettings } from "../hooks/use-settings";
@@ -154,6 +154,9 @@ function ActionDropdown({
   onPreviewFile,
   onRenameFile,
   onRenameFolder,
+  onShareFolder,
+  onUnshareFolder,
+  onCopyFolderLink,
 }: {
   file?: FileWithAccount;
   folder?: Folder;
@@ -164,6 +167,9 @@ function ActionDropdown({
   onPreviewFile: (file: FileWithAccount) => void;
   onRenameFile: (file: FileWithAccount) => void;
   onRenameFolder: (folder: Folder) => void;
+  onShareFolder: (folder: Folder) => void;
+  onUnshareFolder: (folder: Folder) => void;
+  onCopyFolderLink: (folder: Folder) => void;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -255,6 +261,32 @@ function ActionDropdown({
                 <Pencil className="mr-2 h-4 w-4" />
                 Ubah Nama
               </button>
+              {folder.shareUuid ? (
+                <>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onCopyFolderLink(folder); setOpen(false); }}
+                  className="group flex w-full items-center px-4 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  <Link2 className="mr-2 h-4 w-4" />
+                  Salin Link Share
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onUnshareFolder(folder); setOpen(false); }}
+                  className="group flex w-full items-center px-4 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  <Globe2 className="mr-2 h-4 w-4" />
+                  Batalkan Share
+                </button>
+                </>
+              ) : (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onShareFolder(folder); setOpen(false); }}
+                  className="group flex w-full items-center px-4 py-2 text-sm text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  <Share2 className="mr-2 h-4 w-4" />
+                  Bagikan Folder
+                </button>
+              )}
               <button
                 onClick={(e) => { e.stopPropagation(); onDeleteFolder(folder); setOpen(false); }}
                 className="group flex w-full items-center px-4 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
@@ -503,6 +535,8 @@ function FilesPage() {
   const updateVisibility = useUpdateFileVisibility();
   const renameFile = useRenameFile();
   const renameFolder = useRenameFolder();
+  const shareFolder = useShareFolder();
+  const unshareFolder = useUnshareFolder();
   const uploadHook = useUpload();
 
   // - Handlers -
@@ -573,6 +607,32 @@ function FilesPage() {
     toast({ title: "Link share page disalin", description: url, variant: "success" });
   }, [toast, settings]);
 
+  const handleShareFolder = useCallback(async (folder: Folder) => {
+    try {
+      const result = await shareFolder.mutateAsync(folder.id);
+      const url = `${window.location.origin}${result.pageUrl}`;
+      await navigator.clipboard.writeText(url);
+      toast({ title: "Folder berhasil dibagikan", description: url, variant: "success" });
+    } catch (error) {
+      toast({ title: "Gagal membagikan folder", description: error instanceof Error ? error.message : undefined, variant: "error" });
+    }
+  }, [shareFolder, toast]);
+
+  const handleUnshareFolder = useCallback(async (folder: Folder) => {
+    try {
+      await unshareFolder.mutateAsync(folder.id);
+      toast({ title: "Folder tidak lagi dibagikan publik", variant: "success" });
+    } catch (error) {
+      toast({ title: "Gagal membatalkan share", description: error instanceof Error ? error.message : undefined, variant: "error" });
+    }
+  }, [unshareFolder, toast]);
+
+  const handleCopyFolderLink = useCallback((folder: Folder) => {
+    if (!folder.shareUuid) return;
+    const url = `${window.location.origin}/folder/${folder.shareUuid}/${encodeURIComponent(folder.name)}`;
+    navigator.clipboard.writeText(url);
+    toast({ title: "Link share folder disalin", description: url, variant: "success" });
+  }, [toast]);
   const handleDeleteFile = async () => {
     if (!fileToDelete) return;
     try {
@@ -714,7 +774,7 @@ function FilesPage() {
                 {renamingId === `folder-${folder.id}` ? (
                   <input ref={renameInputRef} value={renameValue} onChange={(e) => setRenameValue(e.target.value)} onBlur={handleRenameSubmit} onKeyDown={handleRenameKeyDown} className="bg-transparent border border-brand-500 rounded px-1 py-0.5 text-sm font-medium outline-none w-full text-zinc-900 dark:text-zinc-100" autoFocus onClick={(e) => e.stopPropagation()} />
                 ) : (
-                  <span className="break-words whitespace-normal font-medium" title={folder.name}>{folder.name}</span>
+                  <span className="inline-flex items-center gap-2"><span className="break-words whitespace-normal font-medium" title={folder.name}>{folder.name}</span>{folder.shareUuid && <Badge className="bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300 text-[10px] px-1.5 py-0 font-medium">Public</Badge>}</span>
                 )}
                 <span className="text-xs text-zinc-500 font-normal mt-0.5">
                   {folder.sizeBytes ? formatBytes(folder.sizeBytes) : "0 B"}
@@ -769,12 +829,15 @@ function FilesPage() {
               onPreviewFile={setPreviewFile}
               onRenameFile={handleStartRenameFile}
               onRenameFolder={handleStartRenameFolder}
+              onShareFolder={handleShareFolder}
+              onUnshareFolder={handleUnshareFolder}
+              onCopyFolderLink={handleCopyFolderLink}
             />
           </div>
         );
       },
     }),
-  ], [handleFolderClick, handleCopyLink, handleCopyDirectLink, handleVisibilityChange]);
+  ], [handleFolderClick, handleCopyLink, handleCopyDirectLink, handleVisibilityChange, handleShareFolder, handleUnshareFolder, handleCopyFolderLink]);
 
   const table = useReactTable({
     data: tableData,

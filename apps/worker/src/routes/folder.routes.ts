@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { createFolderSchema } from "@nqdrive/api";
 import { z } from "zod";
+import { v4 as uuidv4 } from "uuid";
 import { requireAuth } from "../middleware/require-auth.middleware";
 import { FolderRepository } from "../database/folder.repository";
 import { FileRepository } from "../database/file.repository";
@@ -110,6 +111,33 @@ folderRoutes.get("/:id/ancestors", async (c) => {
   return c.json({ success: true, data: { folder, ancestors } });
 });
 
+folderRoutes.post("/:id/share", async (c) => {
+  const id = Number(c.req.param("id"));
+  const repository = new FolderRepository(c.env.DB);
+  const folder = await repository.findById(id);
+  if (!folder) {
+    return c.json({ success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan." } }, 404);
+  }
+  const uuid = uuidv4();
+  await repository.setPublic(id, uuid);
+  writeAuditLog(c, { action: "folder.share", status: "success", detail: folder.name });
+  return c.json({
+    success: true,
+    data: { shareUuid: uuid, pageUrl: `/folder/${uuid}/${encodeURIComponent(folder.name)}` },
+  });
+});
+
+folderRoutes.delete("/:id/share", async (c) => {
+  const id = Number(c.req.param("id"));
+  const repository = new FolderRepository(c.env.DB);
+  const folder = await repository.findById(id);
+  if (!folder) {
+    return c.json({ success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan." } }, 404);
+  }
+  await repository.setPrivate(id);
+  writeAuditLog(c, { action: "folder.unshare", status: "success", detail: folder.name });
+  return c.json({ success: true, data: { message: "Folder tidak lagi dibagikan publik." } });
+});
 folderRoutes.get("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   const repository = new FolderRepository(c.env.DB);

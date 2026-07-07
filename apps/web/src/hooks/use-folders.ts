@@ -56,3 +56,18 @@ export function useRenameFolder() {
     },
   });
 }
+export function useShareFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => folderService.share(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["folders"] }),
+  });
+}
+
+export function useUnshareFolder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => folderService.unshare(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["folders"] }),
+  });
+}

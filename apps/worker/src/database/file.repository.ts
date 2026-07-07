@@ -1,4 +1,5 @@
-﻿import type { FileEntity, FileVisibility, FileWithAccount } from "@nqdrive/types";
+import type { FileEntity, FileVisibility, FileWithAccount } from "@nqdrive/types";
+import { slugifyFilename } from "@nqdrive/shared";
 
 interface FileRow {
   id: number;
@@ -119,7 +120,7 @@ export class FileRepository {
     return row ? rowToFile(row) : null;
   }
 
-  /** Untuk keperluan Trash restore/delete â€” mencari file meski sudah di-trash. */
+  /** Untuk keperluan Trash restore/delete — mencari file meski sudah di-trash. */
   async findByIdIncludingTrashed(id: number): Promise<FileEntity | null> {
     const row = await this.db
       .prepare("SELECT * FROM files WHERE id = ?")
@@ -199,7 +200,7 @@ export class FileRepository {
    * Soft delete: pindahkan file ke Trash.
    * - Set deleted_at = sekarang
    * - Simpan original_folder_id agar bisa di-restore
-   * - Jika file berstatus public â†’ otomatis ganti ke private (keamanan)
+   * - Jika file berstatus public → otomatis ganti ke private (keamanan)
    */
   async softDelete(id: number): Promise<void> {
     await this.db
@@ -231,7 +232,7 @@ export class FileRepository {
       .run();
   }
 
-  /** Restore file dari Trash â€” kembalikan ke folder asal. */
+  /** Restore file dari Trash — kembalikan ke folder asal. */
   async restore(id: number): Promise<void> {
     await this.db
       .prepare(
@@ -253,7 +254,7 @@ export class FileRepository {
 
   /**
    * Pindahkan record file ke akun drive lain (dipakai fitur migrasi antar akun).
-   * Dipanggil SETELAH copy di provider sukses, SEBELUM file sumber dihapus —
+   * Dipanggil SETELAH copy di provider sukses, SEBELUM file sumber dihapus �
    * sehingga download tidak pernah menunjuk lokasi yang sudah tidak ada.
    */
   async updateProviderLocation(
@@ -354,5 +355,44 @@ export class FileRepository {
       .bind(limit)
       .all<FileRow>();
     return results.map(rowToFile);
+  }
+  /**
+   * List semua file langsung dalam folder (untuk listing folder public).
+   * TIDAK memfilter visibility - akses ditentukan oleh status public foldernya.
+   */
+  async listByFolderId(folderId: number): Promise<FileEntity[]> {
+    const { results } = await this.db
+      .prepare("SELECT * FROM files WHERE folder_id = ? AND deleted_at IS NULL ORDER BY filename ASC")
+      .bind(folderId)
+      .all<FileRow>();
+    return results.map(rowToFile);
+  }
+
+  /**
+   * Cari satu file berdasarkan folder + nama file (untuk download folder public).
+   * TIDAK memfilter visibility - akses ditentukan oleh status public foldernya.
+   * Limitasi: kalau ada nama file duplikat dalam satu folder, ambil yang paling lama dibuat.
+   */
+  async findByFolderIdAndFilename(folderId: number, filename: string): Promise<FileEntity | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM files WHERE folder_id = ? AND filename = ? AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1")
+      .bind(folderId, filename)
+      .first<FileRow>();
+    return row ? rowToFile(row) : null;
+  }
+  /**
+   * Cari file dalam folder berdasarkan SLUG nama file (untuk download folder public).
+   * Membandingkan slugifyFilename(filename) dengan slug dari URL.
+   * TIDAK memfilter visibility - akses ditentukan oleh status public foldernya.
+   * Limitasi: kalau ada slug duplikat dalam satu folder, ambil yang paling lama dibuat.
+   */
+  async findByFolderIdAndSlug(folderId: number, slug: string): Promise<FileEntity | null> {
+    const { results } = await this.db
+      .prepare("SELECT * FROM files WHERE folder_id = ? AND deleted_at IS NULL ORDER BY created_at ASC")
+      .bind(folderId)
+      .all<FileRow>();
+
+    const match = results.find((r) => slugifyFilename(r.filename) === slug);
+    return match ? rowToFile(match) : null;
   }
 }

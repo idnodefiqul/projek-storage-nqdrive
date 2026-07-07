@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS folders (
   id                        INTEGER PRIMARY KEY AUTOINCREMENT,
   name                      TEXT NOT NULL,
   parent_folder_id          INTEGER,
+  share_uuid                TEXT DEFAULT NULL,
   created_at                TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   updated_at                TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   deleted_at                TEXT,
@@ -61,6 +62,10 @@ CREATE TABLE IF NOT EXISTS folders (
 );
 CREATE INDEX IF NOT EXISTS idx_folders_parent_folder_id ON folders (parent_folder_id);
 CREATE INDEX IF NOT EXISTS idx_folders_deleted_at ON folders (deleted_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_share_uuid ON folders (share_uuid);
+
+-- Untuk DB existing, scripts/migrate-d1.mjs menjalankan ALTER ini otomatis sebelum file ini:
+-- ALTER TABLE folders ADD COLUMN share_uuid TEXT DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS files (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
