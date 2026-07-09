@@ -10,7 +10,8 @@ export type StorageProviderType =
   | "wasabi"
   | "dropbox"
   | "onedrive"
-  | "minio";
+  | "minio"
+  | "telegram";
 
 export type DriveAccountStatus = "online" | "offline" | "error" | "syncing";
 

@@ -3,8 +3,8 @@ import { requireAuth } from "../middleware/require-auth.middleware";
 import { UploadService, UploadValidationError, NoStorageAvailableError } from "../services/upload.service";
 import { StorageAllocationService } from "../services/storage-allocation.service";
 import { GoogleAccountConnectionService } from "../services/google-account-connection.service";
+import { DriveAccountRepository } from "../database/drive-account.repository";
 import type { Env } from "../config/env";
-import { StorageProviderFactory } from "@nqdrive/storage";
 import { writeAuditLog } from "../utils/audit";
 
 const uploadRoutes = new Hono<{ Bindings: Env }>();
@@ -20,20 +20,31 @@ uploadRoutes.post("/session", async (c) => {
   const filename = c.req.header("X-Filename");
   const sizeBytes = Number(c.req.header("X-File-Size"));
   const mimeType = c.req.header("Content-Type");
+  const targetAccountIdHeader = c.req.header("X-Target-Account-Id");
 
   if (!filename || !sizeBytes || !mimeType) {
     return c.json({ success: false, error: { code: "MISSING_HEADERS", message: "Missing required headers." } }, 400);
   }
 
-  const allocationService = new StorageAllocationService(c.env.DB);
-  const account = await allocationService.pickAccountForUpload(sizeBytes);
+  let account: any = null;
+  const decodedFilename = decodeURIComponent(filename);
+
+  if (targetAccountIdHeader) {
+    const accountRepo = new DriveAccountRepository(c.env.DB);
+    account = await accountRepo.findById(Number(targetAccountIdHeader));
+  }
+
+  if (!account) {
+    const allocationService = new StorageAllocationService(c.env.DB);
+    account = await allocationService.pickAccountForUpload(sizeBytes);
+  }
+
   if (!account) {
     return c.json({ success: false, error: { code: "NO_STORAGE_AVAILABLE", message: "No storage available." } }, 507);
   }
 
   const connectionService = new GoogleAccountConnectionService(c.env);
   const accessToken = await connectionService.getValidAccessToken(account);
-  const decodedFilename = decodeURIComponent(filename);
 
   const sessionResponse = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable", {
     method: "POST",
@@ -62,7 +73,7 @@ uploadRoutes.post("/session", async (c) => {
      VALUES (?, ?, ?, ?, ?, ?)`
   ).bind(sessionId, googleUploadUrl, account.id, decodedFilename, mimeType, sizeBytes).run();
 
-  return c.json({ success: true, data: { sessionId, accountId: account.id } }, 200);
+  return c.json({ success: true, data: { sessionId, accountId: account.id, provider: account.provider } }, 200);
 });
 
 /**
@@ -125,7 +136,7 @@ uploadRoutes.put("/status/:sessionId", async (c) => {
  */
 uploadRoutes.post("/finalize", async (c) => {
   const body = await c.req.json();
-  const { providerFileId, accountId, filename, mimeType, sizeBytes, folderId, sha256Hash } = body;
+  const { providerFileId, accountId, filename, mimeType, sizeBytes, folderId } = body;
 
   const uploadService = new UploadService(c.env);
   try {
@@ -136,7 +147,6 @@ uploadRoutes.post("/finalize", async (c) => {
       mimeType,
       sizeBytes,
       folderId,
-      sha256Hash,
     });
     writeAuditLog(c, { action: "file.upload", status: "success", detail: filename });
     return c.json({ success: true, data: { file } }, 201);
@@ -144,6 +154,7 @@ uploadRoutes.post("/finalize", async (c) => {
     if (error instanceof UploadValidationError) {
       return c.json({ success: false, error: { code: "VALIDATION_FAILED", message: error.message } }, 422);
     }
+    console.error("[upload/finalize] unexpected error:", error);
     throw error;
   }
 });

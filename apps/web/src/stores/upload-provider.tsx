@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useRef, useState, useEffect, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useRef, useState, useMemo, type ReactNode } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useAuthContext } from "./auth-provider";
 import { logService } from "../services/log.service";
@@ -11,7 +11,7 @@ export interface UploadProgress {
   etaSeconds: number;
 }
 
-export type UploadItemStatus = "queued" | "hashing" | "uploading" | "success" | "error" | "cancelled" | "paused";
+export type UploadItemStatus = "queued" | "uploading" | "success" | "error" | "cancelled" | "paused";
 
 export interface UploadItem {
   id: string;
@@ -20,9 +20,10 @@ export interface UploadItem {
   status: UploadItemStatus;
   progress: UploadProgress;
   errorMessage?: string;
-  sha256Hash?: string;
   sessionId?: string;
   accountId?: number;
+  targetAccountId?: number | null;
+  provider?: string;
 }
 
 // Simplified serializable item for storage history
@@ -38,7 +39,8 @@ export interface RecentUploadItem {
 export interface UploadContextValue {
   items: UploadItem[];
   recentItems: RecentUploadItem[];
-  addFilesToQueue: (files: FileList | File[], folderId?: number | null) => void;
+  addFilesToQueue: (files: FileList | File[], folderId?: number | null, targetAccountId?: number | null) => void;
+  setTargetAccount: (id: string, accountId: number | null, provider?: string) => void;
   startUpload: (id: string) => Promise<void>;
   startAllUploads: () => void;
   pauseUpload: (id: string) => void;
@@ -54,18 +56,6 @@ const UploadContext = createContext<UploadContextValue | null>(null);
 
 const WORKER_BASE = (import.meta.env.VITE_WORKER_URL as string | undefined) ?? "";
 const CHUNK_SIZE = 30 * 1024 * 1024;
-
-async function computeSHA256(file: File): Promise<string | null> {
-  if (file.size > 100 * 1024 * 1024) return null;
-  try {
-    const buffer = await file.arrayBuffer();
-    const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-    const hashArray = new Uint8Array(hashBuffer);
-    return Array.from(hashArray).map((b) => b.toString(16).padStart(2, "0")).join("");
-  } catch {
-    return null;
-  }
-}
 
 function uploadChunkXHR(
   url: string,
@@ -177,7 +167,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     });
   }, [queryClient]);
 
-  const addFilesToQueue = useCallback((files: FileList | File[], folderId: number | null = null) => {
+  const addFilesToQueue = useCallback((files: FileList | File[], folderId: number | null = null, targetAccountId: number | null = null) => {
     console.log("Adding files to queue:", files);
     const newItems: Record<string, UploadItem> = {};
     const list = Array.isArray(files) ? files : Array.from(files);
@@ -190,10 +180,19 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         folderId,
         status: "queued",
         progress: { uploadedBytes: 0, totalBytes: file.size, percentage: 0, speedBytesPerSecond: 0, etaSeconds: 0 },
+        targetAccountId,
       };
     });
 
     setItems((prev) => ({ ...prev, ...newItems }));
+  }, []);
+
+  const setTargetAccount = useCallback((id: string, accountId: number | null, provider?: string) => {
+    setItems((prev) => {
+      const existing = prev[id];
+      if (!existing) return prev;
+      return { ...prev, [id]: { ...existing, targetAccountId: accountId, provider: provider || undefined } };
+    });
   }, []);
 
   const startUpload = useCallback(
@@ -204,25 +203,28 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       const abortController = new AbortController();
       abortControllers.current[id] = abortController;
 
-      updateItem(id, { status: "hashing" });
-      const sha256Hash = await computeSHA256(item.file);
-
       const fileSize = item.file.size;
       let accountId = item.accountId;
       let sessionId = item.sessionId;
+      let provider = item.provider;
 
       if (!sessionId) {
         try {
-          updateItem(id, { sha256Hash: sha256Hash ?? undefined, status: "uploading" });
+          updateItem(id, { status: "uploading" });
+
+          const headers: Record<string, string> = {
+            "Content-Type": item.file.type || "application/octet-stream",
+            "X-Filename": encodeURIComponent(item.file.name),
+            "X-File-Size": String(fileSize),
+            "X-App-Client": "nqdrive-web",
+          };
+          if (item.targetAccountId) {
+            headers["X-Target-Account-Id"] = String(item.targetAccountId);
+          }
 
           const sessionRes = await fetch(`${WORKER_BASE}/api/upload/session`, {
             method: "POST",
-            headers: {
-              "Content-Type": item.file.type || "application/octet-stream",
-              "X-Filename": encodeURIComponent(item.file.name),
-              "X-File-Size": String(fileSize),
-              "X-App-Client": "nqdrive-web",
-            },
+            headers,
             credentials: "include",
             signal: abortController.signal,
           });
@@ -235,8 +237,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
           const sessionData = await sessionRes.json() as any;
           sessionId = sessionData.data?.sessionId;
           accountId = sessionData.data?.accountId;
+          provider = sessionData.data?.provider;
           
-          updateItem(id, { sessionId, accountId });
+          updateItem(id, { sessionId, accountId, provider });
         } catch (error: any) {
           if (error.name === "AbortError") {
             updateItem(id, { status: "paused" });
@@ -253,10 +256,12 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
         let completedBytes = item.progress.uploadedBytes || 0;
         const startedAt = Date.now();
+        const uploadChunkSize = CHUNK_SIZE;
+        console.log(`[UploadProvider] startUpload: provider = ${provider}, fileSize = ${fileSize}, calculated chunk size = ${uploadChunkSize}`);
 
         while (completedBytes < fileSize || fileSize === 0) {
           const chunkStart = completedBytes;
-          const end = Math.min(chunkStart + CHUNK_SIZE, fileSize);
+          const end = Math.min(chunkStart + uploadChunkSize, fileSize);
           const chunk = item.file.slice(chunkStart, end);
           const contentRange = fileSize > 0 ? `bytes ${chunkStart}-${end - 1}/${fileSize}` : `bytes 0-0/0`;
 
@@ -307,7 +312,6 @@ export function UploadProvider({ children }: { children: ReactNode }) {
                 mimeType: item.file.type || "application/octet-stream",
                 sizeBytes: item.file.size,
                 folderId: item.folderId,
-                sha256Hash,
               }),
               signal: abortController.signal,
             });
@@ -407,6 +411,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
         items: sortedItems,
         recentItems,
         addFilesToQueue,
+        setTargetAccount,
         startUpload,
         startAllUploads,
         pauseUpload,
@@ -428,6 +433,3 @@ export function useUploadGlobal() {
   if (!context) throw new Error("useUploadGlobal must be used within an UploadProvider");
   return context;
 }
-
-
-

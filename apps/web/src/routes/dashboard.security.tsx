@@ -361,7 +361,7 @@ function SecurityPage() {
 
             {twoFactorStep === "idle" && (
               <div className="flex flex-col items-center gap-4 py-6 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-zinc-100 dark:bg-zinc-800">
+                <div className="flex h-16 w-16 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
                   <Key className="h-7 w-7 text-zinc-400" />
                 </div>
                 <div>
@@ -447,7 +447,7 @@ function SecurityPage() {
 
             {twoFactorStep === "active" && (
               <div className="flex flex-col sm:flex-row items-center gap-4 py-4">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 dark:bg-emerald-950/30">
+                <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-950/30">
                   <ShieldCheck className="h-6 w-6 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <div className="flex-1 text-center sm:text-left">
@@ -488,7 +488,7 @@ function SecurityPage() {
                 </div>
               ) : blockedIps.length === 0 ? (
                 <div className="flex flex-col items-center gap-3 py-10 text-center">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100 dark:bg-zinc-800">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
                     <Globe className="h-6 w-6 text-zinc-400" />
                   </div>
                   <div>

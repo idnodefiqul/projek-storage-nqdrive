@@ -80,7 +80,7 @@ function UsersPage() {
         {/* Data Table Container */}
         <div className="flex flex-1 flex-col">
           {/* Table Container with Border */}
-          <div className="flex-1 flex flex-col rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 overflow-hidden">
+          <div className="flex-1 flex flex-col rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 overflow-hidden">
             
             {/* Table Toolbar (Inside Card) */}
             <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800">

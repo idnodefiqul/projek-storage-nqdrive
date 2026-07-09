@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "db:migrate:local": "node scripts/migrate-d1.mjs --local",
     "db:migrate:remote": "node scripts/migrate-d1.mjs --remote",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types",
+    "start:node": "tsx src/node-entry.ts",
+    "typecheck:node": "tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
     "@nqdrive/types": "workspace:*",
@@ -18,7 +20,10 @@
     "@nqdrive/api": "workspace:*",
     "@nqdrive/storage": "workspace:*",
     "hono": "^4.6.9",
+    "@hono/node-server": "^1.13.7",
     "@hono/zod-validator": "^0.4.1",
+    "better-sqlite3": "^12.4.1",
+    "node-cron": "^3.0.3",
     "uuid": "^10.0.0",
     "@types/uuid": "^10.0.0",
     "zod": "^3.23.8"
@@ -26,6 +31,10 @@
   "devDependencies": {
     "typescript": "^5.6.3",
     "wrangler": "^3.84.0",
-    "@cloudflare/workers-types": "^4.20241106.0"
+    "@cloudflare/workers-types": "^4.20241106.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.19.2"
   }
 }

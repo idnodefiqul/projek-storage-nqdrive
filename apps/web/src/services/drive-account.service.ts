@@ -52,3 +52,16 @@ export const googleDriveService = {
       }
     ),
 };
+
+export const telegramStorageService = {
+  connect: (params: { botToken: string; chatId: string; email: string }) =>
+    apiRequest<{ account: PublicDriveAccount }>("/storage/accounts/connect-telegram", {
+      method: "POST",
+      body: params,
+    }),
+  scan: (botToken: string) =>
+    apiRequest<{ chats: Array<{ id: number; title: string; type: string }>; note?: string; mode: string }>("/storage/accounts/scan-telegram", {
+      method: "POST",
+      body: { botToken },
+    }),
+};

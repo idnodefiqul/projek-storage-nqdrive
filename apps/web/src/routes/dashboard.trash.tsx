@@ -296,7 +296,7 @@ function TrashEmptyState() {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-20">
       <div className="relative">
-        <div className="flex h-20 w-20 items-center justify-center rounded-2xl bg-zinc-100 dark:bg-zinc-800/60 shadow-inner">
+        <div className="flex h-20 w-20 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800/60 shadow-inner">
           <Trash2 className="h-10 w-10 text-zinc-300 dark:text-zinc-600" />
         </div>
         <div className="absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">

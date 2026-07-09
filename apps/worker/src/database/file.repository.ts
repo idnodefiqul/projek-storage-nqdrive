@@ -15,7 +15,6 @@ interface FileRow {
   share_code: string;
   created_at: string;
   updated_at: string;
-  sha256_hash: string | null;
   deleted_at: string | null;
   original_folder_id: number | null;
 }
@@ -39,7 +38,6 @@ function rowToFile(row: FileRow): FileEntity {
     shareCode: row.share_code,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    sha256Hash: row.sha256_hash ?? null,
     deletedAt: row.deleted_at ?? undefined,
     originalFolderId: row.original_folder_id ?? undefined,
   };
@@ -147,14 +145,13 @@ export class FileRepository {
     mimeType: string;
     visibility: FileVisibility;
     shareCode: string;
-    sha256Hash: string | null;
   }): Promise<FileEntity> {
     const row = await this.db
       .prepare(
         `INSERT INTO files (
            filename, slug, provider_file_id, drive_account_id, folder_id,
-           size_bytes, mime_type, visibility, share_code, sha256_hash
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           size_bytes, mime_type, visibility, share_code
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
          RETURNING *`
       )
       .bind(
@@ -167,7 +164,6 @@ export class FileRepository {
         params.mimeType,
         params.visibility,
         params.shareCode,
-        params.sha256Hash,
       )
       .first<FileRow>();
 
@@ -254,7 +250,7 @@ export class FileRepository {
 
   /**
    * Pindahkan record file ke akun drive lain (dipakai fitur migrasi antar akun).
-   * Dipanggil SETELAH copy di provider sukses, SEBELUM file sumber dihapus —
+   * Dipanggil SETELAH copy di provider sukses, SEBELUM file sumber dihapus ï¿½
    * sehingga download tidak pernah menunjuk lokasi yang sudah tidak ada.
    */
   async updateProviderLocation(

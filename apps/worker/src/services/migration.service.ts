@@ -1,8 +1,8 @@
 import { MigrationRepository } from "../database/migration.repository";
 import { DriveAccountRepository } from "../database/drive-account.repository";
 import { FileRepository } from "../database/file.repository";
-import { GoogleAccountConnectionService } from "./google-account-connection.service";
 import { StorageProviderFactory } from "@nqdrive/storage";
+import { resolveCredentials } from "../utils/credentials";
 import type { MigrationJob, MigrationItem } from "../database/migration.repository";
 import type { DriveAccount } from "@nqdrive/types";
 import type { Env } from "../config/env";
@@ -37,13 +37,11 @@ export class MigrationService {
   private readonly migrationRepository: MigrationRepository;
   private readonly driveAccountRepository: DriveAccountRepository;
   private readonly fileRepository: FileRepository;
-  private readonly connectionService: GoogleAccountConnectionService;
 
   constructor(private readonly env: Env) {
     this.migrationRepository = new MigrationRepository(env.DB);
     this.driveAccountRepository = new DriveAccountRepository(env.DB);
     this.fileRepository = new FileRepository(env.DB);
-    this.connectionService = new GoogleAccountConnectionService(env);
   }
 
   async createJob(sourceAccountId: number, targetAccountId: number): Promise<MigrationJob> {
@@ -63,9 +61,9 @@ export class MigrationService {
       throw new Error("Masih ada migrasi lain yang berjalan untuk akun ini. Tunggu sampai selesai.");
     }
 
-    // Validasi token kedua akun DI AWAL — gagal cepat sebelum job dibuat.
-    const sourceToken = await this.connectionService.getValidAccessToken(source);
-    await this.connectionService.getValidAccessToken(target);
+    // Validasi kredensial kedua akun DI AWAL — gagal cepat sebelum job dibuat.
+    const sourceCredentials = await resolveCredentials(source, this.env);
+    await resolveCredentials(target, this.env);
 
     // 1) File yang tercatat di dashboard (termasuk yang ada di Trash dashboard),
     //    supaya drive sumber benar-benar kosong setelah migrasi.
@@ -83,7 +81,7 @@ export class MigrationService {
     const sourceProvider = StorageProviderFactory.resolve(source.provider);
     let driveFiles: Array<{ providerFileId: string; filename: string; sizeBytes: number }> = [];
     if (sourceProvider.listFiles) {
-      driveFiles = await sourceProvider.listFiles({ credentials: { accessToken: sourceToken } });
+      driveFiles = await sourceProvider.listFiles({ credentials: sourceCredentials as any });
     }
     const trackedProviderIds = new Set(dbFiles.map((file) => file.provider_file_id));
     const untrackedFiles = driveFiles.filter((file) => !trackedProviderIds.has(file.providerFileId));
@@ -159,12 +157,12 @@ export class MigrationService {
       return (await this.migrationRepository.findById(jobId))!;
     }
 
-    const sourceToken = await this.connectionService.getValidAccessToken(source);
-    const targetToken = await this.connectionService.getValidAccessToken(target);
+    const sourceCredentials = await resolveCredentials(source, this.env);
+    const targetCredentials = await resolveCredentials(target, this.env);
 
     for (const item of items) {
       try {
-        await this.migrateOneFile(item, source, target, sourceToken, targetToken);
+        await this.migrateOneFile(item, source, target, sourceCredentials, targetCredentials);
         await this.migrationRepository.markItemDone(item.id);
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unknown error";
@@ -198,11 +196,12 @@ export class MigrationService {
     item: MigrationItem,
     source: DriveAccount,
     target: DriveAccount,
-    sourceToken: string,
-    targetToken: string
+    sourceCredentials: any,
+    targetCredentials: any
   ): Promise<void> {
     const sourceProvider = StorageProviderFactory.resolve(source.provider);
     const targetProvider = StorageProviderFactory.resolve(target.provider);
+    const isBothGoogle = source.provider === "google_drive" && target.provider === "google_drive";
 
     // ── File drive asli yang TIDAK tercatat di dashboard ────────────────────
     // Cukup dipindahkan fisiknya: share → copy → hapus sumber. Tidak ada
@@ -211,15 +210,16 @@ export class MigrationService {
       await this.transferFile({
         sourceProvider,
         targetProvider,
-        sourceToken,
-        targetToken,
+        sourceCredentials,
+        targetCredentials,
         providerFileId: item.providerFileId,
         filename: item.filename || "untitled",
         mimeType: "application/octet-stream",
         sizeBytes: item.sizeBytes,
         targetEmail: target.email,
+        isBothGoogle,
       });
-      await this.deleteSourceFile(sourceProvider, sourceToken, item.providerFileId);
+      await this.deleteSourceFile(sourceProvider, sourceCredentials, item.providerFileId);
       return;
     }
 
@@ -234,13 +234,14 @@ export class MigrationService {
     const newProviderFileId = await this.transferFile({
       sourceProvider,
       targetProvider,
-      sourceToken,
-      targetToken,
+      sourceCredentials,
+      targetCredentials,
       providerFileId: file.provider_file_id,
       filename: file.filename,
       mimeType: file.mime_type,
       sizeBytes: file.size_bytes,
       targetEmail: target.email,
+      isBothGoogle,
     });
 
     // Copy sukses → arahkan record DB ke lokasi baru DULU, baru hapus sumber.
@@ -252,70 +253,75 @@ export class MigrationService {
       await this.fileRepository.updateVisibility(file.id, "public");
     }
 
-    await this.deleteSourceFile(sourceProvider, sourceToken, file.provider_file_id);
+    await this.deleteSourceFile(sourceProvider, sourceCredentials, file.provider_file_id);
   }
 
   /** Pindahkan fisik satu file: share+copy server-side, fallback streaming. */
   private async transferFile(params: {
     sourceProvider: ReturnType<typeof StorageProviderFactory.resolve>;
     targetProvider: ReturnType<typeof StorageProviderFactory.resolve>;
-    sourceToken: string;
-    targetToken: string;
+    sourceCredentials: any;
+    targetCredentials: any;
     providerFileId: string;
     filename: string;
     mimeType: string;
     sizeBytes: number;
     targetEmail: string;
+    isBothGoogle: boolean;
   }): Promise<string> {
     const {
-      sourceProvider, targetProvider, sourceToken, targetToken,
-      providerFileId, filename, mimeType, sizeBytes, targetEmail,
+      sourceProvider, targetProvider, sourceCredentials, targetCredentials,
+      providerFileId, filename, mimeType, sizeBytes, targetEmail, isBothGoogle,
     } = params;
 
-    try {
-      // Jalur utama: share → copy server-side (data tidak lewat worker, hampir instan).
-      if (!sourceProvider.shareToUser || !targetProvider.copyFile) {
-        throw new Error("Provider tidak mendukung share/copy.");
+    if (isBothGoogle) {
+      try {
+        // Jalur utama: share → copy server-side (data tidak lewat worker, hampir instan).
+        if (!sourceProvider.shareToUser || !targetProvider.copyFile) {
+          throw new Error("Provider tidak mendukung share/copy.");
+        }
+        await sourceProvider.shareToUser({
+          credentials: sourceCredentials,
+          providerFileId,
+          email: targetEmail,
+        });
+        const copied = await targetProvider.copyFile({
+          credentials: targetCredentials,
+          providerFileId,
+          filename,
+        });
+        return copied.providerFileId;
+      } catch (copyError) {
+        // Fallback ke streaming
+        console.error(
+          `Copy server-side gagal untuk file ${providerFileId}, fallback ke streaming:`,
+          copyError
+        );
       }
-      await sourceProvider.shareToUser({
-        credentials: { accessToken: sourceToken },
-        providerFileId,
-        email: targetEmail,
-      });
-      const copied = await targetProvider.copyFile({
-        credentials: { accessToken: targetToken },
-        providerFileId,
-        filename,
-      });
-      return copied.providerFileId;
-    } catch (copyError) {
-      // Fallback: streaming download dari sumber → upload ke target lewat worker.
-      console.error(
-        `Copy server-side gagal untuk file ${providerFileId}, fallback ke streaming:`,
-        copyError
-      );
-      const downloaded = await sourceProvider.download({
-        credentials: { accessToken: sourceToken },
-        providerFileId,
-      });
-      const uploaded = await targetProvider.upload({
-        credentials: { accessToken: targetToken },
-        filename,
-        mimeType: downloaded.mimeType || mimeType,
-        sizeBytes: downloaded.sizeBytes || sizeBytes,
-        stream: downloaded.stream,
-      });
-      return uploaded.providerFileId;
     }
+
+    // Fallback: streaming download dari sumber → upload ke target lewat worker.
+    const downloaded = await sourceProvider.download({
+      credentials: sourceCredentials,
+      providerFileId,
+    });
+    const uploaded = await targetProvider.upload({
+      credentials: targetCredentials,
+      filename,
+      mimeType: downloaded.mimeType || mimeType,
+      sizeBytes: downloaded.sizeBytes || sizeBytes,
+      stream: downloaded.stream,
+    });
+    return uploaded.providerFileId;
   }
 
   private async deleteSourceFile(
     provider: ReturnType<typeof StorageProviderFactory.resolve>,
-    sourceToken: string,
+    sourceCredentials: any,
     providerFileId: string
   ): Promise<void> {
     try {
-      await provider.delete({ credentials: { accessToken: sourceToken }, providerFileId });
+      await provider.delete({ credentials: sourceCredentials, providerFileId });
     } catch (deleteError) {
       // File sudah aman di target — sisa file di sumber hanya orphan yang bisa
       // dibersihkan lewat Format Drive.
@@ -349,9 +355,10 @@ export class MigrationService {
       try {
         const account = await this.driveAccountRepository.findById(accountId);
         if (!account) continue;
-        const accessToken = await this.connectionService.getValidAccessToken(account);
+        const credentials = await resolveCredentials(account, this.env);
         const provider = StorageProviderFactory.resolve(account.provider);
-        const quota = await provider.getQuota({ credentials: { accessToken } });
+        const quota = await provider.getQuota({ credentials: credentials as any });
+
         await this.driveAccountRepository.updateQuota(accountId, quota);
       } catch (error) {
         console.error(`Gagal sync kuota akun ${accountId} setelah migrasi:`, error);

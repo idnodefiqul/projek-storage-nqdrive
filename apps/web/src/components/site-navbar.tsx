@@ -2,7 +2,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState, type ReactNode } from "react";
 import { motion, useScroll, useMotionValueEvent } from "framer-motion";
 import { Moon, Sun, Menu, X, Shield, LayoutDashboard, LogIn } from "lucide-react";
-import { Button } from "@nqdrive/ui";
+import { Button, AnimatedThemeToggle } from "@nqdrive/ui";
 import { useTheme } from "../stores/theme-provider";
 import { useUpdateSettings } from "../hooks/use-settings";
 import { logoMainPng } from "../assets";
@@ -14,7 +14,7 @@ interface SiteNavbarProps {
 }
 
 /**
- * Navbar utama aplikasi — sumber tunggal header untuk Home Page maupun
+ * Navbar utama aplikasi ï¿½ sumber tunggal header untuk Home Page maupun
  * halaman publik lain (mis. Shared Folder Page) agar brand konsisten.
  * Style, animasi, dan logic dark/light identik dengan versi Home Page asli.
  */
@@ -68,9 +68,7 @@ export function SiteNavbar({ isAuthenticated = false, rightContent }: SiteNavbar
           <Link to="/privacy-policy" className="text-sm font-medium text-zinc-600 hover:text-brand-600 dark:text-zinc-400 dark:hover:text-brand-400">
             Privacy Policy
           </Link>
-          <Button variant="ghost" size="icon" onClick={handleToggleTheme} className="rounded-full">
-            {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-          </Button>
+          <AnimatedThemeToggle theme={theme} onToggle={handleToggleTheme} />
           {isAuthenticated ? (
             <Link to="/dashboard">
               <Button variant="default" className="rounded-full px-5 shadow-md shadow-brand-500/20">

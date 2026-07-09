@@ -1,0 +1,73 @@
+# ============================================================================
+# NQDRIVE — docker-compose untuk VPS.
+# Jalankan DARI FOLDER INI (deploy/docker), build context menunjuk root repo.
+#
+#   1. cp ../../apps/worker/.env.example ./worker.env   (lalu isi nilai asli;
+#      set DB_PATH=/data/nqdrive.db)
+#   2. mkdir -p data && sqlite3 data/nqdrive.db < ../../apps/worker/dbcloud.sql
+#   3. Edit nginx.conf: ganti drive.example.com dengan domain kamu
+#   4. docker compose up -d --build
+#
+# HTTPS pertama kali (sebelum cert ada, nginx gagal start — lihat README).
+# ============================================================================
+
+name: nqdrive
+
+services:
+  worker:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/worker.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - ./worker.env
+    environment:
+      # Path DB di dalam container — file dipersist lewat volume ./data
+      DB_PATH: /data/nqdrive.db
+      PORT: "8787"
+    volumes:
+      - ./data:/data
+    expose:
+      - "8787"
+
+  web:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/web.Dockerfile
+      args:
+        # KOSONG = fetch API relatif, dirutekan nginx ke worker (wajib untuk VPS)
+        VITE_WORKER_URL: ""
+    restart: unless-stopped
+    expose:
+      - "80"
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      - worker
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - certbot-etc:/etc/letsencrypt:ro
+      - certbot-www:/var/www/certbot:ro
+
+  certbot:
+    image: certbot/certbot
+    restart: unless-stopped
+    volumes:
+      - certbot-etc:/etc/letsencrypt
+      - certbot-www:/var/www/certbot
+    # Loop renewal: cek tiap 12 jam. Penerbitan sertifikat PERTAMA dilakukan
+    # manual sekali (lihat deploy/README.md bagian HTTPS Docker).
+    entrypoint: >
+      /bin/sh -c 'trap exit TERM;
+      while :; do certbot renew --webroot -w /var/www/certbot --quiet;
+      sleep 12h & wait $${!}; done'
+
+volumes:
+  certbot-etc:
+  certbot-www:

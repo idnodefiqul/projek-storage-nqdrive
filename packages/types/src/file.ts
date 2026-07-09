@@ -22,8 +22,6 @@ export interface FileEntity {
   downloadCount: number;
   createdAt: string;
   updatedAt: string;
-  /** SHA-256 checksum hex string (64 chars), dihitung di browser saat upload. */
-  sha256Hash: string | null;
   /** Timestamp kapan file dipindahkan ke Trash. Undefined = file aktif. */
   deletedAt?: string;
   /** ID folder asal sebelum di-trash — digunakan untuk restore. */

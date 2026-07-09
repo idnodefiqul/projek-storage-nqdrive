@@ -906,7 +906,7 @@ function FilesPage() {
           </div>
 
           {/* Table */}
-          <div className="flex-1 overflow-auto rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 relative">
+          <div className="flex-1 overflow-auto rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 relative">
             <table className="w-full caption-bottom text-sm bg-white dark:bg-zinc-950">
               <thead className="border-b border-zinc-200 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-900/60 sticky top-0 z-10 backdrop-blur-sm">
                 {table.getHeaderGroups().map((headerGroup) => (
@@ -1077,10 +1077,11 @@ function UploadDialog({
 }) {
   const uploadHook = useUpload();
   const { items, addFilesToQueue, startAllUploads, removeItem } = uploadHook;
+  const { data: driveAccountsData } = useDriveAccounts();
+  const accounts = driveAccountsData?.accounts || [];
   
   console.log("UploadDialog renders, items:", items);
 
-  // Only show queued items in dialog
   const dialogItems = items.filter((i: any) => i.status === "queued");
 
   const [isDraggingOver, setIsDraggingOver] = useState(false);
@@ -1090,7 +1091,6 @@ function UploadDialog({
     (files: FileList | null) => {
       if (!files) return;
       addFilesToQueue(files, currentFolderId);
-      // Reset input value to allow selecting same file again (wrapped in setTimeout for safety)
       setTimeout(() => {
         if (fileInputRef.current) fileInputRef.current.value = "";
       }, 50);
@@ -1106,14 +1106,11 @@ function UploadDialog({
 
   const hasQueued = dialogItems.length > 0;
 
-  // Removed auto-close useEffect to fix "bug suruh pilih file 2x dan menutup sendiri"
-  // Dialog should only close when the user explicitly closes it.
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl" data-no-click-outside={(e: any) => {
         // Prevent closing when clicking outside if uploading
-        if (items.some((i: any) => i.status === "uploading" || i.status === "hashing")) {
+        if (items.some((i: any) => i.status === "uploading")) {
           e.preventDefault();
         }
       }}>
@@ -1168,7 +1165,54 @@ function UploadDialog({
                   <p className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100">
                     {item.file.name}
                   </p>
-                  <p className="mt-0.5 text-xs text-zinc-500">{formatBytes(item.file.size)}</p>
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-zinc-500 font-mono">{formatBytes(item.file.size)}</span>
+                    <span className="text-zinc-300 dark:text-zinc-700">•</span>
+                    <label className="text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wide">Destinasi:</label>
+                    {(() => {
+                      const bestGoogleDriveAccount = accounts
+                        .filter((acc: any) => acc.provider === "google_drive" && acc.status === "online")
+                        .sort((a: any, b: any) => b.availableStorageBytes - a.availableStorageBytes)[0];
+
+                      const getSelectedValue = (item: any) => {
+                        if (!item.targetAccountId) return "";
+                        if (bestGoogleDriveAccount && item.targetAccountId === bestGoogleDriveAccount.id) {
+                          return "gd_auto";
+                        }
+                        return String(item.targetAccountId);
+                      };
+
+                      const selectedVal = getSelectedValue(item);
+
+                      return (
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={selectedVal}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              if (val === "") {
+                                uploadHook.setTargetAccount(item.id, null);
+                              } else if (val === "gd_auto") {
+                                if (bestGoogleDriveAccount) {
+                                  uploadHook.setTargetAccount(item.id, bestGoogleDriveAccount.id, "google_drive");
+                                }
+                              } else {
+                                const accId = Number(val);
+                                const selectedAcc = accounts.find((a: any) => a.id === accId);
+                                uploadHook.setTargetAccount(item.id, accId, selectedAcc?.provider || undefined);
+                              }
+                            }}
+                            className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 px-2.5 py-1 text-xs text-zinc-700 dark:text-zinc-300 outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition-all font-medium"
+                          >
+                            <option value="">🚀 Pilih Otomatis (Auto)</option>
+                            {bestGoogleDriveAccount && (
+                              <option value="gd_auto">💾 Google Drive (Auto)</option>
+                            )}
+                          </select>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
 
                 <Button

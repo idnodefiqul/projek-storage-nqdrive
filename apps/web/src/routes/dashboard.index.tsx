@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useEffect } from "react";
-import { HardDrive, File, Folder as FolderIcon, UserCircle2, Download, BarChart3, Globe } from "lucide-react";
+import { HardDrive, File, Folder as FolderIcon, Download, BarChart3, Globe } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -16,6 +16,7 @@ import type { FileEntity, Folder } from "@nqdrive/types";
 import { DashboardAnalyticsChart } from "../components/dashboard-analytics-chart";
 import { PageTransition } from "../components/page-transition";
 import { DashboardIndexSkeleton } from "../components/skeletons";
+import { StorageWorkflow } from "../components/storage-workflow";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -221,27 +222,9 @@ function DashboardOverviewPage() {
         <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">Ringkasan penggunaan dan metrik {import.meta.env.VITE_SITE_NAME || "NQDRIVE"} Anda.</p>
       </motion.div>
 
-      {/* Row 1: 3 stat cards - taller */}
-      <motion.div variants={containerVariants} className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        {[
-          { label: "Total Storage", value: summary ? formatBytes(summary.totalStorageBytes) : "\u2014", icon: HardDrive, color: "text-blue-500", bg: "bg-blue-50 dark:bg-blue-900/20" },
-          { label: "Total File", value: summary ? String(summary.totalFiles) : "\u2014", icon: File, color: "text-emerald-500", bg: "bg-emerald-50 dark:bg-emerald-900/20" },
-          { label: "Google Drive Accounts", value: summary ? `${summary.onlineAccounts}/${summary.totalAccounts} Online` : "\u2014", icon: UserCircle2, color: "text-amber-500", bg: "bg-amber-50 dark:bg-amber-900/20" },
-        ].map((stat) => (
-          <motion.div key={stat.label} variants={itemVariants}>
-            <Card className="overflow-hidden">
-              <div className="p-6 pb-8">
-                <div className="flex items-center justify-between mb-6">
-                  <p className="text-sm font-medium text-zinc-500 dark:text-zinc-400">{stat.label}</p>
-                  <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${stat.bg}`}>
-                    <stat.icon className={`h-5 w-5 ${stat.color}`} />
-                  </div>
-                </div>
-                <div className="text-4xl font-bold text-zinc-900 dark:text-zinc-50 tracking-tight">{stat.value}</div>
-              </div>
-            </Card>
-          </motion.div>
-        ))}
+      {/* Workflows Storage (kotak besar kiri + kartu statistik di kanan) */}
+      <motion.div variants={itemVariants}>
+        <StorageWorkflow />
       </motion.div>
 
       {/* Row 2: Spline Area chart (left) + Total Download + top countries (right) */}

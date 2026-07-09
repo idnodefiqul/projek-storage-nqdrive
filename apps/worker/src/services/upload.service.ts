@@ -104,7 +104,6 @@ export class UploadService {
     sizeBytes: number;
     folderId: number | null;
     stream: ReadableStream<Uint8Array>;
-    sha256Hash: string | null;
   }): Promise<FileEntity> {
     this.validate(params);
 
@@ -169,7 +168,6 @@ export class UploadService {
         mimeType: uploadResult.mimeType,
         visibility: "private",
         shareCode,
-        sha256Hash: params.sha256Hash,
       });
 
       await this.driveAccountRepository.updateQuota(account.id, {
@@ -211,7 +209,6 @@ export class UploadService {
     mimeType: string;
     sizeBytes: number;
     folderId: number | null;
-    sha256Hash: string | null;
     providerFileId: string;
     accountId: number;
   }): Promise<FileEntity> {
@@ -242,7 +239,6 @@ export class UploadService {
       mimeType: params.mimeType,
       visibility: "private",
       shareCode,
-      sha256Hash: params.sha256Hash,
     });
 
     await this.driveAccountRepository.updateQuota(account.id, {

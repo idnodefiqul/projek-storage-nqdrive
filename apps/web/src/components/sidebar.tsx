@@ -18,6 +18,7 @@ import {
   LogOut,
   ShieldCheck,
   ClipboardList,
+  BookOpen,
 } from "lucide-react";
 import { getAvatarSvg } from "../lib/avatar";
 import { motion, AnimatePresence } from "framer-motion";
@@ -136,9 +137,10 @@ const STORAGE_CHILDREN: NavItem[] = [
 ];
 
 const BOTTOM_NAV: NavItem[] = [
-  { label: "Users",    to: "/dashboard/users",    icon: Users },
-  { label: "Logs",     to: "/dashboard/logs",     icon: ScrollText },
-  { label: "API",      to: "/dashboard/api",      icon: Webhook },
+  { label: "Users",         to: "/dashboard/users",    icon: Users },
+  { label: "Logs",          to: "/dashboard/logs",     icon: ScrollText },
+  { label: "API",           to: "/dashboard/api",      icon: Webhook },
+  { label: "Documentation", to: "/dashboard/documentation", icon: BookOpen },
 ];
 
 // Settings sub-items (collapsible group)

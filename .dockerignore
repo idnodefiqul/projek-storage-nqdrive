@@ -1,0 +1,17 @@
+# Exclude real env/secret files from Docker build context.
+# Build root is repo root (deploy/docker/docker-compose.yml uses context: ../..).
+# Anything reaching the context CAN end up baked into an image layer.
+#
+# We whitelist apps/web/.env.production.local further below because the VPS
+# build pipeline creates that file on purpose (it is gitignored by root
+# .gitignore'`.env.*.local` rule, so it only exists when the operator made
+# it manually before `docker compose build`).
+*.env
+.env
+.env.local
+.env.*.local
+deploy/docker/worker.env
+deploy/nginx-standalone/worker.env
+
+# whitelists — must come AFTER the broad excludes
+!apps/web/.env.production.local

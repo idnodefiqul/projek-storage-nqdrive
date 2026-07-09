@@ -66,6 +66,57 @@ function runOptionalAlter(sql) {
 // Step 1: ensure share_uuid column exists on folders table
 runOptionalAlter("ALTER TABLE folders ADD COLUMN share_uuid TEXT DEFAULT NULL;");
 
+// Step 1b: ensure md5_hash column exists on files table (added together with hash-wasm integration)
+runOptionalAlter("ALTER TABLE files ADD COLUMN md5_hash TEXT DEFAULT NULL;");
+
+// Step 1c: ensure sha256_hash & md5_hash columns exist on upload_logs table
+runOptionalAlter("ALTER TABLE upload_logs ADD COLUMN sha256_hash TEXT DEFAULT NULL;");
+runOptionalAlter("ALTER TABLE upload_logs ADD COLUMN md5_hash TEXT DEFAULT NULL;");
+
+// Step 1d: Update drive_accounts CHECK constraint to support 'telegram'
+console.log("[migrate] Updating drive_accounts check constraints...");
+try {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const tempSqlFile = path.resolve(workerRoot, "temp-migrate-tg.sql");
+  
+  const sqlCommands = `
+    PRAGMA foreign_keys = OFF;
+    CREATE TABLE IF NOT EXISTS drive_accounts_new (
+      id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+      email                    TEXT NOT NULL UNIQUE,
+      provider                 TEXT NOT NULL DEFAULT 'google_drive'
+                                 CHECK (provider IN (
+                                   'google_drive', 'cloudflare_r2', 'amazon_s3',
+                                   'backblaze_b2', 'wasabi', 'dropbox', 'onedrive', 'minio', 'telegram'
+                                 )),
+      refresh_token_encrypted  TEXT NOT NULL,
+      access_token             TEXT,
+      access_token_expires_at  TEXT,
+      total_storage_bytes      INTEGER NOT NULL DEFAULT 0,
+      used_storage_bytes       INTEGER NOT NULL DEFAULT 0,
+      available_storage_bytes  INTEGER NOT NULL DEFAULT 0,
+      status                   TEXT NOT NULL DEFAULT 'offline'
+                                 CHECK (status IN ('online', 'offline', 'error', 'syncing')),
+      last_synced_at           TEXT,
+      created_at               TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+      updated_at               TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+    );
+    INSERT OR IGNORE INTO drive_accounts_new SELECT * FROM drive_accounts;
+    DROP TABLE IF EXISTS drive_accounts;
+    ALTER TABLE drive_accounts_new RENAME TO drive_accounts;
+    CREATE INDEX IF NOT EXISTS idx_drive_accounts_status ON drive_accounts (status);
+    PRAGMA foreign_keys = ON;
+  `;
+  
+  fs.writeFileSync(tempSqlFile, sqlCommands, "utf8");
+  runWrangler(["d1", "execute", DB_NAME, targetFlag, `--file=${tempSqlFile}`]);
+  fs.unlinkSync(tempSqlFile);
+  console.log("[migrate] drive_accounts CHECK constraint updated successfully.");
+} catch (err) {
+  console.error("Gagal mengupdate constraint tabel drive_accounts (abaikan jika sudah terupdate):", err);
+}
+
 // Step 2: run full idempotent schema
 console.log("[migrate] Running dbcloud.sql ...");
 runWrangler(["d1", "execute", DB_NAME, targetFlag, "--file=./dbcloud.sql"], {

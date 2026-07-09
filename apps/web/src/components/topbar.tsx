@@ -1,5 +1,5 @@
-import { Sun, Moon, Palette, Send } from "lucide-react";
-import { Button } from "@nqdrive/ui";
+import { Palette, Send } from "lucide-react";
+import { Button, AnimatedThemeToggle } from "@nqdrive/ui";
 import { useTheme } from "../stores/theme-provider";
 import { useUpdateSettings } from "../hooks/use-settings";
 import { SidebarTrigger } from "./sidebar";
@@ -20,9 +20,9 @@ export function Topbar() {
     updateSettings.mutate({ theme_mode: next, brand_color: brandColor });
   };
 
-  // Count active upload items (only uploading or hashing, exclude queued)
+  // Count active upload items (only uploading, exclude queued)
   const activeItems = items.filter(
-    (i) => i.status === "uploading" || i.status === "hashing"
+    (i) => i.status === "uploading"
   );
   // Migrasi drive yang berjalan ikut dihitung di badge + ring progress
   const activeCount = activeItems.length + migrationJobs.length;
@@ -49,9 +49,7 @@ export function Topbar() {
         <SidebarTrigger />
 
         <div className="flex items-center gap-1 ml-auto">
-          <Button variant="ghost" size="icon" onClick={handleToggleTheme} aria-label="Toggle tema">
-            {theme === "light" ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
-          </Button>
+          <AnimatedThemeToggle theme={theme} onToggle={handleToggleTheme} />
 
           <Button variant="ghost" size="icon" onClick={() => setThemeSidebarOpen(true)} aria-label="Theme">
             <Palette className="h-4 w-4" />

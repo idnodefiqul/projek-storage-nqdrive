@@ -54,7 +54,7 @@ export function UploadSidebar() {
     void cancelMigration(jobId);
   };
 
-  // All items in items state represent the active queue (uploading, hashing, queued, paused, error)
+  // All items in items state represent the active queue (uploading, queued, paused, error)
   const activeItems = items;
 
   return (
@@ -132,7 +132,6 @@ export function UploadSidebar() {
                   <div className="space-y-3">
                     {activeItems.map((item) => {
                       const isUploading = item.status === "uploading";
-                      const isHashing = item.status === "hashing";
                       const isPaused = item.status === "paused";
                       const isError = item.status === "error";
                       const percent = item.progress.percentage;
@@ -159,7 +158,7 @@ export function UploadSidebar() {
                             </div>
                             <div className="flex items-center gap-1">
                               {/* Pause / Resume Controls */}
-                              {isUploading || isHashing ? (
+                              {isUploading ? (
                                 <button
                                   onClick={() => pauseUpload(item.id)}
                                   className="text-zinc-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30 rounded-lg p-1 transition-colors shrink-0"
@@ -191,7 +190,7 @@ export function UploadSidebar() {
                             <Progress value={percent} className="h-1.5 bg-zinc-200 dark:bg-zinc-800" />
                             <div className="flex justify-between items-center text-[9px] text-zinc-400 font-mono">
                               <span>
-                                {isHashing ? "Hashing file..." : isUploading ? "Uploading..." : isPaused ? "Dijeda" : isError ? `Gagal: ${item.errorMessage}` : "Antrean"}
+                                {isUploading ? "Uploading..." : isPaused ? "Dijeda" : isError ? `Gagal: ${item.errorMessage}` : "Antrean"}
                               </span>
                               <span>{percent.toFixed(0)}%</span>
                             </div>
@@ -340,41 +339,41 @@ export function UploadSidebar() {
                       const isCancelled = item.status === "cancelled";
                       const isError = item.status === "error";
 
-                      return (
-                        <div
-                          key={item.id}
-                          className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">
-                              {item.name}
-                            </p>
-                            <p className="text-[10px] text-zinc-400 mt-0.5">
-                              {formatBytes(item.size)}
-                            </p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            {isSuccess && (
-                              <BadgeSuccess />
-                            )}
-                            {isCancelled && (
-                              <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500">
-                                Batal
-                              </span>
-                            )}
-                            {isError && (
-                              <TooltipError message={item.errorMessage} />
-                            )}
-                            <button
-                              onClick={() => removeItem(item.id)}
-                              className="text-zinc-400 hover:text-red-500 rounded p-0.5 transition-colors"
-                              title="Hapus"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </div>
-                        </div>
-                      );
+                       return (
+                         <div
+                           key={item.id}
+                           className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900"
+                         >
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">
+                                {item.name}
+                              </p>
+                              <p className="text-[10px] text-zinc-400 mt-0.5">
+                                {formatBytes(item.size)}
+                              </p>
+                            </div>
+                           <div className="flex items-center gap-2 shrink-0">
+                             {isSuccess && (
+                               <BadgeSuccess />
+                             )}
+                             {isCancelled && (
+                               <span className="text-[10px] font-semibold text-zinc-400 dark:text-zinc-500">
+                                 Batal
+                               </span>
+                             )}
+                             {isError && (
+                               <TooltipError message={item.errorMessage} />
+                             )}
+                             <button
+                               onClick={() => removeItem(item.id)}
+                               className="text-zinc-400 hover:text-red-500 rounded p-0.5 transition-colors"
+                               title="Hapus"
+                             >
+                               <X className="h-3 w-3" />
+                             </button>
+                           </div>
+                         </div>
+                       );
                     })}
                   </div>
                 )}

@@ -6,7 +6,7 @@ import {
   Zap, ShieldCheck, Database,
   FolderOpen, ChartColumn, RefreshCw, ArrowRight,
 } from "lucide-react";
-import { Button, Card, CardHeader, CardTitle, CardContent } from "@nqdrive/ui";
+import { Button, Card, CardHeader, CardTitle, CardContent, GridPatternBackground } from "@nqdrive/ui";
 import { SiteNavbar } from "../components/site-navbar";
 import { SiteFooter } from "../components/site-footer";
 
@@ -36,7 +36,8 @@ function LandingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 font-sans selection:bg-brand-500/30">
+    <div className="relative min-h-screen overflow-hidden bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-50 font-sans selection:bg-brand-500/30">
+      <GridPatternBackground />
       <SiteNavbar isAuthenticated={isAuthenticated} />
       
       <main className="flex flex-col items-center w-full">

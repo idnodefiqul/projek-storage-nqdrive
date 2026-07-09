@@ -254,12 +254,12 @@ function AccountPage() {
         </div>
 
         {/* ── Profile Card ── */}
-        <div className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
+        <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 px-5 sm:px-6 py-5 sm:py-6">
             <button
               type="button"
               onClick={() => setAvatarPickerOpen(true)}
-              className="relative group h-16 w-16 sm:h-20 sm:w-20 shrink-0 rounded-2xl bg-brand-50 border border-brand-200 dark:border-brand-800 dark:bg-brand-900/30 flex items-center justify-center shadow-sm overflow-hidden"
+              className="relative group h-16 w-16 sm:h-20 sm:w-20 shrink-0 rounded-lg bg-brand-50 border border-brand-200 dark:border-brand-800 dark:bg-brand-900/30 flex items-center justify-center shadow-sm overflow-hidden"
             >
               <img
                 src={getAvatarSvg(user?.username || user?.email || "User")}
@@ -301,7 +301,7 @@ function AccountPage() {
         />
 
         {/* ── Change Password Card ── */}
-        <div className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
+        <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
           <div className="px-5 sm:px-6 py-5 sm:py-6">
             <div className="flex items-start gap-3.5 mb-5">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-50 dark:bg-red-900/20 ring-1 ring-red-100 dark:ring-red-800">

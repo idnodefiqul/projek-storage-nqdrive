@@ -1,0 +1,13 @@
+{
+  // Typecheck untuk jalur runtime Node (VPS standalone): node-entry.ts + adapters.
+  // Dipisah dari tsconfig.json utama karena file-file ini butuh types "node",
+  // sementara sisanya di-typecheck dengan @cloudflare/workers-types.
+  // Jalankan: pnpm --filter @nqdrive/worker typecheck:node
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // node-entry mengimpor ./index (kode Workers), jadi kedua set types diperlukan.
+    "types": ["node", "@cloudflare/workers-types"]
+  },
+  "include": ["src"]
+}

@@ -8,8 +8,16 @@ dist/
 
 # Environment / secrets — NEVER commit these
 .dev.vars
+.env
 .env.local
 .env.*.local
+deploy/docker/worker.env
+
+# SQLite database files (standalone Node/VPS)
+*.db
+*.db-wal
+*.db-shm
+deploy/docker/data/
 
 # Wrangler generated types — run `wrangler types` to regenerate
 apps/worker/worker-configuration.d.ts

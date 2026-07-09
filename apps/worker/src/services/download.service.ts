@@ -4,6 +4,7 @@ import { FolderRepository } from "../database/folder.repository";
 import { DriveAccountRepository } from "../database/drive-account.repository";
 import { DownloadLogRepository } from "../database/download-log.repository";
 import { GoogleAccountConnectionService } from "./google-account-connection.service";
+import { resolveCredentials } from "../utils/credentials";
 import type { Env } from "../config/env";
 import type { ParsedRange } from "../utils/range-parser";
 import { extractRealIp } from "../utils/ip-parser";
@@ -136,11 +137,11 @@ export class DownloadService {
       throw new Error(`Drive account ${file.driveAccountId} for file ${file.id} not found`);
     }
 
-    const accessToken = await this.connectionService.getValidAccessToken(account);
+    const credentials = await resolveCredentials(account, this.env);
     const provider = StorageProviderFactory.resolve(account.provider);
 
     const result = await provider.download({
-      credentials: { accessToken },
+      credentials: credentials as any,
       providerFileId: file.providerFileId,
       rangeStart: range?.start,
       rangeEnd: range?.end,
@@ -196,11 +197,11 @@ export class DownloadService {
     const account = await this.driveAccountRepository.findById(file.driveAccountId);
     if (!account) throw new Error(`Drive account ${file.driveAccountId} for file ${file.id} not found`);
 
-    const accessToken = await this.connectionService.getValidAccessToken(account);
+    const credentials = await resolveCredentials(account, this.env);
     const provider = StorageProviderFactory.resolve(account.provider);
 
     const result = await provider.download({
-      credentials: { accessToken },
+      credentials: credentials as any,
       providerFileId: file.providerFileId,
       rangeStart: range?.start,
       rangeEnd: range?.end,

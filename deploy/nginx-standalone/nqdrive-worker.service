@@ -1,0 +1,39 @@
+# ============================================================================
+# NQDRIVE worker — systemd service (jalur Nginx tanpa Docker)
+#
+# Pasang:
+#   sudo cp deploy/nginx-standalone/nqdrive-worker.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now nqdrive-worker
+#
+# Sesuaikan: User, WorkingDirectory, EnvironmentFile, path tsx.
+# EnvironmentFile berisi variable dari apps/worker/.env.example.
+# ============================================================================
+
+[Unit]
+Description=NQDRIVE worker (Node standalone)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nqdrive
+Group=nqdrive
+WorkingDirectory=/opt/nqdrive/apps/worker
+EnvironmentFile=/etc/nqdrive/worker.env
+# tsx terpasang sebagai devDependency @nqdrive/worker — pnpm menaruh bin-nya
+# di node_modules milik package itu (BUKAN di node_modules root workspace).
+ExecStart=/opt/nqdrive/apps/worker/node_modules/.bin/tsx src/node-entry.ts
+Restart=on-failure
+RestartSec=5
+
+# Hardening dasar
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+# Worker perlu menulis file .db (WAL) — izinkan direktori datanya saja
+ReadWritePaths=/opt/nqdrive/apps/worker/data
+
+[Install]
+WantedBy=multi-user.target

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { driveAccountService, googleDriveService } from "../services/drive-account.service";
+import { driveAccountService, googleDriveService, telegramStorageService } from "../services/drive-account.service";
 import { storageManagerService } from "../services/storage-manager.service";
 
 export function useDriveAccounts() {
@@ -87,5 +87,23 @@ export function useFormatAllDriveAccounts() {
       queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
       queryClient.invalidateQueries({ queryKey: ["files"] });
     },
+  });
+}
+
+export function useConnectTelegramAccount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (params: { botToken: string; chatId: string; email: string }) =>
+      telegramStorageService.connect(params),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["drive-accounts"] });
+      queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
+    },
+  });
+}
+
+export function useScanTelegramChats() {
+  return useMutation({
+    mutationFn: (botToken: string) => telegramStorageService.scan(botToken),
   });
 }

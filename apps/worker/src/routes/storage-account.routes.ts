@@ -14,6 +14,7 @@ import { signJwt, verifyJwt } from "../utils/jwt";
 import { calculatePercentage } from "@nqdrive/shared";
 import { StorageProviderFactory } from "@nqdrive/storage";
 import { writeAuditLog } from "../utils/audit";
+import { resolveCredentials } from "../utils/credentials";
 import type { Env } from "../config/env";
 import type { PublicDriveAccount, DriveAccount } from "@nqdrive/types";
 
@@ -93,15 +94,14 @@ async function formatDriveAccount(params: {
 }): Promise<{ deletedFiles: number }> {
   const { env, account } = params;
 
-  const connectionService = new GoogleAccountConnectionService(env);
-  const accessToken = await connectionService.getValidAccessToken(account);
+  const credentials = await resolveCredentials(account, env);
   const provider = StorageProviderFactory.resolve(account.provider);
 
   // Hapus SEMUA isi drive langsung di provider (Google Drive asli) — termasuk
   // file lama/orphan yang tidak tercatat di database — lalu kosongkan trash.
   let deletedFromDrive = 0;
   if (provider.deleteAllFiles) {
-    const result = await provider.deleteAllFiles({ credentials: { accessToken } });
+    const result = await provider.deleteAllFiles({ credentials: credentials as any });
     deletedFromDrive = result.deletedCount;
   } else {
     // Fallback untuk provider tanpa deleteAllFiles: hapus per file yang tercatat di DB.
@@ -111,7 +111,7 @@ async function formatDriveAccount(params: {
 
     for (const file of files) {
       try {
-        await provider.delete({ credentials: { accessToken }, providerFileId: file.provider_file_id });
+        await provider.delete({ credentials: credentials as any, providerFileId: file.provider_file_id });
         deletedFromDrive++;
       } catch (err) {
         console.error(`Gagal hapus file ${file.id} dari provider:`, err);
@@ -124,7 +124,7 @@ async function formatDriveAccount(params: {
 
   // Sinkronkan kuota agar progress bar storage langsung mencerminkan drive kosong.
   try {
-    const quota = await provider.getQuota({ credentials: { accessToken } });
+    const quota = await provider.getQuota({ credentials: credentials as any });
     const driveAccountRepository = new DriveAccountRepository(env.DB);
     await driveAccountRepository.updateQuota(account.id, quota);
   } catch (err) {
@@ -419,7 +419,6 @@ storageAccountRoutes.onError((err, c) => {
  */
 storageAccountRoutes.post("/accounts/sync-all", async (c) => {
   const driveAccountRepository = new DriveAccountRepository(c.env.DB);
-  const { GoogleAccountConnectionService } = await import("../services/google-account-connection.service");
   const { StorageProviderFactory } = await import("@nqdrive/storage");
 
   const accounts = await driveAccountRepository.findAll();
@@ -427,10 +426,10 @@ storageAccountRoutes.post("/accounts/sync-all", async (c) => {
 
   for (const account of accounts) {
     try {
-      const connectionService = new GoogleAccountConnectionService(c.env);
-      const accessToken = await connectionService.getValidAccessToken(account);
+      const credentials = await resolveCredentials(account, c.env);
       const provider = StorageProviderFactory.resolve(account.provider);
-      const quota = await provider.getQuota({ credentials: { accessToken } });
+      let quota = await provider.getQuota({ credentials: credentials as any });
+
       await driveAccountRepository.updateQuota(account.id, quota);
       await driveAccountRepository.updateStatus(account.id, "online");
       results.push({ id: account.id, email: account.email, status: "ok" });

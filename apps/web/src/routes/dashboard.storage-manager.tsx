@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import {
   Eye, EyeOff, Database, RefreshCw, Plus, Trash2, KeyRound,
   CheckCircle2, XCircle, Loader2, ExternalLink, AlertCircle,
@@ -18,6 +18,7 @@ import {
   useConnectGoogleAccountViaToken, useValidateRefreshToken,
   useGoogleOAuthUrl,
   useFormatDriveAccount,
+  useConnectTelegramAccount,
 } from "../hooks/use-drive-accounts";
 import { useMinLoading } from "../hooks/use-min-loading";
 import { useMigrationGlobal } from "../stores/migration-provider";
@@ -78,6 +79,118 @@ function EmailCell({ email, size = "sm" }: { email: string; size?: "sm" | "xs" }
         {shown ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
       </button>
     </div>
+  );
+}
+
+// ─── ADD TELEGRAM STORAGE DIALOG ─────────────────────────────────────────────
+
+function AddTelegramAccountDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const [botToken, setBotToken] = useState("");
+  const [chatId, setChatId] = useState("");
+  const [email, setEmail] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const connectMutation = useConnectTelegramAccount();
+
+  const handleClose = () => {
+    setBotToken("");
+    setChatId("");
+    setEmail("");
+    setFormError(null);
+    connectMutation.reset();
+    onClose();
+  };
+
+  const handleConnect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    const token = botToken.trim();
+    const chat = chatId.trim();
+    const identifier = email.trim();
+
+    if (!token || !chat || !identifier) {
+      setFormError("Semua field wajib diisi.");
+      return;
+    }
+
+    try {
+      const result = await connectMutation.mutateAsync({
+        botToken: token,
+        chatId: chat,
+        email: identifier,
+      });
+      toast({ title: "Telegram storage berhasil ditambahkan", description: result.account.email, variant: "success" });
+      handleClose();
+    } catch (error) {
+      let msg = "Terjadi kesalahan. Coba lagi.";
+      if (error instanceof ApiClientError || error instanceof Error) msg = error.message;
+      toast({ title: "Gagal menambahkan Telegram storage", description: msg, variant: "error" });
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && handleClose()} className="max-w-md">
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <Database className="h-5 w-5 text-sky-500" />
+          Tambah Telegram Storage
+        </DialogTitle>
+        <DialogDescription>Hubungkan Bot Telegram dan Chat ID sebagai storage pool.</DialogDescription>
+      </DialogHeader>
+
+      <form onSubmit={handleConnect} className="space-y-4 pt-3">
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Bot Token Telegram</label>
+          <Input
+            value={botToken}
+            onChange={(e) => setBotToken(e.target.value)}
+            placeholder="50392039:AAFd930..."
+            className="font-mono text-sm animate-none"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Chat ID / Channel ID</label>
+          <Input
+            value={chatId}
+            onChange={(e) => setChatId(e.target.value)}
+            placeholder="-10030948293 atau Chat ID pribadi"
+            className="font-mono text-sm animate-none"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Nama Identitas Akun (Email/Nama Bot)</label>
+          <Input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="my_bot_storage@nqdrive"
+          />
+        </div>
+
+        {formError && (
+          <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 dark:border-orange-800 dark:bg-orange-950">
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" />
+            <p className="text-xs text-orange-700 dark:text-orange-300">{formError}</p>
+          </div>
+        )}
+
+        <DialogFooter className="pt-2">
+          <Button type="button" variant="ghost" onClick={handleClose}>
+            Batal
+          </Button>
+          <Button type="submit" disabled={connectMutation.isPending} className="bg-sky-600 hover:bg-sky-700 text-white">
+            {connectMutation.isPending ? (
+              <><Loader2 className="h-4 w-4 animate-spin mr-2" />Menghubungkan...</>
+            ) : (
+              "Hubungkan"
+            )}
+          </Button>
+        </DialogFooter>
+      </form>
+    </Dialog>
   );
 }
 
@@ -590,6 +703,10 @@ function GoogleDrivePage() {
 
   // Accounts data
   const { data: accountsData, isLoading: isAccountsQueryLoading } = useDriveAccounts();
+  const googleDriveAccounts = useMemo(() => {
+    return accountsData?.accounts.filter((acc) => acc.provider === "google_drive") || [];
+  }, [accountsData]);
+
   const isAccountsLoading = useMinLoading(isAccountsQueryLoading, 600);
   const deleteAccount = useDeleteDriveAccount();
   const formatDrive = useFormatDriveAccount();
@@ -670,14 +787,14 @@ function GoogleDrivePage() {
               <RefreshCw className={`h-4 w-4 ${syncAll.isPending ? "animate-spin" : ""}`} />
               <span className="hidden sm:inline">{syncAll.isPending ? "Syncing..." : "Sync"}</span>
             </button>
-            {/* Mobile: icon-only [+]. Desktop: [+ Add Account] */}
+            {/* Mobile: icon-only [+]. Desktop: [+ Add Google Drive] */}
             <button
               onClick={() => setDialogOpen(true)}
               className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-500 text-white hover:bg-brand-600 shadow-sm shadow-brand-500/25 disabled:opacity-50 h-9 w-9 sm:w-auto sm:px-3 text-sm font-medium transition-all"
               aria-label="Add Account"
             >
               <Plus className="h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline">Add Account</span>
+              <span className="hidden sm:inline">Add Google Drive</span>
             </button>
           </div>
         </div>
@@ -735,10 +852,10 @@ function GoogleDrivePage() {
               <motion.div key="skeleton" variants={containerVariants} initial="hidden" animate="show" exit="hidden">
                 <CardGridSkeleton count={4} />
               </motion.div>
-            ) : accountsData?.accounts.length === 0 ? (
+            ) : googleDriveAccounts.length === 0 ? (
               <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="flex flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-zinc-200 bg-white/50 py-16 dark:border-zinc-800 dark:bg-zinc-900/50">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100 dark:bg-zinc-800">
+                className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-zinc-200 bg-white/50 py-16 dark:border-zinc-800 dark:bg-zinc-900/50">
+                <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
                   <KeyRound className="h-7 w-7 text-zinc-400 opacity-50" />
                 </div>
                 <p className="mt-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">Belum ada akun Google Drive</p>
@@ -748,7 +865,7 @@ function GoogleDrivePage() {
               <motion.div key="list" variants={containerVariants} initial="hidden" animate="show">
                 <TooltipProvider delayDuration={300}>
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                    {accountsData?.accounts.map((account) => {
+                    {googleDriveAccounts.map((account) => {
                       const usagePercent = account.totalStorageBytes > 0
                         ? (account.usedStorageBytes / account.totalStorageBytes) * 100
                         : 0;
@@ -771,7 +888,9 @@ function GoogleDrivePage() {
                                 </Avatar>
                                 <div className="flex min-w-0 flex-col">
                                   <EmailCell email={account.email} />
-                                  <span className="text-[11px] text-zinc-500">Google Drive Storage</span>
+                                  <span className="text-[11px] text-zinc-500">
+                                    Google Drive Storage
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -829,7 +948,7 @@ function GoogleDrivePage() {
                                 </span>
                               </div>
 
-                              {/* Storage bar */}
+                              {/* Storage info / bar */}
                               <div className="flex flex-col gap-1.5">
                                 <div className="flex items-center justify-between text-xs font-medium text-zinc-600 dark:text-zinc-400">
                                   <span>{formatBytes(account.usedStorageBytes)}</span>

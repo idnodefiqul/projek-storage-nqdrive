@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   useReactTable,
@@ -63,7 +63,7 @@ function getBrowser(ua: string): string {
   if (ua.includes("Firefox")) return "Firefox";
   if (ua.includes("Safari") && !ua.includes("Chrome")) return "Safari";
   if (ua.includes("OPR") || ua.includes("Opera")) return "Opera";
-  return ua.slice(0, 20) + (ua.length > 20 ? "…" : "");
+  return ua.slice(0, 20) + (ua.length > 20 ? "�" : "");
 }
 
 function getOS(ua: string): string {

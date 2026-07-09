@@ -3,7 +3,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import { Eye, EyeOff, Lock, User, Loader2, ShieldCheck, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useLogin, useMe } from "../hooks/auth";
-import { Particles } from "@nqdrive/ui";
+import { GridPatternBackground } from "@nqdrive/ui";
 import { LoadingOverlay } from "../components/overlay";
 import { logoLoginPng } from "../assets";
 import { applyBrandColors, useTheme } from "../stores/theme-provider";
@@ -253,7 +253,7 @@ function LoginPage() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-zinc-100 px-4 dark:bg-zinc-950">
-      <Particles className="absolute inset-0 z-0" quantity={300} ease={80} color="#10b981" refresh />
+      <GridPatternBackground />
       <div
         className="pointer-events-none absolute -top-60 -left-60 h-[600px] w-[600px] rounded-full opacity-30 dark:opacity-100"
         style={{ background: "radial-gradient(circle, rgba(16,185,129,0.12) 0%, transparent 65%)" }}

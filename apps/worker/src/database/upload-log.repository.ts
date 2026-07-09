@@ -23,7 +23,7 @@ export class UploadLogRepository {
         params.driveAccountId,
         params.durationMs,
         params.status,
-        params.errorMessage
+        params.errorMessage,
       )
       .run();
   }

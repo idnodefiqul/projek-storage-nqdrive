@@ -75,6 +75,7 @@ app.use(
       "X-Folder-Id",
       "X-App-Client",
       "X-File-SHA256",
+      "X-Target-Account-Id",
       "Content-Range",
       "Content-Length",
     ],
@@ -195,50 +196,54 @@ app.get("/api/files/stream", async (c) => {
   const account = await driveRepo.findById(file.driveAccountId);
   if (!account) return c.text("Not Found", 404);
 
-  const connService = new GoogleAccountConnectionService(c.env);
-  const accessToken = await connService.getValidAccessToken(account);
+  try {
+    const { resolveCredentials } = await import("./utils/credentials");
+    const { StorageProviderFactory } = await import("@nqdrive/storage");
+    const { parseRangeHeader } = await import("./utils/range-parser");
 
-  // Forward browser Range header for true streaming (video seek, PDF partial load)
-  const browserRange = c.req.header("Range");
-  const driveHeaders: Record<string, string> = {
-    Authorization: `Bearer ${accessToken}`,
-    "Accept-Encoding": "identity",
-  };
-  if (browserRange) {
-    driveHeaders["Range"] = browserRange;
-  } else {
-    driveHeaders["Range"] = "bytes=0-";
+    const credentials = await resolveCredentials(account, c.env);
+    const provider = StorageProviderFactory.resolve(account.provider);
+
+    const browserRange = c.req.header("Range");
+    const range = browserRange ? parseRangeHeader(browserRange, file.sizeBytes > 0 ? file.sizeBytes : Number.MAX_SAFE_INTEGER) : null;
+
+    const result = await provider.download({
+      credentials: credentials as any,
+      providerFileId: file.providerFileId,
+      rangeStart: range?.start,
+      rangeEnd: range?.end,
+    });
+
+    const ct = file.mimeType || result.mimeType || "application/octet-stream";
+    let totalSize = file.sizeBytes > 0 ? file.sizeBytes : result.sizeBytes;
+    if (result.contentRange) {
+      const m = result.contentRange.match(/\/(\d+)$/);
+      if (m) totalSize = Number(m[1]);
+    } else if (result.contentLength && !range) {
+      totalSize = result.contentLength;
+    }
+
+    const h = new Headers();
+    h.set("Content-Type", ct);
+    h.set("Cache-Control", "private, max-age=300");
+    h.set("Accept-Ranges", "bytes");
+
+    if (range && result.contentRange) {
+      h.set("Content-Range", result.contentRange);
+      h.set("Content-Length", String(result.contentLength ?? (range.end - range.start + 1)));
+    } else if (range) {
+      h.set("Content-Range", `bytes ${range.start}-${range.end}/${totalSize}`);
+      h.set("Content-Length", String(range.end - range.start + 1));
+    } else if (totalSize > 0) {
+      h.set("Content-Length", String(totalSize));
+    }
+
+    const status = range ? 206 : 200;
+    return new Response(result.stream, { status, headers: h, encodeBody: "manual" } as any);
+  } catch (error: any) {
+    console.error("Streaming error for file:", file.filename, error);
+    return c.text(`Streaming failed: ${error.message || error}`, 500);
   }
-
-  const driveRes = await fetch(
-    `https://www.googleapis.com/drive/v3/files/${file.providerFileId}?alt=media&acknowledgeAbuse=true`,
-    { headers: driveHeaders }
-  );
-
-  if (!driveRes.ok && driveRes.status !== 206) return c.text("Drive error", 502);
-  if (!driveRes.body) return c.text("No body", 502);
-
-  const ct = file.mimeType || driveRes.headers.get("Content-Type") || "application/octet-stream";
-  let totalSize = 0;
-  const cr = driveRes.headers.get("Content-Range");
-  if (cr) { const m = cr.match(/\/(\d+)$/); if (m) totalSize = Number(m[1]); }
-  if (!totalSize) { const cl = driveRes.headers.get("Content-Length"); if (cl) totalSize = Number(cl); }
-
-  const h = new Headers();
-  h.set("Content-Type", ct);
-  h.set("Cache-Control", "private, max-age=300");
-  h.set("Accept-Ranges", "bytes");
-
-  if (browserRange && cr) {
-    h.set("Content-Range", cr);
-    const driveContentLength = driveRes.headers.get("Content-Length");
-    if (driveContentLength) h.set("Content-Length", driveContentLength);
-  } else if (totalSize > 0) {
-    h.set("Content-Length", String(totalSize));
-  }
-
-  const status = browserRange ? 206 : 200;
-  return new Response(driveRes.body, { status, headers: h, encodeBody: "manual" } as any);
 });
 
 app.route("/api/files", fileRoutes);
@@ -340,7 +345,7 @@ app.get("/resource/folder/:uuid", async (c) => {
 
   const uuid = c.req.param("uuid");
   // Query param key = nama folder yang di-share (bukan "path").
-  // Contoh: ?Musik=subfolder/lain — key "Musik" diabaikan, value = subpath.
+  // Contoh: ?Musik=subfolder/lain ï¿½ key "Musik" diabaikan, value = subpath.
   const queryEntries = Object.entries(c.req.query() as Record<string, string>);
   const rawPath = queryEntries.length > 0 ? (queryEntries[0]![1] ?? "") : "";
 
@@ -413,7 +418,7 @@ app.get("/resource/:prefix/:shareCode", async (c) => {
 
 
   const file = await c.env.DB.prepare(
-    `SELECT f.id, f.filename, f.size_bytes, f.mime_type, f.sha256_hash, f.slug, a.refresh_token_encrypted 
+    `SELECT f.id, f.filename, f.size_bytes, f.mime_type, f.slug, a.refresh_token_encrypted 
      FROM files f
      JOIN drive_accounts a ON f.drive_account_id = a.id
      WHERE f.share_code = ? AND f.deleted_at IS NULL AND f.visibility = 'public'`
@@ -435,7 +440,6 @@ app.get("/resource/:prefix/:shareCode", async (c) => {
       filename: file.filename,
       sizeBytes: file.size_bytes,
       mimeType: file.mime_type,
-      sha256Hash: file.sha256_hash,
       slug: file.slug,
       downloadCount
     }

@@ -233,7 +233,7 @@ function PrimaryLinkPage() {
         </div>
 
         {/* 1. DIRECT PERMALINK DOWNLOAD */}
-        <div className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
+        <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 px-5 sm:px-6 py-5 sm:py-6">
             {/* Left: Info */}
             <div className="flex flex-1 items-start gap-3.5 min-w-0">
@@ -305,7 +305,7 @@ function PrimaryLinkPage() {
         </div>
 
         {/* 2. FORMAT LINK SHARE PAGE */}
-        <div className="rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
+        <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-start gap-4 sm:gap-6 px-5 sm:px-6 py-5 sm:py-6">
             {/* Left: Info */}
             <div className="flex flex-1 items-start gap-3.5 min-w-0">

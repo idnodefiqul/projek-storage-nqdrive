@@ -35,7 +35,7 @@ function CreateKeyDialog({ open, onClose }: { open: boolean; onClose: () => void
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-zinc-950/50 backdrop-blur-sm" onClick={handleClose} />
-      <div className="relative z-10 w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="relative z-10 w-full max-w-md rounded-lg border border-zinc-200 bg-white p-6 shadow-2xl dark:border-zinc-800 dark:bg-zinc-900">
         {revealedKey ? (
           <>
             <h2 className="mb-1 text-lg font-semibold text-zinc-900 dark:text-zinc-100">API Key Berhasil Dibuat</h2>
@@ -125,7 +125,7 @@ function ApiKeysPage() {
       </div>
 
       {/* Tabel — full screen card */}
-      <div className="flex flex-1 flex-col overflow-hidden rounded-2xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="flex flex-1 flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
         {isLoading ? (
           <div className="flex flex-col gap-2 p-5">
             {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
@@ -174,7 +174,7 @@ function ApiKeysPage() {
                   <tr>
                     <td colSpan={5} className="py-20 text-center">
                       <div className="flex flex-col items-center gap-3">
-                        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-100 dark:bg-zinc-800">
+                        <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
                           <Key className="h-7 w-7 text-zinc-400 opacity-50" />
                         </div>
                         <div>

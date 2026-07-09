@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS drive_accounts (
   provider                 TEXT NOT NULL DEFAULT 'google_drive'
                              CHECK (provider IN (
                                'google_drive', 'cloudflare_r2', 'amazon_s3',
-                               'backblaze_b2', 'wasabi', 'dropbox', 'onedrive', 'minio'
+                                'backblaze_b2', 'wasabi', 'dropbox', 'onedrive', 'minio'
                              )),
   refresh_token_encrypted  TEXT NOT NULL,
   access_token             TEXT,
@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS files (
   original_folder_id INTEGER,
   share_code         TEXT NOT NULL DEFAULT '',
   sha256_hash        TEXT DEFAULT NULL,
+  md5_hash           TEXT DEFAULT NULL,
   download_password  TEXT DEFAULT NULL,
   FOREIGN KEY (drive_account_id) REFERENCES drive_accounts (id) ON DELETE RESTRICT,
   FOREIGN KEY (folder_id) REFERENCES folders (id) ON DELETE SET NULL
@@ -104,6 +105,8 @@ CREATE TABLE IF NOT EXISTS upload_logs (
   duration_ms      INTEGER NOT NULL DEFAULT 0,
   status           TEXT NOT NULL CHECK (status IN ('success', 'failed', 'cancelled')),
   error_message    TEXT,
+  sha256_hash      TEXT DEFAULT NULL,
+  md5_hash         TEXT DEFAULT NULL,
   created_at       TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
   FOREIGN KEY (file_id) REFERENCES files (id) ON DELETE SET NULL,
   FOREIGN KEY (drive_account_id) REFERENCES drive_accounts (id) ON DELETE RESTRICT

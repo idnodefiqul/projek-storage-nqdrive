@@ -2,6 +2,7 @@ import { Outlet, useNavigate, useLocation } from "@tanstack/react-router";
 import { Suspense, useEffect } from "react";
 import { SidebarProvider, AppSidebar } from "./sidebar";
 import { Topbar } from "./topbar";
+import { GridPatternBackground } from "@nqdrive/ui";
 import { useAuthContext } from "../stores/auth-provider";
 import { useSettings } from "../hooks/use-settings";
 import { AnimatePresence } from "framer-motion";
@@ -49,6 +50,7 @@ export function DashboardLayout() {
     <SidebarProvider>
       <AppSidebar />
       <div className="flex flex-1 flex-col overflow-hidden w-full relative" style={{ contain: "strict" }}>
+        <GridPatternBackground className="fixed inset-0 -z-10" />
         <Topbar />
         <main className="flex-1 overflow-y-auto p-4 sm:p-6">
           <Suspense fallback={<PageSkeleton />}>
