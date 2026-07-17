@@ -303,15 +303,15 @@ function KpiSquare({ label, value, sub, icon: Icon, tone }: { label: string; val
 
 function PremiumAccountCard({ account, index, onFormat, onMigrate, onDelete, activeJobs }: { account: DriveAccountWithFileCount; index: number; onFormat: () => void; onMigrate: () => void; onDelete: () => void; activeJobs: any[] }) {
   const usagePct = account.totalStorageBytes > 0 ? Math.min(100, Math.max(0, (account.usedStorageBytes / account.totalStorageBytes) * 100)) : 0;
-  const isDanger = usagePct > 90; const isWarning = usagePct > 75 && usagePct <= 90; const isSyncing = account.status === "syncing"; const isMigrating = activeJobs.some((j: any) => j.sourceAccountId === account.id || j.targetAccountId === account.id); const color = ACCOUNT_COLORS[index % ACCOUNT_COLORS.length]!; const provider = (account.provider || "google_drive").toLowerCase(); const bg = PROVIDER_BG[provider] || "bg-[rgb(var(--surface-muted))]/60"; const ring = PROVIDER_RING[provider] || "ring-[rgb(var(--border-subtle))]"; const badgeCls = PROVIDER_BADGE[provider] || "bg-[rgb(var(--surface-muted))] text-[rgb(var(--ink-500))] ring-[rgb(var(--border-subtle))]";
+  const isDanger = usagePct > 90; const isWarning = usagePct > 75 && usagePct <= 90; const isSyncing = account.status === "syncing"; const isMigrating = activeJobs.some((j: any) => j.sourceAccountId === account.id || j.targetAccountId === account.id); const provider = (account.provider || "google_drive").toLowerCase(); const badgeCls = PROVIDER_BADGE[provider] || "bg-[rgb(var(--surface-muted))] text-[rgb(var(--ink-500))] ring-[rgb(var(--border-subtle))]";
   return (
     <motion.div variants={itemVariants} className="h-full">
       <div className={cn(bentoBase, bentoHover, "group h-full p-5 flex flex-col gap-4")}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className={cn("relative grid h-11 w-11 shrink-0 place-items-center rounded-full ring-1", ring)} style={{ background: `conic-gradient(${color} ${Math.max(usagePct, 8)}%, rgb(var(--surface-muted)) 0)` }}>
-              <div className={cn("grid h-[34px] w-[34px] place-items-center overflow-hidden rounded-full border-2 border-[rgb(var(--surface))] shadow-sm", bg)}><ProviderIcon provider={provider} className="h-6 w-6" /></div>
-              <span className={cn("absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-[rgb(var(--surface))]", account.status === "online" ? "bg-emerald-500" : account.status === "error" ? "bg-red-500" : account.status === "offline" ? "bg-zinc-400" : "bg-blue-500")} />
+            {/* Pure icon tanpa background/lingkaran & tanpa titik hijau (badge sudah ada) */}
+            <div className="h-10 w-10 sm:h-11 sm:w-11 shrink-0 flex items-center justify-center">
+              <ProviderIcon provider={provider} className="h-8 w-8 sm:h-9 sm:w-9 lg:h-10 lg:w-10 object-contain" />
             </div>
             <div className="min-w-0 flex-1"><EmailCell email={account.email} size="sm" /><span className="mt-1 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ring-1 tabular-nums" title={provider}><span className={cn("h-1.5 w-1.5 rounded-full", account.status === "online" ? "bg-emerald-500" : account.status === "error" ? "bg-red-500" : "bg-zinc-400")} />{account.status === "online" ? "Online" : account.status === "syncing" ? "Syncing" : account.status === "error" ? "Error" : "Offline"}</span></div>
           </div>

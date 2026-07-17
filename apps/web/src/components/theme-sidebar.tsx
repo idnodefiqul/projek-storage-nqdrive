@@ -30,6 +30,12 @@ const GRADIENT_PRESETS = [
   { label: "Prestige", from: "#0a2342", to: "#2c7a7b" },
   // Premium — charcoal blue-black -> muted straw-gold, ganti Champagne yang L64 terlalu terang
   { label: "Gilded", from: "#1F2530", to: "#9C8A6B" },
+  // Fresh Mint keep (user request) - success/profit
+  { label: "Fresh Mint", from: "#11998E", to: "#38EF7D" },
+  // New 3 gradients - user request ganti
+  { label: "Danger", from: "#CB2D3E", to: "#EF473F" }, // Tombol bahaya delete/error
+  { label: "Cosmic Silk", from: "#2B5876", to: "#4E4376" }, // Tenang eksklusif ramah mata admin
+  { label: "Velvet Wine", from: "#41295A", to: "#2F0743" }, // Deep wine eksklusif
 ];
 
 function readStoredAccent(): string | null {
@@ -196,15 +202,20 @@ export function ThemeSidebar() {
                 </div>
               </div>
               <div>
-                <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-[rgb(var(--ink-500))] mb-3">Gradient (9)</p>
-                <div className="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Pilih tema gradient">
+                <p className="text-[11px] font-extrabold uppercase tracking-[0.12em] text-[rgb(var(--ink-500))] mb-3">Gradient ({GRADIENT_PRESETS.length}) • Full Theme</p>
+                <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Pilih tema gradient">
                   {GRADIENT_PRESETS.map((g) => {
                     const active = localAccent?.toLowerCase() === g.to.toLowerCase() && localColor.toLowerCase() === g.from.toLowerCase();
                     return (
-                      <button key={g.label} type="button" role="radio" aria-checked={active} aria-label={`Gradient ${g.label}`} onClick={() => pickGradient(g.from, g.to)} className={cn("group relative flex flex-col items-center gap-1.5 rounded-xl p-2.5 transition-all border-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500", active ? "border-[rgb(var(--foreground))] bg-[rgb(var(--surface-muted))]/80 dark:border-white" : "border-transparent hover:bg-[rgb(var(--surface-muted))]/60")}>
-                        <div className="h-9 w-9 rounded-full shadow-sm ring-1 ring-black/10" style={{ background: `linear-gradient(135deg, ${g.from}, ${g.to})` }} aria-hidden="true" />
-                        <span className="text-[10px] font-medium text-[rgb(var(--ink-500))]">{g.label}</span>
-                        {active && <div className="absolute top-1.5 right-1.5 grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--foreground))] text-[rgb(var(--surface))]" aria-hidden="true"><Check className="h-2.5 w-2.5" /></div>}
+                      <button key={g.label} type="button" role="radio" aria-checked={active} aria-label={`Gradient ${g.label} ${g.from} → ${g.to}`} title={`${g.label}: ${g.from} → ${g.to}`} onClick={() => pickGradient(g.from, g.to)} className={cn("group relative flex flex-col items-start gap-2 rounded-xl p-3 transition-all border-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500", active ? "border-[rgb(var(--foreground))] bg-[rgb(var(--surface-muted))]/80 dark:border-white" : "border-[rgb(var(--border-subtle))] hover:border-brand-200 hover:bg-[rgb(var(--surface-muted))]/60")}>
+                        <div className="flex w-full items-center gap-2.5">
+                          <div className="h-9 w-9 shrink-0 rounded-full shadow-sm ring-1 ring-black/10" style={{ background: `linear-gradient(135deg, ${g.from}, ${g.to})` }} aria-hidden="true" />
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-[11px] font-bold leading-tight text-[rgb(var(--foreground))]">{g.label}</p>
+                            <p className="truncate font-mono text-[9px] leading-tight text-[rgb(var(--ink-500))]">{g.from} → {g.to}</p>
+                          </div>
+                        </div>
+                        {active && <div className="absolute top-2 right-2 grid h-4 w-4 place-items-center rounded-full bg-[rgb(var(--foreground))] text-[rgb(var(--surface))]" aria-hidden="true"><Check className="h-2.5 w-2.5" /></div>}
                       </button>
                     );
                   })}
