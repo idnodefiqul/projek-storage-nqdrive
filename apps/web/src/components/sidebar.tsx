@@ -14,18 +14,15 @@ import {
   BookOpen,
   X,
   Server,
+  HardDrive,
+  Database,
 } from "lucide-react";
 import { IconFileSymlink } from "@tabler/icons-react";
-import { SiDropbox } from "@icons-pack/react-simple-icons";
 import { Divide as HamburgerDivide } from "hamburger-react";
 import { useTrashCount } from "../hooks/use-trash";
 import { useDashboardMetrics } from "../hooks/use-dashboard";
 import { formatBytes } from "@nqdrive/shared";
 import {
-  googleDriveSvg,
-  cloudflareR2Svg,
-  amazonS3Svg,
-  onedriveSvg,
   iconsidePng,
 } from "../assets";
 
@@ -41,11 +38,9 @@ const coloredSidebarStyle: React.CSSProperties = {
   ["--ink-500" as string]: "255 255 255",
 } as React.CSSProperties;
 
-function GD({ className }: { className?: string }) { return <img src={googleDriveSvg} alt="" className={className} />; }
-function CF({ className }: { className?: string }) { return <img src={cloudflareR2Svg} alt="" className={className} />; }
-function S3({ className }: { className?: string }) { return <img src={amazonS3Svg} alt="" className={className} />; }
-function DBX({ className }: { className?: string }) { return <SiDropbox color="#0061FF" className={className} />; }
-function OD({ className }: { className?: string }) { return <img src={onedriveSvg} alt="" className={className} />; }
+function StorageMainIcon({ className }: { className?: string }) {
+  return <Database className={className} />;
+}
 
 type SidebarContextValue = {
   mobileOpen: boolean;
@@ -100,15 +95,8 @@ type Group = { label: string; items: Item[] };
 
 const MAIN: Item[] = [
   { label: "Dashboard", to: "/dashboard", icon: LayoutDashboard },
+  { label: "Storage", to: "/dashboard/storage", icon: StorageMainIcon },
   { label: "Files", to: "/dashboard/files", icon: FolderOpen },
-];
-
-const STOR: Item[] = [
-  { label: "Google Drive", to: "/dashboard/storage-manager", icon: GD },
-  { label: "Cloudflare R2", to: "/dashboard/cloudflare-r2", icon: CF },
-  { label: "S3 Storage", to: "/dashboard/s3-storage", icon: S3 },
-  { label: "Dropbox", to: "/dashboard/dropbox", icon: DBX },
-  { label: "OneDrive", to: "/dashboard/onedrive", icon: OD },
 ];
 
 const SYS: Item[] = [
@@ -126,7 +114,6 @@ const SETT: Item[] = [
 ];
 
 const GROUPS: Group[] = [
-  { label: "Storage", items: STOR },
   { label: "System", items: SYS },
   { label: "Settings", items: SETT },
 ];
@@ -327,8 +314,8 @@ function BottomNav() {
 
   const tabs = [
     { label: "Home", to: "/dashboard", icon: LayoutDashboard },
+    { label: "Storage", to: "/dashboard/storage", icon: Database },
     { label: "Files", to: "/dashboard/files", icon: FolderOpen },
-    { label: "Users", to: "/dashboard/users", icon: Users },
     { label: "Trash", to: "/dashboard/trash", icon: Trash2, badge: trash > 0 ? String(trash) : undefined },
   ];
 

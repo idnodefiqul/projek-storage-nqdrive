@@ -699,7 +699,14 @@ function Fab({ onNewFolder, onUpload }: { onNewFolder: () => void; onUpload: () 
 
 // --- PAGINATION ---
 
-const PAGE_SIZES = [10, 20, 50];
+const PAGE_SIZES = [12, 21, 30, 50];
+
+function getResponsivePageSize(): number {
+  if (typeof window === "undefined") return 21;
+  if (window.innerWidth < 640) return 12; // Android kecil
+  if (window.innerWidth >= 1024) return 21; // Desktop besar
+  return 15;
+}
 
 function Pagination({
   page,
@@ -861,8 +868,27 @@ function FilesPage() {
   );
 
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(() => getResponsivePageSize());
   const [search, setSearch] = useState("");
+
+  // Responsive pageSize: Android kecil 12, Desktop besar 21
+  useEffect(() => {
+    const mqMobile = window.matchMedia("(max-width: 639px)");
+    const mqDesktop = window.matchMedia("(min-width: 1024px)");
+    const handler = () => {
+      if (mqMobile.matches) setPageSize((prev) => (prev === 12 ? prev : 12));
+      else if (mqDesktop.matches) setPageSize((prev) => (prev === 21 ? prev : 21));
+      else setPageSize((prev) => (prev <= 15 ? 15 : prev));
+    };
+    // Set initial sekali lagi setelah mount (SSR safety)
+    handler();
+    mqMobile.addEventListener("change", handler);
+    mqDesktop.addEventListener("change", handler);
+    return () => {
+      mqMobile.removeEventListener("change", handler);
+      mqDesktop.removeEventListener("change", handler);
+    };
+  }, []);
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [visibilityFilter, setVisibilityFilter] = useState<FileVisibility | "">("");
 

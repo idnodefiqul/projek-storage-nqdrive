@@ -31,18 +31,10 @@ function getRedirectUri(env: Env): string {
   return `${env.GOOGLE_OAUTH_REDIRECT_URI.replace(/\/$/, "")}/api/storage/accounts/oauth/callback`;
 }
 
-// URL dashboard tujuan redirect balik setelah callback (sukses/gagal) — per provider.
-function getDashboardUrl(env: Env, provider: string = "google_drive"): string {
+// URL dashboard tujuan redirect balik setelah callback (sukses/gagal) — unified STORAGE
+function getDashboardUrl(env: Env, _provider: string = "google_drive"): string {
   const base = (env.WEB_APP_URL || "https://drive.fiqul.id").replace(/\/$/, "");
-  switch (provider) {
-    case "dropbox":
-      return `${base}/dashboard/dropbox`;
-    case "onedrive":
-      return `${base}/dashboard/onedrive`;
-    case "google_drive":
-    default:
-      return `${base}/dashboard/storage-manager`;
-  }
+  return `${base}/dashboard/storage`;
 }
 
 // ─── OAuth callback (multi-provider) — TANPA requireAuth ──────────
@@ -117,10 +109,10 @@ storageAccountRoutes.get("/accounts/oauth/callback", async (c) => {
       }
     }
 
-    return c.redirect(`${dashboard}?oauth=success&email=${encodeURIComponent(account.email)}`);
+    return c.redirect(`${dashboard}?oauth=success&email=${encodeURIComponent(account.email)}&provider=${encodeURIComponent(provider)}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "connect_failed";
-    return c.redirect(`${dashboard}?oauth=error&reason=${encodeURIComponent(message)}`);
+    return c.redirect(`${dashboard}?oauth=error&reason=${encodeURIComponent(message)}&provider=${encodeURIComponent(provider)}`);
   }
 });
 

@@ -217,6 +217,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   user       TEXT NOT NULL DEFAULT 'admin',
   ip         TEXT NOT NULL DEFAULT '',
   country    TEXT NOT NULL DEFAULT '',
+  timezone   TEXT NOT NULL DEFAULT '',
   user_agent TEXT NOT NULL DEFAULT '',
   detail     TEXT,
   created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)

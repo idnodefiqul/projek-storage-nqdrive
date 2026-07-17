@@ -18,17 +18,45 @@ export function getUserUtcOffset(date: Date = new Date()): string {
   }
 }
 
+function parseAsUTC(input: string): Date {
+  let s = input.trim();
+  // Date only YYYY-MM-DD -> midnight UTC
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return new Date(s + "T00:00:00Z");
+  }
+  // SQLite CURRENT_TIMESTAMP: YYYY-MM-DD HH:MM:SS -> ISO UTC
+  if (s.includes(" ") && !s.includes("T")) {
+    s = s.replace(" ", "T");
+  }
+  // No timezone suffix? Force Z (UTC)
+  if (!/[Z+-]\d|Z$/.test(s.slice(-6)) && !s.endsWith("Z")) {
+    // Check if last char is digit (no tz)
+    if (!/[+-]\d{2}:?\d{2}$/.test(s)) {
+      s += "Z";
+    }
+  }
+  return new Date(s);
+}
+
 export function formatDate(date: Date | string, opts?: Intl.DateTimeFormatOptions): string {
-  const d = typeof date === "string" ? new Date(date) : date;
+  const d = typeof date === "string" ? parseAsUTC(date) : date;
   return d.toLocaleString("id-ID", opts);
 }
 
-export function formatLocal(date: Date | string, opts?: Intl.DateTimeFormatOptions): string {
-  return formatDate(date, opts);
+export function formatLocal(date: Date | string, opts?: Intl.DateTimeFormatOptions, timeZone?: string): string {
+  const d = typeof date === "string" ? parseAsUTC(date) : date;
+  if (timeZone) {
+    return d.toLocaleString("id-ID", { ...opts, timeZone });
+  }
+  return d.toLocaleString("id-ID", opts);
+}
+
+export function formatInTimezone(date: Date | string, tz: string, opts?: Intl.DateTimeFormatOptions): string {
+  return formatLocal(date, opts, tz);
 }
 
 export function formatRelative(date: Date | string): string {
-  const d = typeof date === "string" ? new Date(date) : date;
+  const d = typeof date === "string" ? parseAsUTC(date) : date;
   const now = new Date();
   const diffMs = now.getTime() - d.getTime();
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));

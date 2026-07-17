@@ -12,7 +12,7 @@ export interface ToastAction {
 export interface Toast {
   id: string;
   title: string;
-  description?: string;
+  description?: string | React.ReactNode;
   variant?: ToastVariant;
   action?: ToastAction;
   duration?: number; // ms override

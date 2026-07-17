@@ -6,13 +6,13 @@ import { Skeleton } from "@nqdrive/ui";
 import { ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown, Activity } from "lucide-react";
 import { useDashboardAnalytics } from "../hooks/use-dashboard";
 import { SectionCard, ChartTooltip, CHART_COLORS } from "./ui-kit";
+import { formatLocal } from "../lib/datetime";
 
 type Period = 7 | 30 | 90;
 
 function formatDate(dateStr: string, period: Period): string {
-  const d = new Date(dateStr + "T00:00:00");
-  if (period === 7) return d.toLocaleDateString("id-ID", { weekday: "short", day: "numeric" });
-  return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
+  if (period === 7) return formatLocal(dateStr + "T00:00:00Z", { weekday: "short", day: "numeric" });
+  return formatLocal(dateStr + "T00:00:00Z", { day: "numeric", month: "short" });
 }
 
 function trendPct(values: number[]): number {

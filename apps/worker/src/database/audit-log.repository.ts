@@ -5,6 +5,7 @@ export interface AuditLogRow {
   user: string;
   ip: string;
   country: string;
+  timezone: string;
   user_agent: string;
   detail: string | null;
   created_at: string;
@@ -16,6 +17,7 @@ export interface AuditLogCreateParams {
   user?: string;
   ip?: string;
   country?: string;
+  timezone?: string;
   userAgent?: string;
   detail?: string;
 }
@@ -35,21 +37,46 @@ export class AuditLogRepository {
   constructor(private readonly db: D1Database) {}
 
   async create(params: AuditLogCreateParams): Promise<void> {
-    await this.db
-      .prepare(
-        `INSERT INTO audit_logs (action, status, user, ip, country, user_agent, detail)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
-      )
-      .bind(
-        params.action,
-        params.status,
-        params.user ?? "admin",
-        params.ip ?? "",
-        params.country ?? "",
-        params.userAgent ?? "",
-        params.detail ?? null
-      )
-      .run();
+    try {
+      await this.db
+        .prepare(
+          `INSERT INTO audit_logs (action, status, user, ip, country, timezone, user_agent, detail)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .bind(
+          params.action,
+          params.status,
+          params.user ?? "admin",
+          params.ip ?? "",
+          params.country ?? "",
+          params.timezone ?? "",
+          params.userAgent ?? "",
+          params.detail ?? null
+        )
+        .run();
+    } catch (e) {
+      // Fallback for old DB without timezone column (backward compat)
+      // @ts-ignore
+      if (String(e).includes("no column named timezone") || String(e).includes("has no column named timezone")) {
+        await this.db
+          .prepare(
+            `INSERT INTO audit_logs (action, status, user, ip, country, user_agent, detail)
+             VALUES (?, ?, ?, ?, ?, ?, ?)`
+          )
+          .bind(
+            params.action,
+            params.status,
+            params.user ?? "admin",
+            params.ip ?? "",
+            params.country ?? "",
+            params.userAgent ?? "",
+            params.detail ?? null
+          )
+          .run();
+      } else {
+        throw e;
+      }
+    }
   }
 
   async query(q: AuditLogQuery): Promise<{ logs: AuditLogRow[]; total: number }> {

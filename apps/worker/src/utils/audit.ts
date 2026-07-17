@@ -2,7 +2,7 @@ import type { Context } from "hono";
 import type { Env } from "../config/env";
 import { AuditLogRepository } from "../database/audit-log.repository";
 import { extractRealIp } from "./ip-parser";
-import { resolveCountry } from "./geo-resolver";
+import { resolveGeo } from "./geo-resolver";
 
 export function writeAuditLog(
   c: Context<{ Bindings: Env }>,
@@ -17,15 +17,17 @@ export function writeAuditLog(
   const ip = extractRealIp(c);
   const userAgent = c.req.header("User-Agent") ?? "";
   const cfCountry = (c.req.raw.cf?.country as string) || "";
+  const cfTimezone = (c.req.raw.cf as any)?.timezone as string || "";
 
   c.executionCtx.waitUntil(
-    resolveCountry(ip, cfCountry || null).then((country) =>
+    resolveGeo(ip, cfCountry || null, cfTimezone || null).then((geo) =>
       repo.create({
         action: params.action,
         status: params.status,
         user: params.user ?? "admin",
         ip,
-        country: country ?? "",
+        country: geo.country ?? "",
+        timezone: geo.timezone ?? "",
         userAgent,
         detail: params.detail,
       })

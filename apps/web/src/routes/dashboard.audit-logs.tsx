@@ -29,7 +29,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { PageTransition } from "../components/page-transition";
 import { PageHeader, SectionCard } from "../components/ui-kit";
 import { apiRequest } from "../lib/client";
-import { formatLocal } from "../lib/datetime";
+import { formatLocal, formatInTimezone, getUserTimeZone } from "../lib/datetime";
 
 export const Route = createFileRoute("/dashboard/audit-logs")({
   component: AuditLogsPage,
@@ -44,6 +44,7 @@ interface AuditLogEntry {
   user: string;
   ip: string;
   country: string;
+  timezone: string;
   user_agent: string;
   detail: string | null;
   created_at: string;
@@ -190,7 +191,12 @@ function AuditLogsPage() {
   const [total, setTotal] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [pageIndex, setPageIndex] = useState(0);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(() => {
+    if (typeof window === "undefined") return 21;
+    if (window.innerWidth < 640) return 12;
+    if (window.innerWidth >= 1024) return 21;
+    return 15;
+  });
 
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(true);
@@ -347,12 +353,19 @@ function AuditLogsPage() {
           Timestamp <ArrowUpDown className="h-3 w-3" />
         </button>
       ),
-      size: 170,
-      cell: ({ row }) => (
-        <span className="font-mono text-[11px] text-[rgb(var(--ink-500))] whitespace-nowrap">
-          {formatLocal(row.original.created_at)}
-        </span>
-      ),
+      size: 190,
+      cell: ({ row }) => {
+        const tz = row.original.timezone || getUserTimeZone();
+        const ipTime = row.original.timezone ? formatInTimezone(row.original.created_at, row.original.timezone) : formatLocal(row.original.created_at);
+        return (
+          <div className="flex flex-col">
+            <span className="font-mono text-[11px] text-[rgb(var(--foreground))] whitespace-nowrap">{ipTime}</span>
+            {row.original.timezone && (
+              <span className="text-[9px] text-[rgb(var(--ink-500))] truncate max-w-[160px]">{row.original.timezone}</span>
+            )}
+          </div>
+        );
+      },
     },
     {
       id: "actions",
@@ -588,7 +601,7 @@ function AuditLogsPage() {
               </p>
               <div className="flex items-center gap-1.5">
                 <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPageIndex(0); }} className="h-8 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] px-2 text-xs text-[rgb(var(--ink-500))] dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface))] dark:text-[rgb(var(--foreground))]">
-                  {[10, 20, 50].map((size) => <option key={size} value={size}>{size} / page</option>)}
+                  {[12, 21, 30, 50].map((size) => <option key={size} value={size}>{size} / page</option>)}
                 </select>
                 <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setPageIndex(0)} disabled={pageIndex === 0}>
                   <ChevronsLeft className="h-3.5 w-3.5" />
@@ -643,7 +656,9 @@ function AuditLogsPage() {
                     ["User Agent", selectedLog.user_agent, false],
                     ["Detail", selectedLog.detail ?? "-", true],
                     ["Status", selectedLog.status, false],
-                    ["Timestamp", formatLocal(selectedLog.created_at, { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }), false],
+                    ["Timezone IP", selectedLog.timezone || "-", false],
+                    ["Timestamp (IP Time)", selectedLog.timezone ? formatInTimezone(selectedLog.created_at, selectedLog.timezone, { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }) : formatLocal(selectedLog.created_at, { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }), false],
+                    ["Timestamp (Browser)", formatLocal(selectedLog.created_at, { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }), false],
                   ] as [string, string, boolean][]).map(([label, value, mono]) => (
                     <div key={label} className="flex items-start justify-between gap-4 border-b border-[rgb(var(--border-subtle))] pb-2.5 last:border-0 dark:border-[rgb(var(--border-subtle))]">
                       <span className="text-[rgb(var(--ink-500))] shrink-0">{label}</span>

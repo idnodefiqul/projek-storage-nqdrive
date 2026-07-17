@@ -47,7 +47,14 @@ const STATUS_LABELS: Record<string, string> = {
   partial: "Sebagian",
 };
 
-const PAGE_SIZES = [10, 20, 50];
+const PAGE_SIZES = [12, 21, 30, 50];
+
+function getResponsivePageSize(): number {
+  if (typeof window === "undefined") return 21;
+  if (window.innerWidth < 640) return 12;
+  if (window.innerWidth >= 1024) return 21;
+  return 15;
+}
 
 // ─── Upload Row Type ─────────────────────────────────────────────────────────
 interface UploadLog {
@@ -242,7 +249,7 @@ function UploadTable() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(() => getResponsivePageSize());
 
   const logs: UploadLog[] = (data?.logs as UploadLog[] | undefined) ?? [];
 
@@ -324,7 +331,7 @@ function DownloadTable() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(() => getResponsivePageSize());
 
   const logs: DownloadLog[] = (data?.logs as DownloadLog[] | undefined) ?? [];
 

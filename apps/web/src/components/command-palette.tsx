@@ -56,12 +56,8 @@ const COMMANDS: CmdItem[] = [
   { id: "nav-api", label: "API", description: "API keys & programmatic access", icon: Webhook, group: "navigation", to: "/dashboard/api", keywords: ["keys", "token", "developer"] },
   { id: "nav-trash", label: "Trash", description: "Deleted files (30 days)", icon: Trash2, group: "navigation", to: "/dashboard/trash", keywords: ["deleted", "restore"] },
 
-  // Storage
-  { id: "stor-gdrive", label: "Google Drive", description: "Google Drive accounts", icon: HardDrive, group: "storage", to: "/dashboard/storage-manager", keywords: ["google", "drive", "gdrive"] },
-  { id: "stor-r2", label: "Cloudflare R2", description: "R2 buckets & credentials", icon: Cloud, group: "storage", to: "/dashboard/cloudflare-r2", keywords: ["cloudflare", "r2", "bucket"] },
-  { id: "stor-s3", label: "S3 Storage", description: "Amazon S3 compatible storage", icon: Database, group: "storage", to: "/dashboard/s3-storage", keywords: ["aws", "s3", "minio"] },
-  { id: "stor-dropbox", label: "Dropbox", description: "Dropbox integration", icon: Box, group: "storage", to: "/dashboard/dropbox", keywords: ["dropbox"] },
-  { id: "stor-onedrive", label: "OneDrive", description: "Microsoft OneDrive accounts", icon: Server, group: "storage", to: "/dashboard/onedrive", keywords: ["microsoft", "onedrive", "365"] },
+  // Storage - unified STORAGE (premium)
+  { id: "stor-main", label: "STORAGE", description: "All connected storage accounts (Google, Dropbox, OneDrive)", icon: HardDrive, group: "storage", to: "/dashboard/storage", keywords: ["storage", "google", "drive", "dropbox", "onedrive", "gdrive", "pool"] },
 
   // Settings
   { id: "set-plink", label: "Primary Link", description: "Direct & share link format", icon: Link2, group: "settings", to: "/dashboard/primary-link", keywords: ["permalink", "download", "share", "url"] },

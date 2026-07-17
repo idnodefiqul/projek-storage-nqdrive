@@ -5,6 +5,7 @@ import { Badge, Skeleton, useToast, Dialog, DialogHeader, DialogTitle, DialogCon
 import { useApiKeys, useCreateApiKey, useRevokeApiKey } from "../hooks/use-logs-and-api-keys";
 import { useMinLoading } from "../hooks/use-min-loading";
 import { PageTransition } from "../components/page-transition";
+import { formatLocal } from "../lib/datetime";
 import { PageHeader, EmptyState } from "../components/ui-kit";
 
 export const Route = createFileRoute("/dashboard/api")({
@@ -179,7 +180,7 @@ function ApiKeysPage() {
                         </Badge>
                       </td>
                       <td className="px-4 py-3 text-sm text-[rgb(var(--ink-500))]">
-                        {new Date(key.createdAt).toLocaleDateString("id-ID")}
+                        {formatLocal(key.createdAt)}
                       </td>
                       <td className="px-4 py-3 text-right">
                         {!key.revokedAt && (

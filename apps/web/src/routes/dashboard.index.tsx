@@ -14,6 +14,7 @@ import { cn } from "@nqdrive/ui";
 import { SiDropbox } from "@icons-pack/react-simple-icons";
 import { googleDriveSvg, onedriveSvg, cloudflareR2Svg, amazonS3Svg } from "../assets";
 import { getFileTypeInfo } from "../lib/file-icons";
+import { formatLocal } from "../lib/datetime";
 
 const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { staggerChildren: 0.015, delayChildren: 0 } } };
 const item = { hidden: { opacity: 0 }, show: { opacity: 1, y: 0, transition: { duration: 0.16, ease: [0.22, 1, 0.36, 1] as const } } };
@@ -166,7 +167,7 @@ function TrendBentoCard({period,onPeriodChange}:{period:7|30|90; onPeriodChange:
   useEffect(()=>{ let t:ReturnType<typeof setTimeout>|null=null; const obs=new MutationObserver(()=>{ if(t) clearTimeout(t); t=setTimeout(()=>setThemeTick(n=>n+1),600); }); obs.observe(document.documentElement,{attributes:true,attributeFilter:["class","style"]}); return()=>{ obs.disconnect(); if(t) clearTimeout(t); }; },[]);
   const {chartData,totalDl,totalUp}=useMemo(()=>{
     const raw=analytics?.chartData??[];
-    const data=raw.map(d=>({name:new Date(d.date+"T00:00:00").toLocaleDateString("id-ID",{day:"2-digit",month:"short"}), dl:d.downloads, up:d.uploads}));
+    const data=raw.map(d=>({name:formatLocal(d.date+"T00:00:00Z",{day:"2-digit",month:"short"}), dl:d.downloads, up:d.uploads}));
     return {chartData:data,totalDl:data.reduce((s,d)=>s+d.dl,0),totalUp:data.reduce((s,d)=>s+d.up,0)};
   },[analytics]);
   const themeColors=useMemo(()=>{
@@ -524,7 +525,7 @@ function FoldersBentoCard({folders}:{folders:Folder[]}){
                 <FolderIcon className="h-5 w-5 shrink-0 text-amber-500 lg:h-6 lg:w-6" strokeWidth={2.2}/>
                 <span className="min-w-0 flex-1 truncate">
                   <span className="block truncate font-display text-[12px] font-semibold leading-tight text-[rgb(var(--foreground))] group-hover/item:text-amber-600" title={fd.name}>{fd.name}</span>
-                  <span className="text-[10px] leading-none text-[rgb(var(--ink-500))]">{new Date(fd.createdAt).toLocaleDateString("id-ID",{day:"2-digit",month:"short"})}</span>
+                  <span className="text-[10px] leading-none text-[rgb(var(--ink-500))]">{formatLocal(fd.createdAt,{day:"2-digit",month:"short"})}</span>
                 </span>
               </li>
             ))}
