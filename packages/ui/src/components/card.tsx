@@ -6,7 +6,7 @@ export const Card = forwardRef<HTMLDivElement, HTMLAttributes<HTMLDivElement>>(
     <div
       ref={ref}
       className={cn(
-        "rounded-lg border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900",
+        "rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] shadow-[var(--shadow-card)]",
         className
       )}
       {...props}
@@ -24,14 +24,14 @@ CardHeader.displayName = "CardHeader";
 
 export const CardTitle = forwardRef<HTMLHeadingElement, HTMLAttributes<HTMLHeadingElement>>(
   ({ className, ...props }, ref) => (
-    <h3 ref={ref} className={cn("text-base font-semibold text-zinc-900 dark:text-zinc-100", className)} {...props} />
+    <h3 ref={ref} className={cn("font-display text-base font-bold text-[rgb(var(--foreground))]", className)} {...props} />
   )
 );
 CardTitle.displayName = "CardTitle";
 
 export const CardDescription = forwardRef<HTMLParagraphElement, HTMLAttributes<HTMLParagraphElement>>(
   ({ className, ...props }, ref) => (
-    <p ref={ref} className={cn("text-sm text-zinc-500 dark:text-zinc-400", className)} {...props} />
+    <p ref={ref} className={cn("text-sm text-[rgb(var(--ink-500))]", className)} {...props} />
   )
 );
 CardDescription.displayName = "CardDescription";

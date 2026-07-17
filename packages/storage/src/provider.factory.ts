@@ -13,10 +13,21 @@ import type { StorageProvider } from "./provider.interface";
  */
 export class StorageProviderFactory {
   private static readonly registry = new Map<StorageProviderType, StorageProvider>();
+  private static initialized = false;
 
-  /** Registers a provider implementation. Call once per provider during app startup. */
+  /** Registers a provider implementation. Call once per provider during app startup. Idempotent. */
   static register(provider: StorageProvider): void {
+    // Idempotent: only register if not already registered, or overwrite with same type is ok
+    // But avoid clearing existing to prevent race conditions
     this.registry.set(provider.type, provider);
+  }
+
+  static isInitialized(): boolean {
+    return this.initialized;
+  }
+
+  static markInitialized(): void {
+    this.initialized = true;
   }
 
   /** Resolves the provider implementation for a given type. Throws if not registered. */

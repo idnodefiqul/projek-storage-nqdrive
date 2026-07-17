@@ -88,7 +88,6 @@ trashRoutes.post("/restore/file/:id", async (c) => {
  */
 trashRoutes.post("/restore/folder/:id", async (c) => {
   const id = Number(c.req.param("id"));
-  const fileRepository = new FileRepository(c.env.DB);
   const folderRepository = new FolderRepository(c.env.DB);
 
   const folder = await folderRepository.findByIdIncludingTrashed(id);
@@ -175,6 +174,8 @@ trashRoutes.delete("/file/:id", async (c) => {
     );
   }
 
+  const driveAccountId = file.driveAccountId;
+
   const account = await driveAccountRepository.findById(file.driveAccountId);
   if (!account) {
     // Akun hilang — hapus dari DB saja
@@ -192,6 +193,25 @@ trashRoutes.delete("/file/:id", async (c) => {
   }
 
   await fileRepository.delete(id);
+
+  // Re-calc quota setelah hapus permanen — kuota harus berkurang
+  try {
+    const row = await c.env.DB.prepare(
+      "SELECT COALESCE(SUM(size_bytes), 0) as total FROM files WHERE drive_account_id = ? AND deleted_at IS NULL"
+    ).bind(driveAccountId).first<{ total: number }>();
+    const used = row?.total ?? 0;
+    const freshAccount = await driveAccountRepository.findById(driveAccountId);
+    if (freshAccount) {
+      await driveAccountRepository.updateQuota(freshAccount.id, {
+        totalBytes: freshAccount.totalStorageBytes,
+        usedBytes: used,
+        availableBytes: Math.max(0, freshAccount.totalStorageBytes - used),
+      });
+    }
+  } catch (err) {
+    console.error(`[trash file delete] gagal recalc quota:`, err);
+  }
+
   return c.json({ success: true, data: { message: "File berhasil dihapus permanen." } });
 });
 
@@ -262,6 +282,9 @@ trashRoutes.delete("/empty", async (c) => {
   const trashedFiles = await fileRepository.listTrashed();
   const connectionService = new GoogleAccountConnectionService(c.env);
 
+  // Kumpulkan affected account IDs untuk recalc quota setelahnya
+  const affectedAccountIds = new Set<number>(trashedFiles.map(f => f.driveAccountId));
+
   // Hapus semua file fisik dari Google Drive
   for (const file of trashedFiles) {
     try {
@@ -281,6 +304,26 @@ trashRoutes.delete("/empty", async (c) => {
   const trashedFolders = await folderRepository.listTrashed();
   for (const folder of trashedFolders) {
     await folderRepository.delete(folder.id);
+  }
+
+  // Re-calc quota untuk semua akun yang terdampak
+  for (const accountId of affectedAccountIds) {
+    try {
+      const row = await c.env.DB.prepare(
+        "SELECT COALESCE(SUM(size_bytes), 0) as total FROM files WHERE drive_account_id = ? AND deleted_at IS NULL"
+      ).bind(accountId).first<{ total: number }>();
+      const used = row?.total ?? 0;
+      const account = await driveAccountRepository.findById(accountId);
+      if (account) {
+        await driveAccountRepository.updateQuota(account.id, {
+          totalBytes: account.totalStorageBytes,
+          usedBytes: used,
+          availableBytes: Math.max(0, account.totalStorageBytes - used),
+        });
+      }
+    } catch (err) {
+      console.error(`[trash empty] gagal recalc quota account ${accountId}:`, err);
+    }
   }
 
   writeAuditLog(c, { action: "trash.empty", status: "warning", detail: `${trashedFiles.length} files, ${trashedFolders.length} folders` });

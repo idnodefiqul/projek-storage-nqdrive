@@ -7,6 +7,7 @@ interface ThemeContextValue {
   toggleTheme: () => void;
   brandColor: string;
   setBrandColor: (color: string) => void;
+  setGradient: (from: string, to: string) => void;
   saveBrandColorToDb: (color: string) => void;
   saveThemeToDb: (theme: Theme) => void;
   isThemeSidebarOpen: boolean;
@@ -17,6 +18,7 @@ const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 const STORAGE_KEY = "nqdrive-theme";
 const BRAND_COLOR_KEY = "nqdrive-brand-color";
+export const ACCENT_COLOR_KEY = "nqdrive-accent-color";
 export const DEFAULT_BRAND = "#10b981";
 
 function getInitialTheme(): Theme {
@@ -73,6 +75,27 @@ function generateBrandPalette(hex: string): Record<string, string> {
   };
 }
 
+/** Warna sekunder untuk gradient — geser hue agar terbentuk "campuran". */
+function deriveAccent(hex: string): string {
+  const [h, s, l] = hexToHsl(hex);
+  return hslToHex((h + 42) % 360, Math.min(s + 6, 100), l);
+}
+
+/** Accent eksplisit dari preset gradient (null kalau tema solid). */
+function readExplicitAccent(): string | null {
+  try {
+    const v = localStorage.getItem(ACCENT_COLOR_KEY);
+    return v && /^#[0-9a-fA-F]{6}$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Ambil accent eksplisit (dari preset gradient) atau derive otomatis dari primary. */
+function getAccent(primaryHex: string): string {
+  return readExplicitAccent() ?? deriveAccent(primaryHex);
+}
+
 export function applyBrandColors(hex: string) {
   if (!hex || hex.length < 4) return;
   const palette = generateBrandPalette(hex);
@@ -80,6 +103,16 @@ export function applyBrandColors(hex: string) {
   for (const [key, value] of Object.entries(palette)) {
     root.style.setProperty(key, value);
   }
+  // Dua warna dasar untuk gradient sidebar/topbar/canvas (ikut tema).
+  const explicit = readExplicitAccent();
+  const accent = explicit ?? deriveAccent(hex);
+  root.style.setProperty("--brand-a", hex);
+  root.style.setProperty("--brand-b", accent);
+  // --brand-fill: gradient bila tema gradient, satu warna bila solid.
+  root.style.setProperty(
+    "--brand-fill",
+    explicit ? `linear-gradient(160deg, ${hex}, ${explicit})` : `linear-gradient(${hex}, ${hex})`
+  );
 }
 
 // Called from use-settings when DB data arrives
@@ -88,9 +121,17 @@ let _setThemeFromDb: ((theme: Theme) => void) | null = null;
 
 export function applyBrandFromDb(brandColor: string, themeMode: string) {
   if (brandColor) {
-    localStorage.setItem(BRAND_COLOR_KEY, brandColor);
-    applyBrandColors(brandColor);
-    _setBrandFromDb?.(brandColor);
+    // Format: "primary:accent" (gradient) atau "primary" (solid).
+    const parts = brandColor.split(":");
+    const primary = parts[0] ?? brandColor;
+    const accent = parts.length === 2 && parts[1] && /^#[0-9a-fA-F]{6}$/.test(parts[1]) ? parts[1] : null;
+    try {
+      localStorage.setItem(BRAND_COLOR_KEY, primary);
+      if (accent) localStorage.setItem(ACCENT_COLOR_KEY, accent);
+      else localStorage.removeItem(ACCENT_COLOR_KEY);
+    } catch {}
+    applyBrandColors(primary);
+    _setBrandFromDb?.(primary);
   }
   if (themeMode === "light" || themeMode === "dark") {
     localStorage.setItem(STORAGE_KEY, themeMode);
@@ -129,9 +170,19 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setBrandColor = useCallback((color: string) => {
+    // Warna solid: hapus accent eksplisit → gradient auto-derive dari warna ini.
+    try { localStorage.removeItem(ACCENT_COLOR_KEY); } catch {}
     setBrandColorState(color);
     localStorage.setItem(BRAND_COLOR_KEY, color);
     applyBrandColors(color);
+  }, []);
+
+  const setGradient = useCallback((from: string, to: string) => {
+    // Preset gradient: simpan accent eksplisit (warna kedua).
+    try { localStorage.setItem(ACCENT_COLOR_KEY, to); } catch {}
+    setBrandColorState(from);
+    localStorage.setItem(BRAND_COLOR_KEY, from);
+    applyBrandColors(from);
   }, []);
 
   // These save to DB via the settings API (called from theme sidebar)
@@ -145,7 +196,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <ThemeContext.Provider value={{ theme, toggleTheme, brandColor, setBrandColor, saveBrandColorToDb, saveThemeToDb, isThemeSidebarOpen, setThemeSidebarOpen }}>
+    <ThemeContext.Provider value={{ theme, toggleTheme, brandColor, setBrandColor, setGradient, saveBrandColorToDb, saveThemeToDb, isThemeSidebarOpen, setThemeSidebarOpen }}>
       {children}
     </ThemeContext.Provider>
   );

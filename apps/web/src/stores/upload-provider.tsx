@@ -1,4 +1,4 @@
-import { createContext, useContext, useCallback, useRef, useState, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useCallback, useRef, useState, useMemo, useEffect, type ReactNode } from "react";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useAuthContext } from "./auth-provider";
 import { logService } from "../services/log.service";
@@ -55,7 +55,15 @@ export interface UploadContextValue {
 const UploadContext = createContext<UploadContextValue | null>(null);
 
 const WORKER_BASE = (import.meta.env.VITE_WORKER_URL as string | undefined) ?? "";
-const CHUNK_SIZE = 30 * 1024 * 1024;
+// 60 MB — kelipatan 256 KB (Google Drive) & 320 KiB (OneDrive). Chunk lebih besar
+// = lebih sedikit batas antar-chunk, progress bar lebih mulus.
+const CHUNK_SIZE = 60 * 1024 * 1024;
+
+// Porsi progress chunk yang dikreditkan dari leg browser→worker (diukur XHR).
+// Sisa 1-LEG1 diisi mulus via interpolasi selama worker meneruskan chunk ke
+// provider (Google/Dropbox) — inilah jeda yang dulu membuat bar "membeku" di
+// kelipatan chunk. Dengan menyisakan 10%, bar terus bergerak sampai response tiba.
+const LEG1_FRACTION = 0.9;
 
 function uploadChunkXHR(
   url: string,
@@ -66,14 +74,49 @@ function uploadChunkXHR(
 ): Promise<{ status: number; body: string }> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const size = chunk.size;
+    let leg1Done = false;
+    let creepValue = size * LEG1_FRACTION;
+    let creepTimer: ReturnType<typeof setInterval> | null = null;
 
-    xhr.upload.onprogress = (e) => {
-      if (e.lengthComputable) onProgress(e.loaded);
+    const stopCreep = () => {
+      if (creepTimer !== null) {
+        clearInterval(creepTimer);
+        creepTimer = null;
+      }
     };
 
-    xhr.onload = () => resolve({ status: xhr.status, body: xhr.responseText });
-    xhr.onerror = () => reject(new Error("Koneksi terputus saat upload."));
-    xhr.onabort = () => reject(new DOMException("Upload dibatalkan", "AbortError"));
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      // Kreditkan hanya 90% selama upload browser→worker.
+      onProgress(Math.min(e.loaded, size) * LEG1_FRACTION);
+
+      // Begitu seluruh chunk terkirim ke worker, mulai interpolasi mulus mengisi
+      // 10% terakhir selama worker meneruskan ke provider + menunggu response.
+      if (e.loaded >= size && !leg1Done && size > 0) {
+        leg1Done = true;
+        creepValue = size * LEG1_FRACTION;
+        creepTimer = setInterval(() => {
+          // Dekati 100% chunk secara asimtotik (tak pernah menyentuh sebelum response).
+          creepValue += (size - creepValue) * 0.06;
+          onProgress(Math.min(creepValue, size * 0.995));
+        }, 100);
+      }
+    };
+
+    xhr.onload = () => {
+      stopCreep();
+      onProgress(size); // Chunk benar-benar selesai — pastikan bar di batas yang tepat.
+      resolve({ status: xhr.status, body: xhr.responseText });
+    };
+    xhr.onerror = () => {
+      stopCreep();
+      reject(new Error("Koneksi terputus saat upload."));
+    };
+    xhr.onabort = () => {
+      stopCreep();
+      reject(new DOMException("Upload dibatalkan", "AbortError"));
+    };
 
     signal.addEventListener("abort", () => xhr.abort(), { once: true });
 
@@ -91,7 +134,8 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { user } = useAuthContext();
   const [items, setItems] = useState<Record<string, UploadItem>>({});
-  
+  const [isUploadSidebarOpen, setUploadSidebarOpen] = useState(false);
+
   // Local storage to persist user-dismissed DB log IDs
   const [dismissedRecentIds, setDismissedRecentIds] = useState<Set<string>>(() => {
     try {
@@ -108,12 +152,18 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     } catch {}
   };
 
-  // Load from DB via listUploads
+  const hasActiveUploads = useMemo(
+    () => Object.values(items).some((i) => i.status === "uploading" || i.status === "queued"),
+    [items]
+  );
+
+  // Load from DB via listUploads — hanya polling saat ada upload aktif atau sidebar terbuka
   const { data: dbLogs } = useQuery({
     queryKey: ["logs", "uploads"],
     queryFn: logService.listUploads,
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchInterval: hasActiveUploads || isUploadSidebarOpen ? 30_000 : false,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     enabled: !!user,
@@ -141,8 +191,15 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       .filter((item) => !dismissedRecentIds.has(item.id));
   }, [dbLogs, dismissedRecentIds]);
 
-  const [isUploadSidebarOpen, setUploadSidebarOpen] = useState(false);
   const abortControllers = useRef<Record<string, AbortController>>({});
+
+  // Cleanup abort controllers on unmount to prevent memory leak
+  useEffect(() => {
+    return () => {
+      Object.values(abortControllers.current).forEach((controller) => controller.abort());
+      abortControllers.current = {};
+    };
+  }, []);
 
   const updateItem = useCallback((id: string, patch: Partial<UploadItem>) => {
     setItems((prev) => {
@@ -345,7 +402,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   );
 
   const startAllUploads = useCallback(() => {
-    setUploadSidebarOpen(true);
+    // Jangan auto buka sidebar progress — user mau tetap di halaman files
     Object.values(items).forEach((item) => {
       if (item.status === "queued" || item.status === "error" || item.status === "paused") {
         startUpload(item.id);
@@ -403,26 +460,45 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     });
   }, [recentItems]);
 
-  const sortedItems = Object.values(items).sort((a, b) => Number(b.id.split("-").pop()) - Number(a.id.split("-").pop()));
+  const sortedItems = useMemo(
+    () => Object.values(items).sort((a, b) => Number(b.id.split("-").pop()) - Number(a.id.split("-").pop())),
+    [items]
+  );
+
+  const contextValue = useMemo(
+    () => ({
+      items: sortedItems,
+      recentItems,
+      addFilesToQueue,
+      setTargetAccount,
+      startUpload,
+      startAllUploads,
+      pauseUpload,
+      cancelUpload,
+      removeItem,
+      clearFinished,
+      clearRecent,
+      isUploadSidebarOpen,
+      setUploadSidebarOpen,
+    }),
+    [
+      sortedItems,
+      recentItems,
+      addFilesToQueue,
+      setTargetAccount,
+      startUpload,
+      startAllUploads,
+      pauseUpload,
+      cancelUpload,
+      removeItem,
+      clearFinished,
+      clearRecent,
+      isUploadSidebarOpen,
+    ]
+  );
 
   return (
-    <UploadContext.Provider
-      value={{
-        items: sortedItems,
-        recentItems,
-        addFilesToQueue,
-        setTargetAccount,
-        startUpload,
-        startAllUploads,
-        pauseUpload,
-        cancelUpload,
-        removeItem,
-        clearFinished,
-        clearRecent,
-        isUploadSidebarOpen,
-        setUploadSidebarOpen,
-      }}
-    >
+    <UploadContext.Provider value={contextValue}>
       {children}
     </UploadContext.Provider>
   );

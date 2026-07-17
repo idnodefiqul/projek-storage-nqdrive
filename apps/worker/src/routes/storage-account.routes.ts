@@ -5,11 +5,15 @@ import { requireAuth } from "../middleware/require-auth.middleware";
 import { DriveAccountRepository } from "../database/drive-account.repository";
 import { FileRepository } from "../database/file.repository";
 import { GoogleAccountConnectionService } from "../services/google-account-connection.service";
+import { DropboxAccountConnectionService } from "../services/dropbox-account-connection.service";
+import { OneDriveAccountConnectionService } from "../services/onedrive-account-connection.service";
 import {
   exchangeRefreshToken,
   fetchGoogleAccountInfo,
   buildGoogleAuthUrl,
 } from "../services/google-oauth.service";
+import { buildDropboxAuthUrl } from "../services/dropbox-oauth.service";
+import { buildOneDriveAuthUrl } from "../services/onedrive-oauth.service";
 import { signJwt, verifyJwt } from "../utils/jwt";
 import { calculatePercentage } from "@nqdrive/shared";
 import { StorageProviderFactory } from "@nqdrive/storage";
@@ -20,43 +24,99 @@ import type { PublicDriveAccount, DriveAccount } from "@nqdrive/types";
 
 const storageAccountRoutes = new Hono<{ Bindings: Env }>();
 
-// Redirect URI OAuth harus menunjuk ke worker (yang memegang GOOGLE_CLIENT_SECRET),
-// dan HARUS sama persis dengan yang didaftarkan di Google Cloud Console.
+// Redirect URI OAuth harus menunjuk ke worker (yang memegang CLIENT_SECRET),
+// dan HARUS sama persis dengan yang didaftarkan di console masing-masing provider.
 function getRedirectUri(env: Env): string {
+  // Semua provider pakai callback yang sama, biar redirect_uri konsisten
   return `${env.GOOGLE_OAUTH_REDIRECT_URI.replace(/\/$/, "")}/api/storage/accounts/oauth/callback`;
 }
 
-// URL dashboard tujuan redirect balik setelah callback (sukses/gagal).
-function getDashboardUrl(env: Env): string {
-  return `${(env.WEB_APP_URL || "https://drive.fiqul.id").replace(/\/$/, "")}/dashboard/storage-manager`;
+// URL dashboard tujuan redirect balik setelah callback (sukses/gagal) — per provider.
+function getDashboardUrl(env: Env, provider: string = "google_drive"): string {
+  const base = (env.WEB_APP_URL || "https://drive.fiqul.id").replace(/\/$/, "");
+  switch (provider) {
+    case "dropbox":
+      return `${base}/dashboard/dropbox`;
+    case "onedrive":
+      return `${base}/dashboard/onedrive`;
+    case "google_drive":
+    default:
+      return `${base}/dashboard/storage-manager`;
+  }
 }
 
-// ─── OAuth callback (Google redirect ke sini — TANPA requireAuth) ──────────
-// Didaftarkan SEBELUM requireAuth agar Google (yang tak punya cookie sesi) bisa mengaksesnya.
+// ─── OAuth callback (multi-provider) — TANPA requireAuth ──────────
+// Didaftarkan SEBELUM requireAuth agar provider OAuth (yang tak punya cookie sesi) bisa mengaksesnya.
 // Proteksi CSRF via `state` JWT bertanda-tangan yang kita terbitkan di /oauth/url.
+// Provider disimpan di field username dalam JWT state.
 storageAccountRoutes.get("/accounts/oauth/callback", async (c) => {
-  const dashboard = getDashboardUrl(c.env);
   const code = c.req.query("code");
   const state = c.req.query("state");
   const oauthError = c.req.query("error");
+  const errorDesc = c.req.query("error_description");
 
-  // User menolak izin di halaman Google, atau Google mengembalikan error.
+  // Validasi state dulu untuk dapat provider, baru tentukan dashboard redirect
+  let provider = "google_drive";
+  let dashboard = getDashboardUrl(c.env, provider);
+
+  if (state) {
+    try {
+      const payload = await verifyJwt(state, c.env.JWT_SECRET);
+      if (payload && payload.email === "oauth-state@nqdrive.internal") {
+        const p = (payload as any).username || "google_drive";
+        // username berisi provider, kecuali "oauth" legacy
+        if (["google_drive", "dropbox", "onedrive"].includes(p)) {
+          provider = p;
+        }
+        dashboard = getDashboardUrl(c.env, provider);
+      }
+    } catch {
+      // ignore, pakai default dashboard
+    }
+  }
+
   if (oauthError) {
-    return c.redirect(`${dashboard}?oauth=error&reason=${encodeURIComponent(oauthError)}`);
+    return c.redirect(`${dashboard}?oauth=error&reason=${encodeURIComponent(oauthError)}&desc=${encodeURIComponent(errorDesc || "")}`);
   }
   if (!code || !state) {
     return c.redirect(`${dashboard}?oauth=error&reason=missing_code`);
   }
 
-  // Validasi state (CSRF): harus JWT valid yang kita terbitkan sendiri.
   const statePayload = await verifyJwt(state, c.env.JWT_SECRET);
   if (!statePayload || statePayload.email !== "oauth-state@nqdrive.internal") {
     return c.redirect(`${dashboard}?oauth=error&reason=invalid_state`);
   }
 
+  // Ambil provider dari username field di JWT
+  const stateProvider = (statePayload as any).username as string;
+  if (["google_drive", "dropbox", "onedrive"].includes(stateProvider)) {
+    provider = stateProvider;
+    dashboard = getDashboardUrl(c.env, provider);
+  }
+
   try {
-    const connectionService = new GoogleAccountConnectionService(c.env);
-    const account = await connectionService.connectViaAuthCode(code, getRedirectUri(c.env));
+    let account: DriveAccount;
+    const redirectUri = getRedirectUri(c.env);
+
+    switch (provider) {
+      case "dropbox": {
+        const svc = new DropboxAccountConnectionService(c.env);
+        account = await svc.connectViaAuthCode(code, redirectUri);
+        break;
+      }
+      case "onedrive": {
+        const svc = new OneDriveAccountConnectionService(c.env);
+        account = await svc.connectViaAuthCode(code, redirectUri);
+        break;
+      }
+      case "google_drive":
+      default: {
+        const svc = new GoogleAccountConnectionService(c.env);
+        account = await svc.connectViaAuthCode(code, redirectUri);
+        break;
+      }
+    }
+
     return c.redirect(`${dashboard}?oauth=success&email=${encodeURIComponent(account.email)}`);
   } catch (error) {
     const message = error instanceof Error ? error.message : "connect_failed";
@@ -67,20 +127,47 @@ storageAccountRoutes.get("/accounts/oauth/callback", async (c) => {
 storageAccountRoutes.use("*", requireAuth);
 
 // ─── GET /api/storage/accounts/oauth/url ───────────────────────────────────
-// Admin terautentikasi meminta URL consent Google. Kita terbitkan `state` JWT
+// Admin terautentikasi meminta URL consent (multi-provider). Kita terbitkan `state` JWT
 // berumur pendek untuk proteksi CSRF, lalu frontend melakukan window.location ke URL ini.
 storageAccountRoutes.get("/accounts/oauth/url", async (c) => {
+  const providerParam = (c.req.query("provider") || "google_drive").toString().toLowerCase();
+  const provider = ["google_drive", "dropbox", "onedrive"].includes(providerParam) ? providerParam : "google_drive";
+
   const state = await signJwt(
-    { sub: 0, username: "oauth", email: "oauth-state@nqdrive.internal" },
+    { sub: 0, username: provider, email: "oauth-state@nqdrive.internal" } as any,
     c.env.JWT_SECRET,
     600 // 10 menit
   );
 
-  const url = buildGoogleAuthUrl({
-    clientId: c.env.GOOGLE_CLIENT_ID,
-    redirectUri: getRedirectUri(c.env),
-    state,
-  });
+  const redirectUri = getRedirectUri(c.env);
+  let url: string;
+
+  switch (provider) {
+    case "dropbox":
+      if (!c.env.DROPBOX_APP_KEY) throw new Error("Dropbox not configured");
+      url = buildDropboxAuthUrl({
+        clientId: c.env.DROPBOX_APP_KEY!,
+        redirectUri,
+        state,
+      });
+      break;
+    case "onedrive":
+      if (!c.env.MICROSOFT_CLIENT_ID) throw new Error("OneDrive not configured");
+      url = buildOneDriveAuthUrl({
+        clientId: c.env.MICROSOFT_CLIENT_ID!,
+        redirectUri,
+        state,
+      });
+      break;
+    case "google_drive":
+    default:
+      url = buildGoogleAuthUrl({
+        clientId: c.env.GOOGLE_CLIENT_ID,
+        redirectUri,
+        state,
+      });
+      break;
+  }
 
   return c.json({ success: true, data: { url } });
 });
@@ -167,10 +254,22 @@ const connectTokenSchema = z.object({
 storageAccountRoutes.get("/accounts", async (c) => {
   const repository = new DriveAccountRepository(c.env.DB);
   const accounts = await repository.findAll();
+
+  // FIX: akun yang sudah DISCONNECT (refresh_token_encrypted dikosongkan oleh
+  // DELETE /accounts/:id karena masih punya file) JANGAN tampil lagi di list
+  // provider (Google Drive / OneDrive / Dropbox). Sebelumnya findAll() polos →
+  // user klik disconnect tapi akun tetap muncul. Konsisten dengan dashboard
+  // yang juga sudah exclude token kosong.
+  const connectedAccounts = accounts.filter(
+    (a) => (a.provider as string) !== "telegram" && (a.refreshTokenEncrypted ?? "") !== ""
+  );
+
   const accountsWithCounts = await Promise.all(
-    accounts.map(async (account) => {
+    connectedAccounts.map(async (account) => {
+      // FIX: filter deleted_at IS NULL agar konsisten dengan dashboard & file listing
+      // Jika tidak, file di Trash tetap kehitung → distribusi tidak sinkron (4 di Drive, 3 di DB dsb)
       const row = await c.env.DB.prepare(
-        "SELECT COUNT(*) as count FROM files WHERE drive_account_id = ?"
+        "SELECT COUNT(*) as count FROM files WHERE drive_account_id = ? AND deleted_at IS NULL"
       ).bind(account.id).first<{ count: number }>();
 
       return { ...toPublic(account), fileCount: row?.count ?? 0 };
@@ -180,6 +279,54 @@ storageAccountRoutes.get("/accounts", async (c) => {
   return c.json({ success: true, data: { accounts: accountsWithCounts } });
 });
 
+
+// --- POST /api/storage/accounts/purge-telegram ---
+// Hapus permanen semua akun provider telegram yang sudah deprecated + filenya
+// Dibuat karena user hapus telegram tapi masih muncul di distribusi (legacy data)
+// FIX: juga hapus upload_logs & upload_sessions yang jadi FK RESTRICT penghambat delete
+storageAccountRoutes.post("/accounts/purge-telegram", async (c) => {
+  try {
+    const { results: teleAccounts } = await c.env.DB.prepare(
+      "SELECT id, email FROM drive_accounts WHERE provider = 'telegram'"
+    ).all<{ id: number; email: string }>();
+
+    let deletedFiles = 0;
+    let deletedLogs = 0;
+    let deletedAccounts = 0;
+
+    for (const acc of teleAccounts) {
+      // hapus yang jadi blokir FK RESTRICT dulu
+      const logDel = await c.env.DB.prepare("DELETE FROM upload_logs WHERE drive_account_id = ?").bind(acc.id).run();
+      // @ts-ignore
+      deletedLogs += (logDel as any).changes ?? 0;
+      await c.env.DB.prepare("DELETE FROM upload_sessions WHERE drive_account_id = ?").bind(acc.id).run();
+
+      const fileDel = await c.env.DB.prepare("DELETE FROM files WHERE drive_account_id = ?").bind(acc.id).run();
+      // @ts-ignore D1 meta
+      deletedFiles += (fileDel as any).changes ?? 0;
+      // migration_jobs ada ON DELETE CASCADE jadi ikut kehapus otomatis, tapi kita coba manual juga biar bersih
+      await c.env.DB.prepare("DELETE FROM migration_jobs WHERE source_account_id = ? OR target_account_id = ?").bind(acc.id, acc.id).run();
+
+      await c.env.DB.prepare("DELETE FROM drive_accounts WHERE id = ?").bind(acc.id).run();
+      deletedAccounts++;
+    }
+
+    writeAuditLog(c, { action: "storage.purge_telegram", status: "warning", detail: `${deletedAccounts} akun, ${deletedFiles} file, ${deletedLogs} logs` });
+
+    return c.json({
+      success: true,
+      data: {
+        message: `Berhasil hapus ${deletedAccounts} akun Telegram, ${deletedFiles} file, ${deletedLogs} upload_logs.`,
+        deletedAccounts,
+        deletedFiles,
+        deletedLogs,
+      },
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Gagal purge telegram";
+    return c.json({ success: false, error: { code: "PURGE_FAILED", message: msg } }, 500);
+  }
+});
 
 // --- POST /api/storage/accounts/format-all ---
 // Hard-delete semua file dari semua akun Google Drive, tapi akun tetap terhubung.
@@ -278,6 +425,19 @@ storageAccountRoutes.delete("/accounts/:id", async (c) => {
     );
   }
 
+  // FIX telegram: force delete meski ada file, karena provider sudah deprecated dan user sudah hapus tapi masih muncul di distribusi
+  // + fix FK RESTRICT: hapus upload_logs & sessions dulu baru bisa delete akun
+  const isTelegram = (account.provider as string) === "telegram";
+  if (isTelegram) {
+    await c.env.DB.prepare("DELETE FROM upload_logs WHERE drive_account_id = ?").bind(id).run();
+    await c.env.DB.prepare("DELETE FROM upload_sessions WHERE drive_account_id = ?").bind(id).run();
+    await c.env.DB.prepare("DELETE FROM migration_jobs WHERE source_account_id = ? OR target_account_id = ?").bind(id, id).run();
+    await c.env.DB.prepare("DELETE FROM files WHERE drive_account_id = ?").bind(id).run();
+    await repository.delete(id);
+    writeAuditLog(c, { action: "storage.disconnect", status: "warning", detail: `${account.email} [telegram force delete]` });
+    return c.json({ success: true, data: { message: "Akun Telegram berhasil dihapus permanen beserta filenya." } });
+  }
+
   // Count files associated with this account
   const filesRow = await c.env.DB.prepare(
     "SELECT COUNT(*) as count FROM files WHERE drive_account_id = ? AND deleted_at IS NULL"
@@ -298,7 +458,10 @@ storageAccountRoutes.delete("/accounts/:id", async (c) => {
       data: { message: `Akun diputus. ${filesCount} file tetap di list — login ulang untuk mengaktifkan download.` },
     });
   } else {
-    // No files, delete completely
+    // No files, delete completely - hapus dulu FK yang RESTRICT
+    await c.env.DB.prepare("DELETE FROM upload_logs WHERE drive_account_id = ?").bind(id).run();
+    await c.env.DB.prepare("DELETE FROM upload_sessions WHERE drive_account_id = ?").bind(id).run();
+    await c.env.DB.prepare("DELETE FROM migration_jobs WHERE source_account_id = ? OR target_account_id = ?").bind(id, id).run();
     await repository.delete(id);
     writeAuditLog(c, { action: "storage.disconnect", status: "warning", detail: account.email });
     return c.json({ success: true, data: { message: "Akun berhasil dihapus." } });
@@ -425,6 +588,11 @@ storageAccountRoutes.post("/accounts/sync-all", async (c) => {
   const results: { id: number; email: string; status: "ok" | "error"; error?: string }[] = [];
 
   for (const account of accounts) {
+    // Skip disconnect (token kosong) — already offline
+    if (!account.refreshTokenEncrypted) {
+      results.push({ id: account.id, email: account.email, status: "ok" });
+      continue;
+    }
     try {
       const credentials = await resolveCredentials(account, c.env);
       const provider = StorageProviderFactory.resolve(account.provider);
@@ -455,7 +623,12 @@ storageAccountRoutes.get("/summary", async (c) => {
   const driveAccountRepository = new DriveAccountRepository(c.env.DB);
   const fileRepository = new FileRepository(c.env.DB);
 
-  const accounts = await driveAccountRepository.findAll();
+  const allAccounts = await driveAccountRepository.findAll();
+  // Konsisten dengan GET /accounts & dashboard: akun disconnect (token kosong)
+  // dan telegram legacy tidak ikut dihitung di summary Storage Manager
+  const accounts = allAccounts.filter(
+    (a) => (a.provider as string) !== "telegram" && (a.refreshTokenEncrypted ?? "") !== ""
+  );
   const fileCount = await fileRepository.countAll();
   const downloadCount = await fileRepository.sumDownloadCount();
 

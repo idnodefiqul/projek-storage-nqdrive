@@ -12,5 +12,4 @@ export { default as logoLoginPng } from "./logo-login.png";
 export { default as googleDriveSvg } from "./google-drive.svg";
 export { default as cloudflareR2Svg } from "./cloudflare-r2.svg";
 export { default as amazonS3Svg } from "./amazon-s3.svg";
-export { default as telegramSvg } from "./telegram.svg";
 export { default as onedriveSvg } from "./onedrive.svg";

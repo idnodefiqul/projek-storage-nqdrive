@@ -29,11 +29,11 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('download_endpoint', 'defaul
 
 CREATE TABLE IF NOT EXISTS drive_accounts (
   id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-  email                    TEXT NOT NULL UNIQUE,
+  email                    TEXT NOT NULL,
   provider                 TEXT NOT NULL DEFAULT 'google_drive'
                              CHECK (provider IN (
                                'google_drive', 'cloudflare_r2', 'amazon_s3',
-                                'backblaze_b2', 'wasabi', 'dropbox', 'onedrive', 'minio'
+                                'backblaze_b2', 'wasabi', 'dropbox', 'onedrive', 'koofr', 'minio'
                              )),
   refresh_token_encrypted  TEXT NOT NULL,
   access_token             TEXT,
@@ -48,6 +48,9 @@ CREATE TABLE IF NOT EXISTS drive_accounts (
   updated_at               TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
 );
 CREATE INDEX IF NOT EXISTS idx_drive_accounts_status ON drive_accounts (status);
+-- Satu email boleh dipakai lintas provider (mis. Gmail sama untuk Google Drive & Dropbox),
+-- tapi tidak boleh ganda pada provider yang sama.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_drive_accounts_email_provider ON drive_accounts (email, provider);
 
 CREATE TABLE IF NOT EXISTS folders (
   id                        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,6 +144,7 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_revoked_at ON api_keys (revoked_at);
 CREATE TABLE IF NOT EXISTS upload_sessions (
   id                TEXT PRIMARY KEY,
   google_upload_url TEXT NOT NULL,
+  provider          TEXT NOT NULL DEFAULT 'google_drive',
   drive_account_id  INTEGER NOT NULL,
   filename          TEXT NOT NULL,
   mime_type         TEXT NOT NULL,

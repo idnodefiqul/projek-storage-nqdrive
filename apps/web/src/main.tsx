@@ -3,9 +3,17 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider, createRouter } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@nqdrive/ui";
+import { MigrationProvider } from "./stores/migration-provider";
+import { UploadProvider } from "./stores/upload-provider";
+import "@fontsource/inter/latin-400.css";
+import "@fontsource/inter/latin-500.css";
+import "@fontsource/inter/latin-600.css";
+import "@fontsource/inter/latin-700.css";
+import "@fontsource/inter/latin-800.css";
 
 import { routeTree } from "./routeTree.gen";
 import { ThemeProvider } from "./stores/theme-provider";
+import { AuthProvider } from "./stores/auth-provider";
 import "./styles/globals.css";
 
 /**
@@ -82,19 +90,50 @@ declare module "@tanstack/react-router" {
   }
 }
 
-const rootElement = document.getElementById("root");
-if (!rootElement) {
+const rootElement = document.getElementById("root");if (!rootElement) {
   throw new Error('Root element "#root" not found in index.html');
+}
+
+function hideAppLoader() {
+  const loader = document.getElementById("app-loader");
+  if (!loader || loader.dataset.hiding === "1") return;
+  loader.dataset.hiding = "1";
+  loader.setAttribute("aria-busy", "false");
+  // requestAnimationFrame biar fade transisinya ke-trigger setelah compositor layer siap
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      loader.classList.add("app-loader--hide");
+    });
+  });
+  const remove = () => {
+    loader.remove();
+  };
+  loader.addEventListener("transitionend", remove, { once: true });
+  // fallback kalau transitionend tidak ke-fire (misal tab background)
+  window.setTimeout(remove, 500);
 }
 
 createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <ToastProvider>
-          <RouterProvider router={router} />
-        </ToastProvider>
+        <AuthProvider>
+          <ToastProvider>
+            <UploadProvider>
+              <MigrationProvider>
+                <RouterProvider router={router} />
+              </MigrationProvider>
+            </UploadProvider>
+          </ToastProvider>
+        </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
   </StrictMode>
 );
+
+// Loader di luar #root harus di-hide manual setelah React commit pertama.
+// Pakai rAF + timeout agar tidak balapan dengan paint awal.
+requestAnimationFrame(() => {
+  window.setTimeout(hideAppLoader, 80);
+});
+window.addEventListener("load", hideAppLoader, { once: true });

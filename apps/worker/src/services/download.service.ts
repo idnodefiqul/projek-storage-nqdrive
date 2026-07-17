@@ -57,6 +57,10 @@ export class DownloadService {
       const account = await this.driveAccountRepository.findById(file.driveAccountId);
       if (!account) return null;
 
+      // Fallback ini spesifik Google Drive (metadata API). Untuk provider lain
+      // (mis. Dropbox) lewati — ukuran sudah tersimpan di DB saat finalize upload.
+      if (account.provider !== "google_drive") return null;
+
       const accessToken = await this.connectionService.getValidAccessToken(account);
 
       // Hanya request metadata fields=size — sangat ringan, tidak membuka stream

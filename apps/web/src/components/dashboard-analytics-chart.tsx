@@ -1,34 +1,50 @@
-import { useState, useMemo, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle, Skeleton } from "@nqdrive/ui";
+import { useMemo } from "react";
+import {
+  ComposedChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+} from "recharts";
+import { Skeleton } from "@nqdrive/ui";
+import { ArrowDownToLine, ArrowUpFromLine, TrendingUp, TrendingDown, Activity } from "lucide-react";
 import { useDashboardAnalytics } from "../hooks/use-dashboard";
+import { SectionCard, ChartTooltip, CHART_COLORS } from "./ui-kit";
 
 type Period = 7 | 30 | 90;
 
 function formatDate(dateStr: string, period: Period): string {
   const d = new Date(dateStr + "T00:00:00");
-  if (period === 7) {
-    return d.toLocaleDateString("id-ID", { weekday: "short", day: "numeric" });
-  }
+  if (period === 7) return d.toLocaleDateString("id-ID", { weekday: "short", day: "numeric" });
   return d.toLocaleDateString("id-ID", { day: "numeric", month: "short" });
 }
 
-export function DashboardAnalyticsChart() {
-  const [period, setPeriod] = useState<Period>(30);
-  const { data: analytics, isLoading } = useDashboardAnalytics(period);
-  const [Chart, setChart] = useState<any>(null);
+function trendPct(values: number[]): number {
+  if (values.length < 2) return 0;
+  const mid = Math.floor(values.length / 2);
+  const prev = values.slice(0, mid).reduce((s, v) => s + v, 0);
+  const curr = values.slice(mid).reduce((s, v) => s + v, 0);
+  if (prev === 0) return curr > 0 ? 100 : 0;
+  return ((curr - prev) / prev) * 100;
+}
 
-  useEffect(() => {
-    let mounted = true;
-    import("react-apexcharts").then(m => {
-      if (mounted) setChart(() => m.default);
-    });
-    return () => { mounted = false; };
-  }, []);
+export function DashboardAnalyticsChart({
+  period,
+  onPeriodChange,
+}: {
+  period: Period;
+  onPeriodChange: (p: Period) => void;
+}) {
+  const { data: analytics, isLoading } = useDashboardAnalytics(period);
 
   const chartData = analytics?.chartData ?? [];
-  const categories = chartData.map(d => formatDate(d.date, period));
-  const downloads = chartData.map(d => d.downloads);
-  const uploads = chartData.map(d => d.uploads);
+  const data = chartData.map((d) => ({
+    name: formatDate(d.date, period),
+    download: d.downloads,
+    upload: d.uploads,
+  }));
+
+  const downloads = chartData.map((d) => d.downloads);
+  const uploads = chartData.map((d) => d.uploads);
+  const totalDl = downloads.reduce((s, v) => s + v, 0);
+  const totalUp = uploads.reduce((s, v) => s + v, 0);
+  const dlTrend = trendPct(downloads);
 
   const PERIODS: { label: string; value: Period }[] = [
     { label: "7H", value: 7 },
@@ -36,97 +52,108 @@ export function DashboardAnalyticsChart() {
     { label: "90H", value: 90 },
   ];
 
-  const isDark = typeof document !== "undefined" && document.documentElement.classList.contains("dark");
+  const tickInterval = useMemo(() => {
+    if (period === 7) return 0;
+    if (period === 30) return 3;
+    return 9;
+  }, [period]);
 
-  const options = useMemo((): any => ({
-    chart: {
-      type: "area",
-      toolbar: { show: false },
-      zoom: { enabled: false },
-      background: "transparent",
-      fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
-      animations: { enabled: true, easing: "easeinout", speed: 600, dynamicAnimation: { enabled: false } },
-      selection: { enabled: false },
-      redrawOnParentResize: true,
-      redrawOnWindowResize: true,
-    },
-    theme: { mode: isDark ? "dark" : "light" },
-    colors: ["#6366f1", "#10b981"],
-    dataLabels: { enabled: false },
-    stroke: { curve: "smooth", width: 2.5 },
-    fill: {
-      type: "gradient",
-      gradient: { shadeIntensity: 1, opacityFrom: 0.35, opacityTo: 0.05, stops: [0, 90, 100] },
-    },
-    xaxis: {
-      categories,
-      labels: { style: { colors: isDark ? "#71717a" : "#a1a1aa", fontSize: "11px" } },
-      axisBorder: { show: false },
-      axisTicks: { show: false },
-      tickAmount: period === 7 ? 7 : period === 30 ? 8 : 10,
-    },
-    yaxis: {
-      labels: { style: { colors: isDark ? "#71717a" : "#a1a1aa", fontSize: "11px" } },
-    },
-    grid: {
-      borderColor: isDark ? "#27272a" : "#e4e4e7",
-      strokeDashArray: 3,
-      xaxis: { lines: { show: false } },
-    },
-    tooltip: {
-      theme: isDark ? "dark" : "light",
-      x: { show: true },
-    },
-    legend: {
-      position: "top",
-      horizontalAlign: "right",
-      labels: { colors: isDark ? "#a1a1aa" : "#52525b" },
-      fontSize: "12px",
-      markers: { size: 5, shape: "circle" },
-    },
-  }), [isDark, categories, period]);
-
-  const series = [
-    { name: "Download", data: downloads },
-    { name: "Upload", data: uploads },
-  ];
+  const periodToggle = (
+    <div className="flex shrink-0 items-center gap-1 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface-muted))]/60 p-1">
+      {PERIODS.map((p) => (
+        <button
+          key={p.value}
+          onClick={() => onPeriodChange(p.value)}
+          className={
+            "rounded-lg px-2.5 py-1 text-xs font-bold transition-colors " +
+            (period === p.value
+              ? "bg-[rgb(var(--surface))] text-brand-600 shadow-[var(--shadow-card)] dark:text-brand-300"
+              : "text-[rgb(var(--ink-500))] hover:text-[rgb(var(--foreground))]")
+          }
+        >
+          {p.label}
+        </button>
+      ))}
+    </div>
+  );
 
   return (
-    <Card className="col-span-1 lg:col-span-5" style={{ contain: "layout style" }}>
-      <CardHeader className="flex flex-row items-start justify-between gap-3 pb-4">
-        <div className="min-w-0">
-          <CardTitle className="text-lg font-semibold">Analitik Aktivitas</CardTitle>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-            Download &amp; upload dalam {period} hari terakhir
-          </p>
+    <SectionCard title="Analitik Aktivitas" icon={Activity} action={periodToggle} className="h-full" bodyClassName="p-5">
+      {/* Ringkasan seri */}
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-brand-500/10 text-brand-600 ring-1 ring-brand-500/15 dark:text-brand-300">
+            <ArrowDownToLine className="h-4 w-4" />
+          </span>
+          <div className="leading-tight">
+            <p className="font-display text-lg font-extrabold tabular tracking-tight text-[rgb(var(--foreground))]">{totalDl.toLocaleString("id-ID")}</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[rgb(var(--ink-500))]">Download</p>
+          </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1 rounded-lg border border-zinc-200 dark:border-zinc-700 p-1 bg-zinc-50 dark:bg-zinc-800/50">
-          {PERIODS.map((p) => (
-            <button
-              key={p.value}
-              onClick={() => setPeriod(p.value)}
-              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-all ${
-                period === p.value
-                  ? "bg-white dark:bg-zinc-900 shadow text-zinc-900 dark:text-zinc-100"
-                  : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200"
-              }`}
-            >
-              {p.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2.5">
+          <span className="grid h-8 w-8 place-items-center rounded-lg bg-[rgb(var(--surface-muted))] text-[rgb(var(--ink-500))] ring-1 ring-[rgb(var(--border-subtle))]">
+            <ArrowUpFromLine className="h-4 w-4" />
+          </span>
+          <div className="leading-tight">
+            <p className="font-display text-lg font-extrabold tabular tracking-tight text-[rgb(var(--foreground))]">{totalUp.toLocaleString("id-ID")}</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.1em] text-[rgb(var(--ink-500))]">Upload</p>
+          </div>
         </div>
-      </CardHeader>
-      <CardContent>
-        {isLoading || !Chart ? (
-          <Skeleton className="h-[260px] w-full rounded-xl" />
-        ) : chartData.length === 0 ? (
-          <div className="flex h-[260px] items-center justify-center text-sm text-zinc-400">
+        <span
+          className={
+            "ml-auto inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-bold " +
+            (dlTrend >= 0
+              ? "bg-emerald-500/12 text-emerald-600 dark:text-emerald-300"
+              : "bg-rose-500/12 text-rose-600 dark:text-rose-300")
+          }
+        >
+          {dlTrend >= 0 ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+          {Math.abs(dlTrend).toFixed(0)}%
+        </span>
+      </div>
+
+      <div className="mt-5 h-[300px] w-full sm:h-[380px]">
+        {isLoading ? (
+          <Skeleton className="h-full w-full rounded-2xl" />
+        ) : data.length === 0 ? (
+          <div className="flex h-full items-center justify-center text-sm font-medium text-[rgb(var(--ink-500))]">
             Belum ada data aktivitas.
           </div>
         ) : (
-          <Chart options={options} series={series} type="area" height={260} />
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={data} margin={{ top: 10, right: 6, left: -18, bottom: 0 }}>
+              <defs>
+                <linearGradient id="areaDownload" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={CHART_COLORS.brand} stopOpacity={0.18} />
+                  <stop offset="95%" stopColor={CHART_COLORS.brand} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke={CHART_COLORS.grid} strokeDasharray="4 4" vertical={false} />
+              <XAxis
+                dataKey="name" interval={tickInterval}
+                tick={{ fill: "rgb(var(--ink-500))", fontWeight: 600, fontSize: 12 }}
+                tickLine={false} axisLine={false} dy={10}
+              />
+              <YAxis
+                width={44}
+                tick={{ fill: "rgb(var(--ink-500))", fontWeight: 600, fontSize: 12 }}
+                tickLine={false} axisLine={false}
+              />
+              <Tooltip content={<ChartTooltip />} cursor={{ stroke: CHART_COLORS.grid, strokeWidth: 1.5, strokeDasharray: "4 4" }} />
+              <Area
+                type="monotone" dataKey="download" name="Download" stroke={CHART_COLORS.brand}
+                strokeWidth={2.5} fill="url(#areaDownload)" fillOpacity={1}
+                activeDot={{ r: 5, fill: CHART_COLORS.brand, stroke: "rgb(var(--surface))", strokeWidth: 2 }} dot={false}
+              />
+              <Line
+                type="monotone" dataKey="upload" name="Upload" stroke={CHART_COLORS.ink}
+                strokeWidth={2} strokeDasharray="5 4"
+                activeDot={{ r: 5, fill: CHART_COLORS.ink, stroke: "rgb(var(--surface))", strokeWidth: 2 }} dot={false}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </SectionCard>
   );
 }

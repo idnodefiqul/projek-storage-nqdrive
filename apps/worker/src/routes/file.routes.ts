@@ -157,9 +157,29 @@ fileRoutes.delete("/:id", async (c) => {
   const id = Number(c.req.param("id"));
   if (isNaN(id)) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
   const fileRepository = new FileRepository(c.env.DB);
+  const driveAccountRepository = new DriveAccountRepository(c.env.DB);
   const file = await fileRepository.findById(id);
   if (!file) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
   await fileRepository.softDelete(id);
+
+  // Re-calc quota dari DB SUM agar akurat — fix kuota "bertambah terus" tidak pernah berkurang
+  try {
+    const row = await c.env.DB.prepare(
+      "SELECT COALESCE(SUM(size_bytes), 0) as total FROM files WHERE drive_account_id = ? AND deleted_at IS NULL"
+    ).bind(file.driveAccountId).first<{ total: number }>();
+    const used = row?.total ?? 0;
+    const account = await driveAccountRepository.findById(file.driveAccountId);
+    if (account) {
+      await driveAccountRepository.updateQuota(account.id, {
+        totalBytes: account.totalStorageBytes,
+        usedBytes: used,
+        availableBytes: Math.max(0, account.totalStorageBytes - used),
+      });
+    }
+  } catch (err) {
+    console.error(`[file delete] gagal recalc quota account ${file.driveAccountId}:`, err);
+  }
+
   writeAuditLog(c, { action: "file.delete", status: "warning", detail: file.filename });
   return c.json({ success: true, data: { message: "File dipindahkan ke Trash." } });
 });

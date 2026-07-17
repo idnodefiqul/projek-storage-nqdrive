@@ -1,5 +1,17 @@
-import { useEffect } from "react";
-import { X, CheckCircle2, Loader2, XCircle, Send, Trash2, FileCheck, Pause, Play, ArrowLeftRight } from "lucide-react";
+import { useEffect, useRef, useId, useCallback } from "react";
+import { X, CheckCircle2, Loader2, XCircle, Trash2, FileCheck, Pause, Play, ArrowLeftRight } from "lucide-react";
+
+const FOCUSABLE_SEL = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+function getFocusable(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SEL)).filter((el) => {
+    if (el.hasAttribute("disabled")) return false;
+    if (el.getAttribute("aria-hidden") === "true") return false;
+    const cs = window.getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden") return false;
+    return el.getClientRects().length > 0 || el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement;
+  });
+}
+import { IconCloudUpload } from "@tabler/icons-react";
 import { Button, Progress } from "@nqdrive/ui";
 import { formatBytes } from "@nqdrive/shared";
 import { useUploadGlobal } from "../stores/upload-provider";
@@ -46,8 +58,56 @@ export function UploadSidebar() {
   } = useUploadGlobal();
 
   const { activeJobs: migrationJobs, recentJobs: recentMigrations, cancelMigration } = useMigrationGlobal();
+  const titleId = useId();
+  const panelRef = useRef<HTMLDivElement | null>(null);
+  const prevActiveRef = useRef<HTMLElement | null>(null);
 
-  const handleClose = () => setUploadSidebarOpen(false);
+  useEffect(() => {
+    const html = document.documentElement;
+    if (isUploadSidebarOpen) {
+      prevActiveRef.current = document.activeElement as HTMLElement | null;
+      html.style.overflow = "hidden";
+      requestAnimationFrame(() => {
+        const c = panelRef.current;
+        if (!c) return;
+        const f = getFocusable(c);
+        f[0]?.focus();
+      });
+    } else {
+      html.style.overflow = "";
+      const prev = prevActiveRef.current;
+      if (prev) setTimeout(() => { try { prev.focus(); } catch {} }, 0);
+    }
+    return () => { html.style.overflow = ""; };
+  }, [isUploadSidebarOpen]);
+
+  useEffect(() => {
+    if (!isUploadSidebarOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      const container = panelRef.current;
+      if (!container) return;
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setUploadSidebarOpen(false);
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusable = getFocusable(container);
+      if (focusable.length === 0) { e.preventDefault(); return; }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === first || !container.contains(active)) { e.preventDefault(); last!.focus(); }
+      } else {
+        if (active === last) { e.preventDefault(); first!.focus(); }
+      }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, [isUploadSidebarOpen, setUploadSidebarOpen]);
+
+  const handleClose = useCallback(() => setUploadSidebarOpen(false), [setUploadSidebarOpen]);
 
   const handleCancelMigration = (jobId: number, sourceEmail: string, targetEmail: string) => {
     if (!confirm(`Batalkan migrasi ${maskEmail(sourceEmail)} → ${maskEmail(targetEmail)}?\n\nFile yang sudah terlanjur dipindahkan tetap berada di akun tujuan.`)) return;
@@ -75,35 +135,42 @@ export function UploadSidebar() {
           {/* Sidebar panel from right — z-[71] */}
           <motion.div
             key="upload-panel"
-            className="fixed right-0 top-0 bottom-0 z-[71] w-72 sm:w-96 bg-white dark:bg-zinc-950 border-l border-zinc-200 dark:border-zinc-800 shadow-2xl flex flex-col"
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            tabIndex={-1}
+            className="fixed right-0 top-0 bottom-0 z-[71] flex w-72 flex-col overflow-hidden rounded-l-3xl text-white sm:w-80 focus:outline-none"
+            style={{ backgroundColor: "var(--brand-a)", backgroundImage: "var(--brand-fill)", willChange: "transform, opacity", boxShadow: "0 0 30px -8px rgba(0,0,0,0.25)" }}
             initial={{ x: "100%", opacity: 0.5 }}
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: "100%", opacity: 0 }}
             transition={PANEL_TRANSITION}
-            style={{ willChange: "transform, opacity" }}
           >
             {/* Header */}
             <motion.div
-              className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800"
+              className="flex shrink-0 items-center justify-between p-4"
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={CONTENT_TRANSITION}
             >
               <div className="flex items-center gap-2">
-                <Send className="h-5 w-5 text-brand-500" />
-                <h2 className="text-base font-semibold text-zinc-900 dark:text-zinc-100">Progress</h2>
+                <IconCloudUpload className="h-5 w-5 text-white" />
+                <h2 id={titleId} className="text-base font-bold text-white">Progress</h2>
               </div>
               <button
+                type="button"
                 onClick={handleClose}
-                className="rounded-lg p-1.5 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                aria-label="Tutup panel progress"
+                className="rounded-lg p-1.5 text-white/80 transition-colors hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
               >
-                <X className="h-4 w-4" />
+                <X className="h-4 w-4" aria-hidden="true" />
               </button>
             </motion.div>
 
             {/* Content area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-6">
+            <div className="mx-3 mb-3 min-h-0 flex-1 space-y-6 overflow-y-auto overflow-x-hidden overscroll-contain scrollbar-hide rounded-2xl bg-[rgb(var(--surface))] p-4 text-[rgb(var(--foreground))]">
               {/* Active Uploads section */}
               <motion.div
                 className="space-y-4"
@@ -162,7 +229,7 @@ export function UploadSidebar() {
                                 <button
                                   onClick={() => pauseUpload(item.id)}
                                   className="text-zinc-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30 rounded-lg p-1 transition-colors shrink-0"
-                                  title="Jeda"
+                                  aria-label="Jeda upload" title="Jeda"
                                 >
                                   <Pause className="h-3.5 w-3.5" />
                                 </button>
@@ -170,7 +237,7 @@ export function UploadSidebar() {
                                 <button
                                   onClick={() => startUpload(item.id)}
                                   className="text-zinc-400 hover:text-brand-500 hover:bg-brand-50 dark:hover:bg-brand-950/30 rounded-lg p-1 transition-colors shrink-0"
-                                  title="Lanjutkan"
+                                  aria-label="Lanjutkan upload" title="Lanjutkan"
                                 >
                                   <Play className="h-3.5 w-3.5" />
                                 </button>
@@ -187,7 +254,7 @@ export function UploadSidebar() {
                           </div>
 
                           <div className="space-y-1">
-                            <Progress value={percent} className="h-1.5 bg-zinc-200 dark:bg-zinc-800" />
+                            <Progress value={percent} className="h-1.5 bg-zinc-200 dark:bg-zinc-800" aria-label={`Progress ${item.file.name} ${percent.toFixed(0)} persen`} />
                             <div className="flex justify-between items-center text-[9px] text-zinc-400 font-mono">
                               <span>
                                 {isUploading ? "Uploading..." : isPaused ? "Dijeda" : isError ? `Gagal: ${item.errorMessage}` : "Antrean"}
@@ -215,7 +282,7 @@ export function UploadSidebar() {
                     Migrasi ({migrationJobs.length})
                   </h3>
                   {migrationJobs.length > 0 && (
-                    <span className="text-[10px] bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-medium">
+                    <span className="text-[10px] bg-brand-50 dark:bg-brand-500/15 text-brand-600 dark:text-brand-300 px-2 py-0.5 rounded-full font-medium">
                       Berjalan
                     </span>
                   )}
@@ -238,7 +305,7 @@ export function UploadSidebar() {
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0 flex-1">
                               <p className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate flex items-center gap-1.5">
-                                <ArrowLeftRight className="h-3 w-3 shrink-0 text-amber-500" />
+                                <ArrowLeftRight className="h-3 w-3 shrink-0 text-brand-500" />
                                 <span className="truncate">
                                   {maskEmail(job.sourceEmail)} → {maskEmail(job.targetEmail)}
                                 </span>
@@ -259,7 +326,7 @@ export function UploadSidebar() {
                           </div>
 
                           <div className="space-y-1">
-                            <Progress value={percent} className="h-1.5 bg-zinc-200 dark:bg-zinc-800" indicatorClassName="bg-amber-500" />
+                            <Progress value={percent} className="h-1.5 bg-zinc-200 dark:bg-zinc-800" indicatorClassName="bg-brand-500" aria-label={`Progress migrasi ${percent.toFixed(0)} persen`} />
                             <div className="flex justify-between items-center text-[9px] text-zinc-400 font-mono">
                               <span>
                                 Migrasi berjalan{job.failedFiles > 0 ? ` • ${job.failedFiles} gagal` : ""}
@@ -382,7 +449,7 @@ export function UploadSidebar() {
 
             {/* Footer */}
             <motion.div
-              className="p-4 border-t border-zinc-200 dark:border-zinc-800 flex gap-2"
+              className="p-4 border-t border-brand-500/15 dark:border-brand-500/20 flex gap-2"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 8 }}

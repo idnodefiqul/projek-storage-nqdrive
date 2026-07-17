@@ -6,9 +6,10 @@ export const folderService = {
    * List folders by parentFolderId (internal — used when you already have an ID).
    * Prefer byPath() for user-facing navigation.
    */
-  list: (parentFolderId: number | null = null) =>
+  list: (parentFolderId: number | null = null, signal?: AbortSignal) =>
     apiRequest<{ folders: Folder[] }>(
-      parentFolderId !== null ? `/folders?parentFolderId=${parentFolderId}` : "/folders"
+      parentFolderId !== null ? `/folders?parentFolderId=${parentFolderId}` : "/folders",
+      { signal }
     ),
 
   /**
@@ -25,18 +26,17 @@ export const folderService = {
    * byPath("Windows/11") → subfolder 11 di dalam Windows
    * byPath("A/B/C/D") → nested 4 level dalam
    */
-  byPath: (path: string) => {
+  byPath: (path: string, signal?: AbortSignal) => {
     if (!path) {
-      return apiRequest<FolderByPathResponse>("/folders/resolve");
+      return apiRequest<FolderByPathResponse>("/folders/resolve", { signal });
     }
-    // Encode setiap segment secara individual (handle spasi, #, ? dll),
-    // lalu gabung dengan "/" literal — bukan encodeURIComponent seluruh string
-    // karena itu akan encode "/" jadi %2F.
     const encodedPath = path
       .split("/")
       .map((segment) => encodeURIComponent(segment))
       .join("/");
-    return apiRequest<FolderByPathResponse>(`/folders/resolve?folder=${encodedPath}`);
+    return apiRequest<FolderByPathResponse>(`/folders/resolve?folder=${encodedPath}`, {
+      signal,
+    });
   },
 
   /**

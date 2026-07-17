@@ -8,7 +8,9 @@ export const settingsQueryKeys = {
   all: () => ["settings"] as const,
 };
 
-/** Fetch site settings (authenticated). Syncs avatar config on load. */
+/** Fetch site settings (authenticated). Syncs avatar config on load.
+ *  Optimized: staleTime 5 menit + no background refetch agar tidak ganggu scroll perf
+ */
 export function useSettings() {
   return useQuery({
     queryKey: settingsQueryKeys.all(),
@@ -24,7 +26,12 @@ export function useSettings() {
       applyBrandFromDb(data.brand_color, data.theme_mode);
       return data;
     },
-    staleTime: 30_000,
+    staleTime: 5 * 60_000,
+    gcTime: 10 * 60_000,
+    refetchInterval: false, // jangan polling — hanya refetch saat window focus atau manual
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
   });
 }
 

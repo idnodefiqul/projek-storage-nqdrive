@@ -73,22 +73,29 @@ runOptionalAlter("ALTER TABLE files ADD COLUMN md5_hash TEXT DEFAULT NULL;");
 runOptionalAlter("ALTER TABLE upload_logs ADD COLUMN sha256_hash TEXT DEFAULT NULL;");
 runOptionalAlter("ALTER TABLE upload_logs ADD COLUMN md5_hash TEXT DEFAULT NULL;");
 
-// Step 1d: Update drive_accounts CHECK constraint to support 'telegram'
-console.log("[migrate] Updating drive_accounts check constraints...");
+// Step 1e: ensure provider column exists on upload_sessions (endpoint upload multi-provider).
+runOptionalAlter("ALTER TABLE upload_sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'google_drive';");
+
+// Step 1d: Rebuild drive_accounts — buang UNIQUE global pada `email` dan ganti
+// dengan UNIQUE komposit (email, provider). Ini memperbaiki bug: satu email
+// (mis. Gmail yang sama) dipakai di Google Drive DAN Dropbox harus jadi dua baris
+// terpisah, bukan saling menimpa.
+console.log("[migrate] Rebuilding drive_accounts (email unique per-provider)...");
 try {
   const fs = await import("node:fs");
   const path = await import("node:path");
-  const tempSqlFile = path.resolve(workerRoot, "temp-migrate-tg.sql");
-  
+  const tempSqlFile = path.resolve(workerRoot, "temp-migrate-accounts.sql");
+
   const sqlCommands = `
     PRAGMA foreign_keys = OFF;
-    CREATE TABLE IF NOT EXISTS drive_accounts_new (
+    DROP TABLE IF EXISTS drive_accounts_new;
+    CREATE TABLE drive_accounts_new (
       id                       INTEGER PRIMARY KEY AUTOINCREMENT,
-      email                    TEXT NOT NULL UNIQUE,
-      provider                 TEXT NOT NULL DEFAULT 'google_drive'
+      email                    TEXT NOT NULL,
+       provider                 TEXT NOT NULL DEFAULT 'google_drive'
                                  CHECK (provider IN (
                                    'google_drive', 'cloudflare_r2', 'amazon_s3',
-                                   'backblaze_b2', 'wasabi', 'dropbox', 'onedrive', 'minio', 'telegram'
+                                   'backblaze_b2', 'wasabi', 'dropbox', 'onedrive', 'koofr', 'minio', 'telegram'
                                  )),
       refresh_token_encrypted  TEXT NOT NULL,
       access_token             TEXT,
@@ -102,19 +109,28 @@ try {
       created_at               TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
       updated_at               TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
     );
-    INSERT OR IGNORE INTO drive_accounts_new SELECT * FROM drive_accounts;
+    INSERT OR IGNORE INTO drive_accounts_new
+      (id, email, provider, refresh_token_encrypted, access_token, access_token_expires_at,
+       total_storage_bytes, used_storage_bytes, available_storage_bytes, status,
+       last_synced_at, created_at, updated_at)
+    SELECT
+       id, email, provider, refresh_token_encrypted, access_token, access_token_expires_at,
+       total_storage_bytes, used_storage_bytes, available_storage_bytes, status,
+       last_synced_at, created_at, updated_at
+    FROM drive_accounts;
     DROP TABLE IF EXISTS drive_accounts;
     ALTER TABLE drive_accounts_new RENAME TO drive_accounts;
     CREATE INDEX IF NOT EXISTS idx_drive_accounts_status ON drive_accounts (status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_drive_accounts_email_provider ON drive_accounts (email, provider);
     PRAGMA foreign_keys = ON;
   `;
-  
+
   fs.writeFileSync(tempSqlFile, sqlCommands, "utf8");
   runWrangler(["d1", "execute", DB_NAME, targetFlag, `--file=${tempSqlFile}`]);
   fs.unlinkSync(tempSqlFile);
-  console.log("[migrate] drive_accounts CHECK constraint updated successfully.");
+  console.log("[migrate] drive_accounts rebuilt with (email, provider) unique index.");
 } catch (err) {
-  console.error("Gagal mengupdate constraint tabel drive_accounts (abaikan jika sudah terupdate):", err);
+  console.error("Gagal me-rebuild tabel drive_accounts (abaikan jika sudah terupdate):", err);
 }
 
 // Step 2: run full idempotent schema

@@ -59,7 +59,19 @@ function LoginPage() {
       .then((json: any) => {
         if (json?.success && json?.data) {
           const cfg = json.data as { brand_color?: string; theme_mode?: string };
-          if (cfg.brand_color) applyBrandColors(cfg.brand_color);
+          if (cfg.brand_color) {
+            // Format: "primary:accent" (gradient) atau "primary" (solid).
+            const parts = cfg.brand_color.split(":");
+            const primary = parts[0] ?? cfg.brand_color;
+            const accent = parts.length === 2 && parts[1] && /^#[0-9a-fA-F]{6}$/.test(parts[1]) ? parts[1] : null;
+            if (primary && /^#[0-9a-fA-F]{3,8}$/.test(primary)) {
+              applyBrandColors(primary);
+              if (accent) {
+                document.documentElement.style.setProperty("--brand-fill", `linear-gradient(160deg, ${primary}, ${accent})`);
+                document.documentElement.style.setProperty("--brand-b", accent);
+              }
+            }
+          }
           if (cfg.theme_mode === "dark") document.documentElement.classList.add("dark");
           else if (cfg.theme_mode === "light") document.documentElement.classList.remove("dark");
         }
@@ -305,7 +317,7 @@ function LoginPage() {
               </div>
             )}
 
-            <button type="submit" disabled={login.isPending} className="mt-1 h-11 w-full rounded-xl bg-brand-500 text-sm font-semibold text-white shadow-lg shadow-brand-500/25 transition-all hover:bg-brand-400 hover:shadow-brand-500/40 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
+            <button type="submit" disabled={login.isPending} className="mt-1 h-11 w-full rounded-xl bg-gradient-to-r from-brand-500 to-brand-600 text-sm font-semibold text-white shadow-lg shadow-brand-500/25 transition-all hover:from-brand-400 hover:to-brand-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60">
               {login.isPending ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />

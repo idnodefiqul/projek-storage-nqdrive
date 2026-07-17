@@ -20,6 +20,7 @@ import {
 } from "../hooks/use-trash";
 import type { FileWithAccount, Folder } from "@nqdrive/types";
 import { PageTransition } from "../components/page-transition";
+import { PageHeader } from "../components/ui-kit";
 import { useMinLoading } from "../hooks/use-min-loading";
 
 export const Route = createFileRoute("/dashboard/trash")({
@@ -97,7 +98,7 @@ function ConfirmPermanentDeleteDialog({
           <DialogTitle>Hapus Permanen?</DialogTitle>
         </div>
         <DialogDescription className="pl-[52px]">
-          <strong className="text-zinc-900 dark:text-zinc-100">"{itemName}"</strong> akan dihapus permanen
+          <strong className="text-[rgb(var(--foreground))]">"{itemName}"</strong> akan dihapus permanen
           dari penyimpanan Google Drive dan tidak dapat dikembalikan sama sekali.
           {itemType === "folder" && (
             <span className="mt-1 block text-amber-600 dark:text-amber-400">
@@ -112,7 +113,7 @@ function ConfirmPermanentDeleteDialog({
         </p>
       </div>
       <DialogFooter>
-        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={onClose} disabled={isPending}>
+        <Button variant="outline" className="border-[rgb(var(--border-subtle))] dark:text-[rgb(var(--foreground))] dark:bg-[rgb(var(--surface-muted))] hover:bg-[rgb(var(--surface-muted))] shrink-0" onClick={onClose} disabled={isPending}>
           Batal
         </Button>
         <Button variant="destructive" onClick={onConfirm} disabled={isPending}>
@@ -162,7 +163,7 @@ function ConfirmEmptyTrashDialog({
         </p>
       </div>
       <DialogFooter>
-        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={onClose} disabled={isPending}>
+        <Button variant="outline" className="border-[rgb(var(--border-subtle))] dark:text-[rgb(var(--foreground))] dark:bg-[rgb(var(--surface-muted))] hover:bg-[rgb(var(--surface-muted))] shrink-0" onClick={onClose} disabled={isPending}>
           Batal
         </Button>
         <Button variant="destructive" onClick={onConfirm} disabled={isPending}>
@@ -204,7 +205,7 @@ function TrashItemRow({
         "group transition-colors animate-in fade-in duration-200",
         isExpiringSoon
           ? "hover:bg-red-50/50 dark:hover:bg-red-950/20"
-          : "hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+          : "hover:bg-[rgb(var(--surface-muted))] dark:hover:bg-[rgb(var(--surface))]/50"
       )}
     >
       {/* Nama */}
@@ -213,17 +214,17 @@ function TrashItemRow({
           <div className={cn(
             "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
             isFile
-              ? "bg-zinc-100 dark:bg-zinc-800"
+              ? "bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]"
               : "bg-brand-50 dark:bg-brand-900/20"
           )}>
             {isFile
-              ? <FileIcon className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
+              ? <FileIcon className="h-4 w-4 text-[rgb(var(--ink-500))]" />
               : <FolderIcon className="h-4 w-4 text-brand-500 fill-brand-500/20" />
             }
           </div>
           <div className="flex flex-col min-w-0">
             <span
-              className="truncate text-sm font-medium text-zinc-900 dark:text-zinc-100 max-w-[260px]"
+              className="truncate text-sm font-medium text-[rgb(var(--foreground))] max-w-[260px]"
               title={name}
             >
               {name}
@@ -231,17 +232,17 @@ function TrashItemRow({
             <div className="flex items-center gap-2 mt-0.5">
               <Badge
                 variant="neutral"
-                className="text-[10px] px-1.5 py-0 font-normal text-zinc-700 dark:text-zinc-300 dark:bg-zinc-800"
+                className="text-[10px] px-1.5 py-0 font-normal text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))] dark:bg-[rgb(var(--surface-muted))]"
               >
                 {isFile ? "File" : "Folder"}
               </Badge>
               {file && (
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                <span className="text-xs text-[rgb(var(--ink-500))]">
                   {formatBytes(file.sizeBytes)}
                 </span>
               )}
               {file && (
-                <span className="hidden sm:inline text-xs text-zinc-400 dark:text-zinc-500 font-mono truncate max-w-[160px]">
+                <span className="hidden sm:inline text-xs text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))] font-mono truncate max-w-[160px]">
                   {file.driveAccountEmail.slice(0, 3)}***@{file.driveAccountEmail.split("@")[1]}
                 </span>
               )}
@@ -251,16 +252,16 @@ function TrashItemRow({
       </td>
 
       {/* Dihapus */}
-      <td className="hidden md:table-cell px-4 py-3 text-sm text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
+      <td className="hidden md:table-cell px-4 py-3 text-sm text-[rgb(var(--ink-500))] whitespace-nowrap">
         <div className="flex items-center gap-1.5">
-          <Clock className="h-3.5 w-3.5 text-zinc-400" />
+          <Clock className="h-3.5 w-3.5 text-[rgb(var(--ink-500))]" />
           {deletedAt ? formatRelativeDate(deletedAt) : "—"}
         </div>
       </td>
 
       {/* Sisa waktu */}
       <td className="px-4 py-3 whitespace-nowrap">
-        {deletedAt ? <DaysRemainingBadge deletedAt={deletedAt} /> : <span className="text-zinc-400">—</span>}
+        {deletedAt ? <DaysRemainingBadge deletedAt={deletedAt} /> : <span className="text-[rgb(var(--ink-500))]">—</span>}
       </td>
 
       {/* Actions */}
@@ -269,7 +270,7 @@ function TrashItemRow({
           <Button
             size="sm"
             variant="outline"
-            className="h-8 gap-1.5 text-xs text-zinc-700 dark:text-zinc-200 border-zinc-200 dark:border-zinc-700 dark:bg-zinc-800/50 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-400 dark:hover:border-emerald-800 transition-colors"
+            className="h-8 gap-1.5 text-xs text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))] border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface-muted))]/50 hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-300 dark:hover:bg-emerald-950/30 dark:hover:text-emerald-400 dark:hover:border-emerald-800 transition-colors"
             onClick={onRestore}
           >
             <RotateCcw className="h-3.5 w-3.5" />
@@ -296,16 +297,16 @@ function TrashEmptyState() {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-20">
       <div className="relative">
-        <div className="flex h-20 w-20 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800/60 shadow-inner">
-          <Trash2 className="h-10 w-10 text-zinc-300 dark:text-zinc-600" />
+        <div className="flex h-20 w-20 items-center justify-center rounded-lg bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]/60 shadow-inner">
+          <Trash2 className="h-10 w-10 text-[rgb(var(--foreground))] dark:text-[rgb(var(--ink-500))]" />
         </div>
         <div className="absolute -top-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/30">
           <CheckCircle2 className="h-4 w-4 text-emerald-500" />
         </div>
       </div>
       <div className="text-center">
-        <p className="text-base font-semibold text-zinc-700 dark:text-zinc-300">Trash Kosong</p>
-        <p className="mt-1 text-sm text-zinc-400 dark:text-zinc-500">
+        <p className="text-base font-semibold text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))]">Trash Kosong</p>
+        <p className="mt-1 text-sm text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))]">
           Tidak ada file atau folder yang sedang di Trash.
         </p>
       </div>
@@ -317,19 +318,19 @@ function TrashEmptyState() {
 
 function TrashSkeleton() {
   return (
-    <div className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+    <div className="divide-y divide-[rgb(var(--border-subtle))] dark:divide-[rgb(var(--border-subtle))]/50">
       {Array.from({ length: 4 }).map((_, i) => (
         <div key={i} className="flex items-center gap-4 px-4 py-3.5 animate-pulse">
-          <div className="h-8 w-8 rounded-lg bg-zinc-200 dark:bg-zinc-800 shrink-0" />
+          <div className="h-8 w-8 rounded-lg bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))] shrink-0" />
           <div className="flex-1 space-y-2">
-            <div className="h-3.5 w-48 rounded bg-zinc-200 dark:bg-zinc-800" />
-            <div className="h-2.5 w-28 rounded bg-zinc-100 dark:bg-zinc-800/60" />
+            <div className="h-3.5 w-48 rounded bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]" />
+            <div className="h-2.5 w-28 rounded bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]/60" />
           </div>
-          <div className="hidden md:block h-3 w-20 rounded bg-zinc-100 dark:bg-zinc-800/60" />
-          <div className="h-5 w-20 rounded-full bg-zinc-100 dark:bg-zinc-800/60" />
+          <div className="hidden md:block h-3 w-20 rounded bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]/60" />
+          <div className="h-5 w-20 rounded-full bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]/60" />
           <div className="flex gap-2">
-            <div className="h-8 w-20 rounded-md bg-zinc-100 dark:bg-zinc-800/60" />
-            <div className="h-8 w-16 rounded-md bg-zinc-100 dark:bg-zinc-800/60" />
+            <div className="h-8 w-20 rounded-md bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]/60" />
+            <div className="h-8 w-16 rounded-md bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]/60" />
           </div>
         </div>
       ))}
@@ -356,18 +357,18 @@ function SectionHeader({
     <button
       type="button"
       onClick={onToggle}
-      className="flex w-full items-center justify-between px-4 py-2.5 hover:bg-zinc-50 dark:hover:bg-zinc-900/50 transition-colors"
+      className="flex w-full items-center justify-between px-4 py-2.5 hover:bg-[rgb(var(--surface-muted))] dark:hover:bg-[rgb(var(--surface))]/50 transition-colors"
     >
       <div className="flex items-center gap-2">
-        <Icon className="h-4 w-4 text-zinc-500 dark:text-zinc-400" />
-        <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{title}</span>
-        <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-zinc-200 dark:bg-zinc-700 px-1.5 text-[11px] font-bold text-zinc-600 dark:text-zinc-300">
+        <Icon className="h-4 w-4 text-[rgb(var(--ink-500))]" />
+        <span className="text-sm font-semibold text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))]">{title}</span>
+        <span className="inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))] px-1.5 text-[11px] font-bold text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))]">
           {count}
         </span>
       </div>
       {expanded
-        ? <ChevronUp className="h-4 w-4 text-zinc-400" />
-        : <ChevronDown className="h-4 w-4 text-zinc-400" />
+        ? <ChevronUp className="h-4 w-4 text-[rgb(var(--ink-500))]" />
+        : <ChevronDown className="h-4 w-4 text-[rgb(var(--ink-500))]" />
       }
     </button>
   );
@@ -485,32 +486,27 @@ function TrashPage() {
 
   return (
     <PageTransition>
-      <div className="flex h-full flex-col gap-4">
+      <div className="flex h-full flex-col gap-6">
         {/* Header */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2.5">
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-red-100 dark:bg-red-900/30">
-                <Trash2 className="h-4.5 w-4.5 text-red-600 dark:text-red-400" />
-              </span>
-              Trash
-            </h1>
-            <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
-              Item yang dihapus tersimpan selama 30 hari sebelum dihapus permanen.
-            </p>
-          </div>
-          {totalItems > 0 && (
-            <Button
-              variant="destructive"
-              className="self-start gap-2 shrink-0"
-              onClick={() => setConfirmEmpty(true)}
-              disabled={emptyTrash.isPending}
-            >
-              <Trash2 className="h-4 w-4" />
-              Kosongkan Trash
-            </Button>
-          )}
-        </div>
+        <PageHeader
+          eyebrow="Workspace"
+          icon={Trash2}
+          title="Trash"
+          description="Item yang dihapus tersimpan selama 30 hari sebelum dihapus permanen."
+          actions={
+            totalItems > 0 && (
+              <Button
+                variant="destructive"
+                className="self-start gap-2 shrink-0"
+                onClick={() => setConfirmEmpty(true)}
+                disabled={emptyTrash.isPending}
+              >
+                <Trash2 className="h-4 w-4" />
+                Kosongkan Trash
+              </Button>
+            )
+          }
+        />
 
         {/* Info banner jika ada item yang akan expire segera */}
         {expiringSoon > 0 && !isFetchingData && (
@@ -524,9 +520,9 @@ function TrashPage() {
         )}
 
         {/* Auto-delete info */}
-        <div className="flex items-center gap-2 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900/50 px-4 py-2.5">
-          <Package className="h-4 w-4 text-zinc-400 dark:text-zinc-500 shrink-0" />
-          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+        <div className="flex items-center gap-2 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface))]/50 px-4 py-2.5">
+          <Package className="h-4 w-4 text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))] shrink-0" />
+          <p className="text-xs text-[rgb(var(--ink-500))]">
             Item di Trash otomatis dihapus permanen setelah <strong>30 hari</strong>.
             File yang masuk Trash dengan status publik otomatis diubah ke <strong>private</strong>.
           </p>
@@ -544,29 +540,29 @@ function TrashPage() {
             ) : (
               <div className="flex-1 overflow-auto">
                 <table className="w-full caption-bottom text-sm">
-                  <thead className="border-b border-zinc-200 bg-zinc-50/80 dark:border-zinc-800 dark:bg-zinc-900/60 sticky top-0 z-10 backdrop-blur-sm">
+                  <thead className="border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface-muted))]/80 dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface))]/60 sticky top-0 z-10 backdrop-blur-sm">
                     <tr>
-                      <th className="h-10 px-4 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 w-[55%]">
+                      <th className="h-10 px-4 text-left text-xs font-semibold uppercase tracking-wide text-[rgb(var(--ink-500))] w-[55%]">
                         Nama
                       </th>
-                      <th className="hidden md:table-cell h-10 px-4 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 w-[15%]">
+                      <th className="hidden md:table-cell h-10 px-4 text-left text-xs font-semibold uppercase tracking-wide text-[rgb(var(--ink-500))] w-[15%]">
                         Dihapus
                       </th>
-                      <th className="h-10 px-4 text-left text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 w-[15%]">
+                      <th className="h-10 px-4 text-left text-xs font-semibold uppercase tracking-wide text-[rgb(var(--ink-500))] w-[15%]">
                         Sisa Waktu
                       </th>
-                      <th className="h-10 px-4 text-right text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400 w-[15%] pr-6">
+                      <th className="h-10 px-4 text-right text-xs font-semibold uppercase tracking-wide text-[rgb(var(--ink-500))] w-[15%] pr-6">
                         Aksi
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800/50">
+                  <tbody className="divide-y divide-[rgb(var(--border-subtle))] dark:divide-[rgb(var(--border-subtle))]/50">
 
                     {/* ── Folders Section ─────────────────────────────── */}
                     {sortedFolders.length > 0 && (
                       <>
                         <tr>
-                          <td colSpan={4} className="bg-zinc-50/60 dark:bg-zinc-900/30 border-b border-zinc-100 dark:border-zinc-800">
+                          <td colSpan={4} className="bg-[rgb(var(--surface-muted))]/60 dark:bg-[rgb(var(--surface))]/30 border-b border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))]">
                             <SectionHeader
                               title="Folder"
                               count={sortedFolders.length}
@@ -596,7 +592,7 @@ function TrashPage() {
                     {sortedFiles.length > 0 && (
                       <>
                         <tr>
-                          <td colSpan={4} className="bg-zinc-50/60 dark:bg-zinc-900/30 border-b border-zinc-100 dark:border-zinc-800">
+                          <td colSpan={4} className="bg-[rgb(var(--surface-muted))]/60 dark:bg-[rgb(var(--surface))]/30 border-b border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))]">
                             <SectionHeader
                               title="File"
                               count={sortedFiles.length}
@@ -629,11 +625,11 @@ function TrashPage() {
 
             {/* Footer summary */}
             {!isFetchingData && totalItems > 0 && (
-              <div className="border-t border-zinc-200 dark:border-zinc-800 px-4 py-2.5 flex items-center justify-between">
-                <span className="text-xs text-zinc-400 dark:text-zinc-500">
+              <div className="border-t border-[rgb(var(--border-subtle))] px-4 py-2.5 flex items-center justify-between">
+                <span className="text-xs text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))]">
                   {totalItems} item ({folders.length} folder, {files.length} file)
                 </span>
-                <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                <span className="text-xs text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))]">
                   Auto-delete setelah 30 hari
                 </span>
               </div>

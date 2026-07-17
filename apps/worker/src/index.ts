@@ -85,9 +85,24 @@ app.use(
   })
 );
 
-// Register all StorageProvider implementations once per request.
+// Register StorageProviders once at cold start (module load), not per-request
+// This avoids mutating global singleton on every request and prevents race conditions
+// under concurrent requests in the same isolate
+let bootstrapDone = false;
+function ensureProviders(env: Env) {
+  if (!bootstrapDone) {
+    try {
+      registerStorageProviders(env);
+      bootstrapDone = true;
+    } catch (e) {
+      console.error("Failed to bootstrap storage providers:", e);
+    }
+  }
+}
+
+// Middleware to ensure providers are registered (idempotent, cheap after first call)
 app.use("*", async (c, next) => {
-  registerStorageProviders(c.env);
+  ensureProviders(c.env);
   await next();
 });
 
@@ -617,7 +632,7 @@ export default {
   fetch: app.fetch,
 
   async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-    registerStorageProviders(env);
+    ensureProviders(env);
     ctx.waitUntil(syncDriveAccounts(env));
     // Auto-purge item Trash yang sudah lebih dari 30 hari
     ctx.waitUntil(purgeExpiredTrash(env));

@@ -18,17 +18,18 @@ import {
   useConnectGoogleAccountViaToken, useValidateRefreshToken,
   useGoogleOAuthUrl,
   useFormatDriveAccount,
-  useConnectTelegramAccount,
 } from "../hooks/use-drive-accounts";
 import { useMinLoading } from "../hooks/use-min-loading";
 import { useMigrationGlobal } from "../stores/migration-provider";
 import type { DriveAccountWithFileCount } from "../services/drive-account.service";
 import { PageTransition } from "../components/page-transition";
+import { PageHeader } from "../components/ui-kit";
 import { CardGridSkeleton } from "../components/skeletons";
 import { ApiClientError } from "../lib/client";
 import { motion, AnimatePresence } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
-import { googleDriveSvg } from "../assets";
+import { googleDriveSvg, onedriveSvg } from "../assets";
+import { SiDropbox } from "@icons-pack/react-simple-icons";
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -64,7 +65,7 @@ function EmailCell({ email, size = "sm" }: { email: string; size?: "sm" | "xs" }
       <TooltipProvider delayDuration={300}>
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className={`truncate font-medium text-zinc-900 dark:text-zinc-100 ${size === "xs" ? "text-xs" : "text-sm"}`}>
+            <span className={`truncate font-medium text-[rgb(var(--foreground))] ${size === "xs" ? "text-xs" : "text-sm"}`}>
               {displayEmail}
             </span>
           </TooltipTrigger>
@@ -74,123 +75,11 @@ function EmailCell({ email, size = "sm" }: { email: string; size?: "sm" | "xs" }
         </Tooltip>
       </TooltipProvider>
       <button type="button" onClick={() => setShown((v) => !v)}
-        className="shrink-0 text-zinc-400 transition-colors hover:text-brand-500"
+        className="shrink-0 text-[rgb(var(--ink-500))] transition-colors hover:text-brand-500"
         title={shown ? "Sembunyikan email" : "Tampilkan email"}>
         {shown ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
       </button>
     </div>
-  );
-}
-
-// ─── ADD TELEGRAM STORAGE DIALOG ─────────────────────────────────────────────
-
-function AddTelegramAccountDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { toast } = useToast();
-  const [botToken, setBotToken] = useState("");
-  const [chatId, setChatId] = useState("");
-  const [email, setEmail] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-
-  const connectMutation = useConnectTelegramAccount();
-
-  const handleClose = () => {
-    setBotToken("");
-    setChatId("");
-    setEmail("");
-    setFormError(null);
-    connectMutation.reset();
-    onClose();
-  };
-
-  const handleConnect = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setFormError(null);
-
-    const token = botToken.trim();
-    const chat = chatId.trim();
-    const identifier = email.trim();
-
-    if (!token || !chat || !identifier) {
-      setFormError("Semua field wajib diisi.");
-      return;
-    }
-
-    try {
-      const result = await connectMutation.mutateAsync({
-        botToken: token,
-        chatId: chat,
-        email: identifier,
-      });
-      toast({ title: "Telegram storage berhasil ditambahkan", description: result.account.email, variant: "success" });
-      handleClose();
-    } catch (error) {
-      let msg = "Terjadi kesalahan. Coba lagi.";
-      if (error instanceof ApiClientError || error instanceof Error) msg = error.message;
-      toast({ title: "Gagal menambahkan Telegram storage", description: msg, variant: "error" });
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && handleClose()} className="max-w-md">
-      <DialogHeader>
-        <DialogTitle className="flex items-center gap-2">
-          <Database className="h-5 w-5 text-sky-500" />
-          Tambah Telegram Storage
-        </DialogTitle>
-        <DialogDescription>Hubungkan Bot Telegram dan Chat ID sebagai storage pool.</DialogDescription>
-      </DialogHeader>
-
-      <form onSubmit={handleConnect} className="space-y-4 pt-3">
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Bot Token Telegram</label>
-          <Input
-            value={botToken}
-            onChange={(e) => setBotToken(e.target.value)}
-            placeholder="50392039:AAFd930..."
-            className="font-mono text-sm animate-none"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Chat ID / Channel ID</label>
-          <Input
-            value={chatId}
-            onChange={(e) => setChatId(e.target.value)}
-            placeholder="-10030948293 atau Chat ID pribadi"
-            className="font-mono text-sm animate-none"
-          />
-        </div>
-
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">Nama Identitas Akun (Email/Nama Bot)</label>
-          <Input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="my_bot_storage@nqdrive"
-          />
-        </div>
-
-        {formError && (
-          <div className="flex items-start gap-2 rounded-lg border border-orange-200 bg-orange-50 p-3 dark:border-orange-800 dark:bg-orange-950">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-orange-600 dark:text-orange-400" />
-            <p className="text-xs text-orange-700 dark:text-orange-300">{formError}</p>
-          </div>
-        )}
-
-        <DialogFooter className="pt-2">
-          <Button type="button" variant="ghost" onClick={handleClose}>
-            Batal
-          </Button>
-          <Button type="submit" disabled={connectMutation.isPending} className="bg-sky-600 hover:bg-sky-700 text-white">
-            {connectMutation.isPending ? (
-              <><Loader2 className="h-4 w-4 animate-spin mr-2" />Menghubungkan...</>
-            ) : (
-              "Hubungkan"
-            )}
-          </Button>
-        </DialogFooter>
-      </form>
-    </Dialog>
   );
 }
 
@@ -276,16 +165,16 @@ function AddAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
           <span className="inline-flex items-center gap-1 rounded-full bg-brand-500 px-2 py-0.5 text-[11px] font-semibold text-white">
             <ShieldCheck className="h-3 w-3" /> Direkomendasikan
           </span>
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">Paling mudah &amp; token tidak cepat kadaluarsa</span>
+          <span className="text-xs text-[rgb(var(--ink-500))]">Paling mudah &amp; token tidak cepat kadaluarsa</span>
         </div>
 
         <button
           onClick={handleGoogleLogin}
           disabled={oauthUrlMutation.isPending}
-          className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-zinc-300 bg-white
-            text-sm font-medium text-zinc-700 shadow-sm transition-all hover:bg-zinc-50 hover:shadow
+          className="flex h-11 w-full items-center justify-center gap-3 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))]
+            text-sm font-medium text-[rgb(var(--ink-500))] shadow-sm transition-all hover:bg-[rgb(var(--surface-muted))] hover:shadow
             disabled:cursor-not-allowed disabled:opacity-60
-            dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-100 dark:hover:bg-zinc-700"
+            dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface-muted))] dark:text-[rgb(var(--foreground))] dark:hover:bg-[rgb(var(--surface-muted))]"
         >
           {oauthUrlMutation.isPending ? (
             <><Loader2 className="h-4 w-4 animate-spin" />Mengalihkan ke Google...</>
@@ -302,7 +191,7 @@ function AddAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
           )}
         </button>
 
-        <p className="mt-2.5 text-[11px] leading-relaxed text-zinc-500 dark:text-zinc-400">
+        <p className="mt-2.5 text-[11px] leading-relaxed text-[rgb(var(--ink-500))]">
           Kamu akan diarahkan ke halaman izin Google. Setelah menekan <strong>Izinkan</strong>,
           akun otomatis terhubung — tanpa perlu menyalin token.
         </p>
@@ -316,10 +205,10 @@ function AddAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
       )}
 
       {/* ── Cara 2: Refresh token manual (fallback, disembunyikan) ── */}
-      <div className="border-t border-zinc-200 pt-3 dark:border-zinc-700">
+      <div className="border-t border-[rgb(var(--border-subtle))] pt-3 dark:border-[rgb(var(--border-subtle))]">
         <button
           onClick={() => setShowManual((v) => !v)}
-          className="flex w-full items-center justify-between text-sm font-medium text-zinc-500 transition-colors hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+          className="flex w-full items-center justify-between text-sm font-medium text-[rgb(var(--ink-500))] transition-colors hover:text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))] dark:hover:text-[rgb(var(--foreground))]"
         >
           <span className="flex items-center gap-1.5">
             <KeyRound className="h-4 w-4" />
@@ -346,20 +235,20 @@ function AddAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">Refresh Token</label>
+              <label className="text-sm font-medium text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))]">Refresh Token</label>
               <div className="flex gap-2">
                 <div className="relative min-w-0 flex-1">
                   <input type={showToken ? "text" : "password"} value={refreshToken}
                     onChange={(e) => { setRefreshToken(e.target.value); setValidationState(null); setFormError(null); }}
                     placeholder="1//0g..."
-                    className="h-10 w-full rounded-lg border border-zinc-300 bg-white pl-3 pr-10 font-mono text-sm
-                      text-zinc-900 focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30
+                    className="h-10 w-full rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] pl-3 pr-10 font-mono text-sm
+                      text-[rgb(var(--foreground))] focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30
                       disabled:cursor-not-allowed disabled:opacity-50
-                      dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-100"
+                      dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface))] dark:text-[rgb(var(--foreground))]"
                     disabled={connectMutation.isPending}
                     onKeyDown={(e) => e.key === "Enter" && !validationState && !validateMutation.isPending && handleValidate()} />
                   <button type="button" onClick={() => setShowToken((v) => !v)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 transition-colors hover:text-zinc-600"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgb(var(--ink-500))] transition-colors hover:text-[rgb(var(--ink-500))]"
                     tabIndex={-1}>
                     {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
@@ -396,8 +285,8 @@ function AddAccountDialog({ open, onClose }: { open: boolean; onClose: () => voi
         )}
       </div>
 
-      <div className="flex justify-end gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-700">
-        <Button variant="outline" onClick={handleClose} disabled={connectMutation.isPending || oauthUrlMutation.isPending} className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700">Tutup</Button>
+      <div className="flex justify-end gap-2 border-t border-[rgb(var(--border-subtle))] pt-3 dark:border-[rgb(var(--border-subtle))]">
+        <Button variant="outline" onClick={handleClose} disabled={connectMutation.isPending || oauthUrlMutation.isPending} className="border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))] dark:text-[rgb(var(--foreground))] dark:bg-[rgb(var(--surface-muted))] hover:bg-[rgb(var(--surface-muted))] dark:hover:bg-[rgb(var(--surface-muted))]">Tutup</Button>
       </div>
     </Dialog>
   );
@@ -436,10 +325,10 @@ function ConfirmFormatDriveDialog({
           <DialogTitle>Format Drive?</DialogTitle>
         </div>
         <DialogDescription className="pl-[52px]">
-          <strong className="text-zinc-900 dark:text-zinc-100">Seluruh isi Google Drive</strong> akun{" "}
-          <strong className="text-zinc-900 dark:text-zinc-100">{accountEmail}</strong>{" "}
+          <strong className="text-[rgb(var(--foreground))]">Seluruh isi Google Drive</strong> akun{" "}
+          <strong className="text-[rgb(var(--foreground))]">{accountEmail}</strong>{" "}
           akan dihapus permanen — termasuk{" "}
-          <strong className="text-zinc-900 dark:text-zinc-100">{fileCount} file</strong> yang tercatat
+          <strong className="text-[rgb(var(--foreground))]">{fileCount} file</strong> yang tercatat
           di dashboard, file lain di drive, dan isi trash. Akun tetap terhubung.
         </DialogDescription>
       </DialogHeader>
@@ -449,8 +338,8 @@ function ConfirmFormatDriveDialog({
         </p>
       </div>
       <div className="mx-4 mb-2 flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-          Ketik <strong className="text-zinc-900 dark:text-zinc-100 select-all">{accountEmail}</strong> untuk konfirmasi
+        <label className="text-xs font-medium text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))]">
+          Ketik <strong className="text-[rgb(var(--foreground))] select-all">{accountEmail}</strong> untuk konfirmasi
         </label>
         <Input
           value={confirmText}
@@ -462,7 +351,7 @@ function ConfirmFormatDriveDialog({
         />
       </div>
       <DialogFooter>
-        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={handleClose} disabled={isPending}>
+        <Button variant="outline" className="border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))] dark:text-[rgb(var(--foreground))] dark:bg-[rgb(var(--surface-muted))] hover:bg-[rgb(var(--surface-muted))] dark:hover:bg-[rgb(var(--surface-muted))] shrink-0" onClick={handleClose} disabled={isPending}>
           Batal
         </Button>
         <Button variant="destructive" onClick={onConfirm} disabled={!matches || isPending}>
@@ -528,10 +417,10 @@ function ConfirmMigrateDriveDialog({
           <DialogTitle>Migrasi Isi Drive?</DialogTitle>
         </div>
         <DialogDescription className="pl-[52px]">
-          <strong className="text-zinc-900 dark:text-zinc-100">Seluruh isi Google Drive</strong> akun{" "}
-          <strong className="text-zinc-900 dark:text-zinc-100">{sourceEmail}</strong>{" "}
+          <strong className="text-[rgb(var(--foreground))]">Seluruh isi Google Drive</strong> akun{" "}
+          <strong className="text-[rgb(var(--foreground))]">{sourceEmail}</strong>{" "}
           ({formatBytes(sourceAccount?.usedBytes ?? 0)}) akan dipindahkan ke akun tujuan —
-          termasuk <strong className="text-zinc-900 dark:text-zinc-100">{sourceAccount?.fileCount ?? 0} file</strong>{" "}
+          termasuk <strong className="text-[rgb(var(--foreground))]">{sourceAccount?.fileCount ?? 0} file</strong>{" "}
           yang tercatat di dashboard dan file lain di drive — lalu dihapus dari drive sumber.
           Selama proses, file public disembunyikan sementara dari page download dan otomatis
           public kembali begitu selesai pindah.
@@ -540,12 +429,12 @@ function ConfirmMigrateDriveDialog({
 
       {/* Pilih akun tujuan */}
       <div className="mx-4 mb-2 flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
+        <label className="text-xs font-medium text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))]">
           Pindahkan ke akun
         </label>
         <div className="flex flex-col gap-1.5 max-h-44 overflow-y-auto">
           {candidates.length === 0 && (
-            <p className="text-xs text-zinc-400 border border-dashed border-zinc-200 dark:border-zinc-800 rounded-lg p-3 text-center">
+            <p className="text-xs text-[rgb(var(--ink-500))] border border-dashed border-[rgb(var(--border-subtle))] rounded-lg p-3 text-center">
               Tidak ada akun lain yang terhubung.
             </p>
           )}
@@ -554,6 +443,9 @@ function ConfirmMigrateDriveDialog({
             const hasSpace = account.availableStorageBytes >= neededBytes;
             const selectable = isOnline && hasSpace;
             const isSelected = targetId === account.id;
+            const provIcon = account.provider === "google_drive" ? googleDriveSvg
+              : account.provider === "dropbox" ? undefined
+              : onedriveSvg;
             return (
               <button
                 key={account.id}
@@ -563,18 +455,24 @@ function ConfirmMigrateDriveDialog({
                 className={`flex items-center justify-between gap-2 rounded-lg border p-2.5 text-left transition-colors ${
                   isSelected
                     ? "border-brand-500 bg-brand-50 dark:bg-brand-950/30"
-                    : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700"
+                    : "border-[rgb(var(--border-subtle))] hover:border-[rgb(var(--border-subtle))] dark:hover:border-[rgb(var(--border-subtle))]"
                 } ${!selectable ? "opacity-50 cursor-not-allowed" : ""}`}
               >
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs font-medium text-zinc-900 dark:text-zinc-100 truncate">
-                    {maskEmail(account.email)}
-                  </p>
-                  <p className="text-[10px] text-zinc-400 mt-0.5">
-                    Sisa ruang: {formatBytes(account.availableStorageBytes)}
-                    {!isOnline && " • Offline"}
-                    {isOnline && !hasSpace && " • Ruang tidak cukup"}
-                  </p>
+                <div className="flex items-center gap-2 min-w-0 flex-1">
+                  {account.provider === "dropbox"
+                    ? <SiDropbox color="#0061FF" className="h-5 w-5 shrink-0" />
+                    : <img src={provIcon} alt="" className="h-5 w-5 shrink-0" />
+                  }
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-medium text-[rgb(var(--foreground))] truncate">
+                      {maskEmail(account.email)}
+                    </p>
+                    <p className="text-[10px] text-[rgb(var(--ink-500))] mt-0.5">
+                      {account.provider === "google_drive" ? "Google Drive" : account.provider === "dropbox" ? "Dropbox" : "OneDrive"} · Sisa ruang: {formatBytes(account.availableStorageBytes)}
+                      {!isOnline && " • Offline"}
+                      {isOnline && !hasSpace && " • Ruang tidak cukup"}
+                    </p>
+                  </div>
                 </div>
                 {isSelected && <CheckCircle2 className="h-4 w-4 shrink-0 text-brand-500" />}
               </button>
@@ -592,8 +490,8 @@ function ConfirmMigrateDriveDialog({
       </div>
 
       <div className="mx-4 mb-2 flex flex-col gap-1.5">
-        <label className="text-xs font-medium text-zinc-600 dark:text-zinc-400">
-          Ketik <strong className="text-zinc-900 dark:text-zinc-100 select-all">{sourceEmail}</strong> untuk konfirmasi
+        <label className="text-xs font-medium text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))]">
+          Ketik <strong className="text-[rgb(var(--foreground))] select-all">{sourceEmail}</strong> untuk konfirmasi
         </label>
         <Input
           value={confirmText}
@@ -606,7 +504,7 @@ function ConfirmMigrateDriveDialog({
       </div>
 
       <DialogFooter>
-        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={handleClose} disabled={isPending}>
+        <Button variant="outline" className="border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))] dark:text-[rgb(var(--foreground))] dark:bg-[rgb(var(--surface-muted))] hover:bg-[rgb(var(--surface-muted))] dark:hover:bg-[rgb(var(--surface-muted))] shrink-0" onClick={handleClose} disabled={isPending}>
           Batal
         </Button>
         <Button variant="destructive" onClick={() => targetId !== null && onConfirm(targetId)} disabled={!matches || isPending}>
@@ -646,7 +544,7 @@ function ConfirmDeleteAccountDialog({
           <DialogTitle>Are you sure?</DialogTitle>
         </div>
         <DialogDescription className="pl-[52px]">
-          Disconnect akun <strong className="text-zinc-900 dark:text-zinc-100">{accountEmail}</strong>{" "}
+          Disconnect akun <strong className="text-[rgb(var(--foreground))]">{accountEmail}</strong>{" "}
           dari sistem?
         </DialogDescription>
       </DialogHeader>
@@ -658,7 +556,7 @@ function ConfirmDeleteAccountDialog({
         </p>
       </div>
       <DialogFooter>
-        <Button variant="outline" className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700 shrink-0" onClick={onClose} disabled={isPending}>
+        <Button variant="outline" className="border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))] dark:text-[rgb(var(--foreground))] dark:bg-[rgb(var(--surface-muted))] hover:bg-[rgb(var(--surface-muted))] dark:hover:bg-[rgb(var(--surface-muted))] shrink-0" onClick={onClose} disabled={isPending}>
           No
         </Button>
         <Button variant="destructive" onClick={onConfirm} disabled={isPending}>
@@ -764,43 +662,36 @@ function GoogleDrivePage() {
     <PageTransition>
       <div className="flex h-full flex-col gap-6">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex items-center gap-3">
-            {/* Google Drive colored icon */}
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-white dark:bg-zinc-900 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800">
-              <img src={googleDriveSvg} alt="Google Drive" className="h-6 w-6" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Google Drive</h1>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                Kelola storage dan akun Google Drive yang terhubung.
-              </p>
-            </div>
-          </div>
-          {/* Sync + Add buttons side by side */}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => syncAll.mutate()}
-              disabled={syncAll.isPending || isStorageLoading}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 disabled:opacity-60 h-9 px-3 text-sm font-medium text-zinc-700 dark:text-zinc-300 shadow-sm transition-all"
-            >
-              <RefreshCw className={`h-4 w-4 ${syncAll.isPending ? "animate-spin" : ""}`} />
-              <span className="hidden sm:inline">{syncAll.isPending ? "Syncing..." : "Sync"}</span>
-            </button>
-            {/* Mobile: icon-only [+]. Desktop: [+ Add Google Drive] */}
-            <button
-              onClick={() => setDialogOpen(true)}
-              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-500 text-white hover:bg-brand-600 shadow-sm shadow-brand-500/25 disabled:opacity-50 h-9 w-9 sm:w-auto sm:px-3 text-sm font-medium transition-all"
-              aria-label="Add Account"
-            >
-              <Plus className="h-4 w-4 shrink-0" />
-              <span className="hidden sm:inline">Add Google Drive</span>
-            </button>
-          </div>
-        </div>
+        <PageHeader
+          eyebrow="Storage"
+          icon={(props) => <img src={googleDriveSvg} alt="" {...props} />}
+          title="Google Drive"
+          description="Kelola storage dan akun Google Drive yang terhubung."
+          actions={
+            <>
+              <button
+                onClick={() => syncAll.mutate()}
+                disabled={syncAll.isPending || isStorageLoading}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] hover:bg-[rgb(var(--surface-muted))] dark:hover:bg-[rgb(var(--surface-muted))] disabled:opacity-60 h-9 px-3 text-sm font-medium text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))] shadow-sm transition-all"
+              >
+                <RefreshCw className={`h-4 w-4 ${syncAll.isPending ? "animate-spin" : ""}`} />
+                <span className="hidden sm:inline">{syncAll.isPending ? "Syncing..." : "Sync"}</span>
+              </button>
+              {/* Mobile: icon-only [+]. Desktop: [+ Add Google Drive] */}
+              <button
+                onClick={() => setDialogOpen(true)}
+                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-brand-500 text-white hover:bg-brand-600 shadow-sm shadow-brand-500/25 disabled:opacity-50 h-9 w-9 sm:w-auto sm:px-3 text-sm font-medium transition-all"
+                aria-label="Add Account"
+              >
+                <Plus className="h-4 w-4 shrink-0" />
+                <span className="hidden sm:inline">Add Google Drive</span>
+              </button>
+            </>
+          }
+        />
 
         {/* ── Storage Summary Card ── */}
-        <Card className="shrink-0 relative overflow-hidden border-0 bg-white dark:bg-zinc-900 shadow-sm ring-1 ring-zinc-200 dark:ring-white/5">
+        <Card className="shrink-0 relative overflow-hidden border-0 bg-[rgb(var(--surface))] shadow-sm ring-1 ring-[rgb(var(--border-subtle))] dark:ring-white/5">
           <div className="pointer-events-none absolute -top-12 -right-12 h-48 w-48 rounded-full bg-[#4285F4]/15 blur-3xl dark:bg-[#4285F4]/5" />
           <div className="pointer-events-none absolute top-4 left-1/4 h-40 w-40 rounded-full bg-[#EA4335]/15 blur-3xl hidden sm:block dark:hidden" />
           <div className="pointer-events-none absolute -bottom-10 right-1/4 h-48 w-48 rounded-full bg-[#FBBC05]/15 blur-3xl hidden sm:block dark:hidden" />
@@ -822,20 +713,20 @@ function GoogleDrivePage() {
               <div className="flex flex-col gap-3">
                 <div className="flex items-end justify-between">
                   <div className="flex flex-col">
-                    <span className="text-3xl font-bold tracking-tight text-zinc-900 dark:text-zinc-100">
+                    <span className="text-3xl font-bold tracking-tight text-[rgb(var(--foreground))]">
                       {formatBytes(summary.usedStorageBytes)}
                     </span>
-                    <span className="text-sm font-medium text-zinc-500 dark:text-zinc-400">
+                    <span className="text-sm font-medium text-[rgb(var(--ink-500))]">
                       Terpakai dari {formatBytes(summary.totalStorageBytes)}
                     </span>
                   </div>
-                  <span className="text-sm px-3 py-1 rounded-full font-semibold bg-zinc-100 text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100 ring-1 ring-zinc-200 dark:ring-zinc-700">
+                  <span className="text-sm px-3 py-1 rounded-full font-semibold bg-[rgb(var(--surface-muted))] text-[rgb(var(--foreground))] dark:bg-[rgb(var(--surface-muted))] dark:text-[rgb(var(--foreground))] ring-1 ring-[rgb(var(--border-subtle))] dark:ring-[rgb(var(--border-subtle))]">
                     {summary.usedPercentage.toFixed(1)}% Terpakai
                   </span>
                 </div>
                 <Progress
                   value={summary.usedPercentage}
-                  className="h-3 bg-zinc-200 dark:bg-zinc-800"
+                  className="h-3 bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]"
                   indicatorClassName={summary.usedPercentage > 90 ? "bg-red-500" : "bg-brand-500"}
                 />
               </div>
@@ -845,7 +736,7 @@ function GoogleDrivePage() {
 
         {/* ── Account Cards (merged Google Accounts) ── */}
         <div className="flex-1 flex flex-col min-h-[300px]">
-          <h2 className="mb-4 text-lg font-semibold text-zinc-900 dark:text-zinc-100">Akun Google Drive</h2>
+          <h2 className="mb-4 text-lg font-semibold text-[rgb(var(--foreground))]">Akun Google Drive</h2>
 
           <AnimatePresence mode="wait">
             {isAccountsLoading ? (
@@ -854,12 +745,12 @@ function GoogleDrivePage() {
               </motion.div>
             ) : googleDriveAccounts.length === 0 ? (
               <motion.div key="empty" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-                className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-zinc-200 bg-white/50 py-16 dark:border-zinc-800 dark:bg-zinc-900/50">
-                <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800">
-                  <KeyRound className="h-7 w-7 text-zinc-400 opacity-50" />
+                className="flex flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-[rgb(var(--border-subtle))] bg-white/50 py-16 dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface))]/50">
+                <div className="flex h-14 w-14 items-center justify-center rounded-lg bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]">
+                  <KeyRound className="h-7 w-7 text-[rgb(var(--ink-500))] opacity-50" />
                 </div>
-                <p className="mt-4 text-sm font-medium text-zinc-900 dark:text-zinc-100">Belum ada akun Google Drive</p>
-                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">Klik tombol "Tambah Akun" di kanan atas untuk mulai.</p>
+                <p className="mt-4 text-sm font-medium text-[rgb(var(--foreground))]">Belum ada akun Google Drive</p>
+                <p className="mt-1 text-xs text-[rgb(var(--ink-500))]">Klik tombol "Tambah Akun" di kanan atas untuk mulai.</p>
               </motion.div>
             ) : (
               <motion.div key="list" variants={containerVariants} initial="hidden" animate="show">
@@ -880,7 +771,7 @@ function GoogleDrivePage() {
                           <Card className="flex flex-col overflow-hidden transition-all hover:shadow-md dark:hover:shadow-xl dark:hover:ring-1 dark:hover:ring-white/10">
                             <div className="flex items-start justify-between p-4 sm:p-5 pb-3">
                               <div className="flex min-w-0 flex-1 items-center gap-3">
-                                <Avatar className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 ring-1 ring-zinc-200 dark:ring-zinc-800">
+                                <Avatar className="h-9 w-9 sm:h-10 sm:w-10 shrink-0 ring-1 ring-[rgb(var(--border-subtle))] dark:ring-[rgb(var(--border-subtle))]">
                                   <AvatarImage src={`https://avatar.vercel.sh/${account.email}?size=80`} alt={account.email} />
                                   <AvatarFallback className="bg-brand-100 font-semibold text-brand-700 dark:bg-brand-900/50 dark:text-brand-300">
                                     {account.email.charAt(0).toUpperCase()}
@@ -888,7 +779,7 @@ function GoogleDrivePage() {
                                 </Avatar>
                                 <div className="flex min-w-0 flex-col">
                                   <EmailCell email={account.email} />
-                                  <span className="text-[11px] text-zinc-500">
+                                  <span className="text-[11px] text-[rgb(var(--ink-500))]">
                                     Google Drive Storage
                                   </span>
                                 </div>
@@ -900,7 +791,7 @@ function GoogleDrivePage() {
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2">
                                   <Badge variant={account.status === "online" ? "success" : account.status === "error" ? "destructive" : "neutral"} className="px-2 py-0.5 text-[10px]">
-                                    <span className={`mr-1.5 h-1.5 w-1.5 rounded-full ${account.status === "online" ? "bg-emerald-500" : account.status === "syncing" ? "bg-blue-500" : account.status === "error" ? "bg-red-500" : "bg-zinc-400"}`} />
+                                    <span className={`mr-1.5 h-1.5 w-1.5 rounded-full ${account.status === "online" ? "bg-emerald-500" : account.status === "syncing" ? "bg-blue-500" : account.status === "error" ? "bg-red-500" : "bg-[rgb(var(--surface-muted))]"}`} />
                                     {account.status === "online" ? "Online" : account.status === "syncing" ? "Syncing" : account.status === "error" ? "Error" : "Offline"}
                                   </Badge>
                                   {isSyncing && <RefreshCw className="h-3 w-3 animate-spin text-blue-500" />}
@@ -915,7 +806,7 @@ function GoogleDrivePage() {
                                       usedBytes: account.usedStorageBytes,
                                     })}
                                     disabled={activeJobs.some((job) => job.sourceAccountId === account.id || job.targetAccountId === account.id)}
-                                    className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-brand-50 hover:text-brand-500 disabled:opacity-40 dark:hover:bg-brand-950/50"
+                                    className="rounded-full p-1.5 text-[rgb(var(--ink-500))] transition-colors hover:bg-brand-50 hover:text-brand-500 disabled:opacity-40 dark:hover:bg-brand-950/50"
                                     title="Migrasi Isi Drive ke Akun Lain"
                                   >
                                     <ArrowLeftRight className="h-4 w-4" />
@@ -923,7 +814,7 @@ function GoogleDrivePage() {
                                   <button
                                     type="button"
                                     onClick={() => setFormatTarget({ id: account.id, email: account.email, fileCount: (account as any).fileCount ?? 0 })}
-                                    className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-950/50"
+                                    className="rounded-full p-1.5 text-[rgb(var(--ink-500))] transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-950/50"
                                     title="Format Drive"
                                   >
                                     <HardDrive className="h-4 w-4" />
@@ -932,7 +823,7 @@ function GoogleDrivePage() {
                                     type="button"
                                     onClick={() => setDeleteTarget({ id: account.id, email: account.email, fileCount: (account as any).fileCount ?? 0 })}
                                     disabled={deleteAccount.isPending}
-                                    className="rounded-full p-1.5 text-zinc-400 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-950/50"
+                                    className="rounded-full p-1.5 text-[rgb(var(--ink-500))] transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 dark:hover:bg-red-950/50"
                                     title="Disconnect Akun"
                                   >
                                     <Power className="h-4 w-4" />
@@ -941,7 +832,7 @@ function GoogleDrivePage() {
                               </div>
 
                               {/* Last synced */}
-                              <div className="flex items-center gap-1.5 text-[11px] text-zinc-500 dark:text-zinc-400">
+                              <div className="flex items-center gap-1.5 text-[11px] text-[rgb(var(--ink-500))]">
                                 <RefreshCw className="h-3 w-3 shrink-0" />
                                 <span className="truncate">
                                   {isSyncing ? "Sedang sinkronisasi..." : syncTime ? `Sync: ${syncTime}` : "Belum pernah sync"}
@@ -950,13 +841,13 @@ function GoogleDrivePage() {
 
                               {/* Storage info / bar */}
                               <div className="flex flex-col gap-1.5">
-                                <div className="flex items-center justify-between text-xs font-medium text-zinc-600 dark:text-zinc-400">
+                                <div className="flex items-center justify-between text-xs font-medium text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))]">
                                   <span>{formatBytes(account.usedStorageBytes)}</span>
                                   <span>{formatBytes(account.totalStorageBytes)}</span>
                                 </div>
                                 <Progress
                                   value={usagePercent}
-                                  className="h-1.5 bg-zinc-200 dark:bg-zinc-800"
+                                  className="h-1.5 bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]"
                                   indicatorClassName={isDanger ? "bg-red-500" : "bg-brand-500"}
                                 />
                               </div>

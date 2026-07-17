@@ -8,8 +8,13 @@ import { folderService } from "../services/folder.service";
 export function useFolderByPath(path: string) {
   return useQuery({
     queryKey: ["folders", "resolve", path],
-    queryFn: () => folderService.byPath(path),
-    staleTime: 30_000,
+    queryFn: ({ signal }) => folderService.byPath(path, signal),
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 2,
+    placeholderData: (prev) => prev,
   });
 }
 
@@ -20,8 +25,11 @@ export function useFolderByPath(path: string) {
 export function useFolders(parentFolderId: number | null = null) {
   return useQuery({
     queryKey: ["folders", "list", parentFolderId],
-    queryFn: () => folderService.list(parentFolderId),
-    staleTime: 30_000,
+    queryFn: ({ signal }) => folderService.list(parentFolderId, signal),
+    staleTime: 60_000,
+    gcTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+    retry: 1,
   });
 }
 

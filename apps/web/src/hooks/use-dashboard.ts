@@ -15,9 +15,12 @@ export interface DashboardSummary {
 }
 
 export interface AccountStorageInfo {
+  id: number;
   email: string;
+  provider: import("@nqdrive/types").StorageProviderType;
   usedStorageBytes: number;
   totalStorageBytes: number;
+  status?: string;
 }
 
 export interface CountryDownload {
@@ -45,29 +48,40 @@ export interface DashboardAnalyticsResponse {
 }
 
 export const dashboardService = {
-  getMetrics: () => apiRequest<DashboardMetricsResponse>("/dashboard/metrics"),
-  getAnalytics: (days = 30) =>
-    apiRequest<DashboardAnalyticsResponse>(`/dashboard/analytics?days=${days}`),
+  getMetrics: (signal?: AbortSignal) =>
+    apiRequest<DashboardMetricsResponse>("/dashboard/metrics", { signal }),
+  getAnalytics: (days = 30, signal?: AbortSignal) =>
+    apiRequest<DashboardAnalyticsResponse>(`/dashboard/analytics?days=${days}`, { signal }),
 };
 
 export function useDashboardMetrics() {
   return useQuery({
     queryKey: ["dashboard", "metrics"],
-    queryFn: dashboardService.getMetrics,
+    queryFn: ({ signal }) => dashboardService.getMetrics(signal),
     staleTime: 60_000,
+    gcTime: 5 * 60_000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
+    refetchInterval: false,
+    refetchIntervalInBackground: false,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 3000),
+    placeholderData: (prev) => prev,
   });
 }
 
 export function useDashboardAnalytics(days = 30) {
   return useQuery({
     queryKey: ["dashboard", "analytics", days],
-    queryFn: () => dashboardService.getAnalytics(days),
+    queryFn: ({ signal }) => dashboardService.getAnalytics(days, signal),
     staleTime: 300_000,
+    gcTime: 10 * 60_000,
     refetchOnMount: false,
     refetchOnWindowFocus: false,
     refetchOnReconnect: true,
+    refetchInterval: false,
+    refetchIntervalInBackground: false,
+    retry: 1,
   });
 }

@@ -6,15 +6,18 @@ export const fileQueryKeys = {
   list: (params: ListFilesParams) => ["files", "list", params] as const,
 };
 
-export function useFiles(params: ListFilesParams) {
+export function useFiles(params: ListFilesParams, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: fileQueryKeys.list(params),
-    queryFn: () => fileService.list(params),
-    placeholderData: (previousData) => previousData,
-    staleTime: 60_000,
-    refetchInterval: 60_000,
-    refetchIntervalInBackground: false,
+    queryFn: ({ signal }) => fileService.list(params, signal),
+    staleTime: 30_000,
+    gcTime: 5 * 60_000,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 2,
+    retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
+    placeholderData: (prev) => prev,
+    enabled: options?.enabled ?? true,
   });
 }
 

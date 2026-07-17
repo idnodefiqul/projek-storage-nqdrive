@@ -58,6 +58,8 @@ export interface FolderByPathResponse {
 /** A file row enriched with the drive account it lives on — useful for dashboard tables. */
 export interface FileWithAccount extends FileEntity {
   driveAccountEmail: string;
+  /** Provider type (google_drive, dropbox, dll) — dipakai frontend untuk ikon badge. */
+  driveAccountProvider?: string;
 }
 
 /** Response from /api/trash — list semua item di Trash */

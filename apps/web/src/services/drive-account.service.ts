@@ -4,7 +4,8 @@ import type { PublicDriveAccount } from "@nqdrive/types";
 export type DriveAccountWithFileCount = PublicDriveAccount & { fileCount: number };
 
 export const driveAccountService = {
-  list: () => apiRequest<{ accounts: DriveAccountWithFileCount[] }>("/storage/accounts"),
+  list: (signal?: AbortSignal) =>
+    apiRequest<{ accounts: DriveAccountWithFileCount[] }>("/storage/accounts", { signal }),
 
   remove: (id: number) =>
     apiRequest<{ message: string }>(`/storage/accounts/${id}`, { method: "DELETE" }),
@@ -22,11 +23,13 @@ export const driveAccountService = {
 
 export const googleDriveService = {
   /**
-   * Ambil URL Google OAuth consent (cara login yang direkomendasikan).
-   * Frontend melakukan window.location ke URL ini; setelah admin mengizinkan,
-   * Google redirect ke worker callback yang menyimpan akun otomatis.
+   * Ambil URL OAuth consent (cara login yang direkomendasikan).
+   * `provider` menentukan Google Drive atau Dropbox — endpoint yang sama menerbitkan
+   * URL yang sesuai. Frontend melakukan window.location ke URL ini; setelah admin
+   * mengizinkan, provider redirect ke worker callback yang menyimpan akun otomatis.
    */
-  getOAuthUrl: () => apiRequest<{ url: string }>("/storage/accounts/oauth/url"),
+  getOAuthUrl: (provider: "google_drive" | "dropbox" | "onedrive" = "google_drive") =>
+    apiRequest<{ url: string }>(`/storage/accounts/oauth/url?provider=${provider}`),
 
   /**
    * Tambahkan akun Google Drive via refresh token.
@@ -53,15 +56,10 @@ export const googleDriveService = {
     ),
 };
 
-export const telegramStorageService = {
-  connect: (params: { botToken: string; chatId: string; email: string }) =>
-    apiRequest<{ account: PublicDriveAccount }>("/storage/accounts/connect-telegram", {
-      method: "POST",
-      body: params,
-    }),
-  scan: (botToken: string) =>
-    apiRequest<{ chats: Array<{ id: number; title: string; type: string }>; note?: string; mode: string }>("/storage/accounts/scan-telegram", {
-      method: "POST",
-      body: { botToken },
-    }),
+export const dropboxService = {
+  getOAuthUrl: () => googleDriveService.getOAuthUrl("dropbox"),
+};
+
+export const oneDriveService = {
+  getOAuthUrl: () => googleDriveService.getOAuthUrl("onedrive"),
 };

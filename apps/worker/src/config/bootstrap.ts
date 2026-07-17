@@ -1,19 +1,38 @@
-import { StorageProviderFactory, GoogleDriveProvider } from "@nqdrive/storage";
+import { StorageProviderFactory, GoogleDriveProvider, DropboxProvider, OneDriveProvider } from "@nqdrive/storage";
 import type { Env } from "./env";
 
-/**
- * Registers every active StorageProvider implementation with the factory.
- *
- * Call this once per request at the top of the Hono app (or once per Worker isolate —
- * registration is idempotent since it just overwrites the map entry). Adding a new
- * provider later (R2, S3, B2, ...) means adding one line here — nothing else in the
- * codebase needs to change, since all callers resolve providers through the factory.
- */
-export function registerStorageProviders(env: Env): void {
-  StorageProviderFactory.register(new GoogleDriveProvider(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET));
+let providersInitialized = false;
 
-  // Future providers, registered the same way once implemented:
-  // StorageProviderFactory.register(new CloudflareR2Provider(...));
-  // StorageProviderFactory.register(new AmazonS3Provider(...));
-  // StorageProviderFactory.register(new BackblazeB2Provider(...));
+export function registerStorageProviders(env: Env): void {
+  // Idempotent registration — only register once per isolate lifecycle
+  // Workers isolate persists across requests, so we avoid re-registering on every request
+  if (providersInitialized && StorageProviderFactory.isInitialized()) {
+    return;
+  }
+
+  // Always register Google Drive (required)
+  try {
+    StorageProviderFactory.register(new GoogleDriveProvider(env.GOOGLE_CLIENT_ID, env.GOOGLE_CLIENT_SECRET));
+  } catch (e) {
+    console.warn("Failed to register GoogleDriveProvider:", e);
+  }
+
+  if (env.DROPBOX_APP_KEY && env.DROPBOX_APP_SECRET) {
+    try {
+      StorageProviderFactory.register(new DropboxProvider(env.DROPBOX_APP_KEY, env.DROPBOX_APP_SECRET));
+    } catch (e) {
+      console.warn("Failed to register DropboxProvider:", e);
+    }
+  }
+
+  if (env.MICROSOFT_CLIENT_ID && env.MICROSOFT_CLIENT_SECRET) {
+    try {
+      StorageProviderFactory.register(new OneDriveProvider(env.MICROSOFT_CLIENT_ID, env.MICROSOFT_CLIENT_SECRET));
+    } catch (e) {
+      console.warn("Failed to register OneDriveProvider:", e);
+    }
+  }
+
+  providersInitialized = true;
+  StorageProviderFactory.markInitialized();
 }

@@ -1,4 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
+import { createPortal } from "react-dom";
 
 interface LoadingOverlayProps {
   visible: boolean;
@@ -6,15 +7,16 @@ interface LoadingOverlayProps {
 }
 
 export function LoadingOverlay({ visible, message }: LoadingOverlayProps) {
-  return (
+  // Portal ke body agar tidak terpengaruh CSS body.logging-out (yang menyembunyikan header/aside/nav)
+  return createPortal(
     <AnimatePresence>
       {visible && (
         <motion.div
           key="loading-overlay"
-          initial={{ opacity: 0 }}
+          initial={{ opacity: 1 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.35, ease: [0.4, 0, 0.2, 1] }}
+          transition={{ duration: 0.2 }}
           className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-zinc-100 dark:bg-zinc-950"
         >
           {/* Glow rings */}
@@ -59,6 +61,7 @@ export function LoadingOverlay({ visible, message }: LoadingOverlayProps) {
           )}
         </motion.div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body
   );
 }

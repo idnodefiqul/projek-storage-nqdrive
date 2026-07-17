@@ -1,9 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import {
   Lock, Eye, EyeOff, ShieldCheck,
   Check, Pencil, RefreshCw,
-  CheckCircle2, AlertCircle, User, ChevronDown,
+  User,
 } from "lucide-react";
 import { useToast, Button, Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@nqdrive/ui";
 import { getAvatarSvg, generateAvatar, setCachedAvatarConfig, getCachedAvatarConfig, generateSeeds, AVATAR_STYLES, type AvatarStyle } from "../lib/avatar";
@@ -11,6 +11,7 @@ import { useChangePassword } from "../hooks/auth";
 import { useAuthContext } from "../stores/auth-provider";
 import { useUpdateSettings } from "../hooks/use-settings";
 import { PageTransition } from "../components/page-transition";
+import { PageHeader } from "../components/ui-kit";
 
 export const Route = createFileRoute("/dashboard/account")({
   component: AccountPage,
@@ -62,7 +63,7 @@ function AvatarPickerDialog({ open, onOpenChange, currentSeed }: { open: boolean
         <div className="flex flex-col gap-4">
           {/* Style selector */}
           <div>
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">Style</p>
+            <p className="text-xs font-medium text-[rgb(var(--ink-500))] mb-2">Style</p>
             <div className="flex gap-2 flex-wrap">
               {AVATAR_STYLES.map((s) => (
                 <button
@@ -72,7 +73,7 @@ function AvatarPickerDialog({ open, onOpenChange, currentSeed }: { open: boolean
                   className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all border ${
                     style === s.value
                       ? "bg-brand-500 text-white border-brand-500"
-                      : "bg-zinc-50 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 border-zinc-200 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-700"
+                      : "bg-[rgb(var(--surface-muted))] text-[rgb(var(--ink-500))] border-[rgb(var(--border-subtle))] hover:bg-[rgb(var(--surface-muted))]"
                   }`}
                 >
                   {s.label}
@@ -84,7 +85,7 @@ function AvatarPickerDialog({ open, onOpenChange, currentSeed }: { open: boolean
           {/* Avatar grid */}
           <div>
             <div className="flex items-center justify-between mb-2">
-              <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Pilih Avatar</p>
+              <p className="text-xs font-medium text-[rgb(var(--ink-500))]">Pilih Avatar</p>
               <button
                 type="button"
                 onClick={refreshSeeds}
@@ -103,13 +104,13 @@ function AvatarPickerDialog({ open, onOpenChange, currentSeed }: { open: boolean
                   className={`relative aspect-square rounded-xl overflow-hidden border-2 transition-all ${
                     selectedSeed === seed
                       ? "border-brand-500 ring-2 ring-brand-500/30 scale-105"
-                      : "border-zinc-200 dark:border-zinc-700 hover:border-zinc-400 dark:hover:border-zinc-500"
+                      : "border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))] hover:border-[rgb(var(--border-subtle))] dark:hover:border-[rgb(var(--border-subtle))]"
                   }`}
                 >
                   <img
                     src={generateAvatar(style, seed)}
                     alt="Avatar option"
-                    className="h-full w-full object-cover bg-white dark:bg-zinc-800"
+                    className="h-full w-full object-cover bg-[rgb(var(--surface))] dark:bg-[rgb(var(--surface-muted))]"
                   />
                   {selectedSeed === seed && (
                     <div className="absolute bottom-0.5 right-0.5 bg-brand-500 rounded-full p-0.5">
@@ -122,13 +123,13 @@ function AvatarPickerDialog({ open, onOpenChange, currentSeed }: { open: boolean
           </div>
 
           {/* Preview */}
-          <div className="flex items-center gap-3 rounded-lg border border-zinc-200 dark:border-zinc-700 p-3 bg-zinc-50 dark:bg-zinc-800/50">
-            <div className="h-10 w-10 shrink-0 rounded-xl overflow-hidden bg-white dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700">
+          <div className="flex items-center gap-3 rounded-lg border border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))] p-3 bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))]/50">
+            <div className="h-10 w-10 shrink-0 rounded-xl overflow-hidden bg-[rgb(var(--surface))] dark:bg-[rgb(var(--surface-muted))] border border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))]">
               <img src={generateAvatar(style, selectedSeed)} alt="Preview" className="h-full w-full object-cover" />
             </div>
             <div>
-              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100">Preview</p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">{AVATAR_STYLES.find(s => s.value === style)?.label}</p>
+              <p className="text-sm font-medium text-[rgb(var(--foreground))]">Preview</p>
+              <p className="text-xs text-[rgb(var(--ink-500))]">{AVATAR_STYLES.find(s => s.value === style)?.label}</p>
             </div>
           </div>
         </div>
@@ -137,7 +138,7 @@ function AvatarPickerDialog({ open, onOpenChange, currentSeed }: { open: boolean
         <Button
           variant="outline"
           onClick={() => onOpenChange(false)}
-          className="border-zinc-300 dark:border-zinc-600 dark:text-zinc-100 dark:bg-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-700"
+          className="border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))] dark:text-[rgb(var(--foreground))] dark:bg-[rgb(var(--surface-muted))] hover:bg-[rgb(var(--surface-muted))] dark:hover:bg-[rgb(var(--surface-muted))]"
         >
           Batal
         </Button>
@@ -155,18 +156,6 @@ function AccountPage() {
   const { toast } = useToast();
   const { user } = useAuthContext();
   const changePassword = useChangePassword();
-
-  // Notification
-  const [notification, setNotification] = useState<{ message: string; type: "success" | "error" } | null>(null);
-  const notificationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showNotification = (message: string, type: "success" | "error" = "success") => {
-    if (notificationTimeoutRef.current) clearTimeout(notificationTimeoutRef.current);
-    setNotification({ message, type });
-    notificationTimeoutRef.current = setTimeout(() => setNotification(null), 4000);
-  };
-  useEffect(() => {
-    return () => { if (notificationTimeoutRef.current) clearTimeout(notificationTimeoutRef.current); };
-  }, []);
 
   // Password form
   const [currentPassword, setCurrentPassword] = useState("");
@@ -191,73 +180,46 @@ function AccountPage() {
     setFormError(null);
     if (newPassword !== confirmPassword) {
       setFormError("Konfirmasi password baru tidak cocok.");
-      showNotification("Konfirmasi password baru tidak cocok.", "error");
+      toast({ title: "Konfirmasi password baru tidak cocok.", variant: "error" });
       return;
     }
     if (newPassword.length < 8) {
       setFormError("Password baru minimal 8 karakter.");
-      showNotification("Password baru minimal 8 karakter.", "error");
+      toast({ title: "Password baru minimal 8 karakter.", variant: "error" });
       return;
     }
     try {
       await changePassword.mutateAsync({ currentPassword, newPassword });
-      showNotification("Password berhasil diubah");
       toast({ title: "Password berhasil diubah", variant: "success" });
       setCurrentPassword(""); setNewPassword(""); setConfirmPassword("");
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : "Gagal mengubah password.";
       setFormError(errMsg);
-      showNotification(errMsg, "error");
+      toast({ title: errMsg, variant: "error" });
     }
   };
 
-  const pwInputCls = `h-10 w-full rounded-lg border border-zinc-300 bg-zinc-50 pl-10 pr-11 text-sm
-    text-zinc-900 placeholder-zinc-400 outline-none transition-all
-    focus:border-brand-500 focus:bg-white focus:ring-2 focus:ring-brand-500/20
-    dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100 dark:placeholder-zinc-500`;
+  const pwInputCls = `h-10 w-full rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface-muted))] pl-10 pr-11 text-sm
+    text-[rgb(var(--foreground))] placeholder-[rgb(var(--ink-500))] outline-none transition-all
+    focus:border-brand-500 focus:bg-[rgb(var(--surface))] focus:ring-2 focus:ring-brand-500/20
+    dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface-muted))] dark:text-[rgb(var(--foreground))] dark:placeholder-[rgb(var(--ink-500))]`;
 
   return (
     <PageTransition>
       <div className="flex flex-col gap-6 w-full">
-        {/* Header */}
-        <div className="relative flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-4 flex-wrap">
-              <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Account</h1>
-              {notification && (
-                <div className={`hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-semibold shadow-sm transition-all duration-300 animate-in fade-in slide-in-from-left-3 ${
-                  notification.type === "success"
-                    ? "bg-emerald-50 dark:bg-emerald-950/30 border-emerald-200/80 dark:border-emerald-900/80 text-emerald-700 dark:text-emerald-400"
-                    : "bg-red-50 dark:bg-red-950/30 border-red-200/80 dark:border-red-900/80 text-red-700 dark:text-red-400"
-                }`}>
-                  {notification.type === "success"
-                    ? <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                    : <AlertCircle className="h-4 w-4 text-red-500" />}
-                  {notification.message}
-                </div>
-              )}
-            </div>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400 mt-1">
-              Kelola profil dan keamanan akun.
-            </p>
-          </div>
-
-          {/* Mobile notification */}
-          {notification && (
-            <div className="sm:hidden fixed top-4 left-4 right-4 z-[999] flex items-center gap-3 px-4 py-3 rounded-xl bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-950 shadow-xl animate-in fade-in slide-in-from-top-4 duration-300 border border-zinc-800 dark:border-zinc-200">
-              <span className={`flex h-6 w-6 items-center justify-center rounded-full text-white shrink-0 ${notification.type === "success" ? "bg-emerald-500" : "bg-red-500"}`}>
-                {notification.type === "success" ? <Check className="h-3.5 w-3.5 text-white" /> : <AlertCircle className="h-3.5 w-3.5 text-white" />}
-              </span>
-              <span className="flex-1 text-sm font-semibold">{notification.message}</span>
-            </div>
-          )}
-        </div>
+        <PageHeader
+          eyebrow="Settings"
+          icon={User}
+          title="Account"
+          description="Kelola profil dan keamanan akun."
+        />
 
         {/* ── Profile Card ── */}
-        <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
+        <div className="app-card overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-6 px-5 sm:px-6 py-5 sm:py-6">
             <button
               type="button"
+              aria-label="Ganti avatar"
               onClick={() => setAvatarPickerOpen(true)}
               className="relative group h-16 w-16 sm:h-20 sm:w-20 shrink-0 rounded-lg bg-brand-50 border border-brand-200 dark:border-brand-800 dark:bg-brand-900/30 flex items-center justify-center shadow-sm overflow-hidden"
             >
@@ -272,21 +234,22 @@ function AccountPage() {
               </div>
             </button>
             <div className="flex-1 min-w-0">
-              <h3 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">{user?.username ?? "Admin"}</h3>
+              <h3 className="text-lg font-semibold text-[rgb(var(--foreground))]">{user?.username ?? "Admin"}</h3>
               <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
-                <span className="flex items-center gap-1.5 text-sm text-zinc-500 dark:text-zinc-400">
+                <span className="flex items-center gap-1.5 text-sm text-[rgb(var(--ink-500))]">
                   <User className="h-3.5 w-3.5" />
-                  {user?.email || <span className="italic text-zinc-400">Email belum diisi</span>}
+                  {user?.email || <span className="italic text-[rgb(var(--ink-500))]">Email belum diisi</span>}
                 </span>
-                <span className="inline-flex items-center rounded-full bg-zinc-100 dark:bg-zinc-800 px-3 py-0.5 text-xs font-semibold text-zinc-700 dark:text-zinc-300 border border-zinc-200 dark:border-zinc-700">
+                <span className="inline-flex items-center rounded-full bg-[rgb(var(--surface-muted))] dark:bg-[rgb(var(--surface-muted))] px-3 py-0.5 text-xs font-semibold text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))] border border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))]">
                   Administrator
                 </span>
               </div>
             </div>
             <button
               type="button"
+              aria-label="Ganti avatar"
               onClick={() => setAvatarPickerOpen(true)}
-              className="shrink-0 inline-flex items-center gap-2 rounded-lg border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 hover:bg-zinc-50 dark:hover:bg-zinc-800 px-3 h-9 text-sm font-medium text-zinc-700 dark:text-zinc-300 shadow-sm transition-all"
+              className="shrink-0 inline-flex items-center gap-2 rounded-lg border border-[rgb(var(--border-subtle))] dark:border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] hover:bg-[rgb(var(--surface-muted))] dark:hover:bg-[rgb(var(--surface-muted))] px-3 h-9 text-sm font-medium text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))] shadow-sm transition-all"
             >
               <Pencil className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">Ganti Avatar</span>
@@ -301,15 +264,15 @@ function AccountPage() {
         />
 
         {/* ── Change Password Card ── */}
-        <div className="rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 shadow-sm overflow-hidden">
+        <div className="app-card overflow-hidden">
           <div className="px-5 sm:px-6 py-5 sm:py-6">
             <div className="flex items-start gap-3.5 mb-5">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-red-50 dark:bg-red-900/20 ring-1 ring-red-100 dark:ring-red-800">
                 <ShieldCheck className="h-4.5 w-4.5 text-red-500 dark:text-red-400" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">Keamanan Sandi</h3>
-                <p className="text-[13px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                <h3 className="text-sm font-semibold text-[rgb(var(--foreground))]">Keamanan Sandi</h3>
+                <p className="text-[13px] text-[rgb(var(--ink-500))] mt-0.5">
                   Ubah kata sandi admin secara berkala untuk menjaga keamanan.
                 </p>
               </div>
@@ -317,9 +280,9 @@ function AccountPage() {
 
             <form onSubmit={handlePasswordSubmit} className="flex flex-col gap-4 max-w-md">
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Password Saat Ini</label>
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-[rgb(var(--ink-500))]">Password Saat Ini</label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[rgb(var(--ink-500))]" />
                   <input
                     type={showCurrent ? "text" : "password"}
                     value={currentPassword}
@@ -329,16 +292,17 @@ function AccountPage() {
                     className={pwInputCls}
                   />
                   <button type="button" onClick={() => setShowCurrent((v) => !v)} tabIndex={-1}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors">
-                    {showCurrent ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    aria-label={showCurrent ? "Sembunyikan password saat ini" : "Tampilkan password saat ini"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgb(var(--ink-500))] hover:text-[rgb(var(--ink-500))] transition-colors">
+                    {showCurrent ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
                   </button>
                 </div>
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Password Baru</label>
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-[rgb(var(--ink-500))]">Password Baru</label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[rgb(var(--ink-500))]" />
                   <input
                     type={showNew ? "text" : "password"}
                     value={newPassword}
@@ -348,16 +312,17 @@ function AccountPage() {
                     className={pwInputCls}
                   />
                   <button type="button" onClick={() => setShowNew((v) => !v)} tabIndex={-1}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors">
-                    {showNew ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    aria-label={showNew ? "Sembunyikan password baru" : "Tampilkan password baru"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgb(var(--ink-500))] hover:text-[rgb(var(--ink-500))] transition-colors">
+                    {showNew ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
                   </button>
                 </div>
               </div>
 
               <div className="flex flex-col gap-1.5">
-                <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Konfirmasi Password</label>
+                <label className="text-[11px] font-semibold uppercase tracking-wider text-[rgb(var(--ink-500))]">Konfirmasi Password</label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[rgb(var(--ink-500))]" />
                   <input
                     type={showConfirm ? "text" : "password"}
                     value={confirmPassword}
@@ -367,8 +332,9 @@ function AccountPage() {
                     className={pwInputCls}
                   />
                   <button type="button" onClick={() => setShowConfirm((v) => !v)} tabIndex={-1}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-600 transition-colors">
-                    {showConfirm ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    aria-label={showConfirm ? "Sembunyikan konfirmasi password" : "Tampilkan konfirmasi password"}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-[rgb(var(--ink-500))] hover:text-[rgb(var(--ink-500))] transition-colors">
+                    {showConfirm ? <EyeOff className="h-4 w-4" aria-hidden="true" /> : <Eye className="h-4 w-4" aria-hidden="true" />}
                   </button>
                 </div>
               </div>

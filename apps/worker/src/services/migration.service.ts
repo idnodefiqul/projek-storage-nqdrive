@@ -67,8 +67,10 @@ export class MigrationService {
 
     // 1) File yang tercatat di dashboard (termasuk yang ada di Trash dashboard),
     //    supaya drive sumber benar-benar kosong setelah migrasi.
+    //    FIX: exclude soft-deleted files (deleted_at IS NOT NULL) — file di
+    //    trash sudah tidak ada di provider asli → download() gagal → item failed.
     const { results: dbFiles } = await this.env.DB.prepare(
-      "SELECT id, size_bytes, provider_file_id, visibility FROM files WHERE drive_account_id = ?"
+      "SELECT id, size_bytes, provider_file_id, visibility FROM files WHERE drive_account_id = ? AND deleted_at IS NULL"
     ).bind(sourceAccountId).all<{
       id: number;
       size_bytes: number;

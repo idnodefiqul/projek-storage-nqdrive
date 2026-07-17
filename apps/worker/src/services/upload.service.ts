@@ -170,10 +170,21 @@ export class UploadService {
         shareCode,
       });
 
+      // FIX OneDrive quota bertambah terus:
+      // Sebelumnya: used = cached_account.used + size → bisa dobel jika retry / race condition.
+      // Sekarang:  hitung ulang dari DB SUM(files) yang akurat & idempotent.
+      // Untuk semua provider, ini mencegah drift. Untuk OneDrive khususnya, ini
+      // mencegah "kuota bertambah terus" karena optimistic increment ganda.
+      const freshUsed = await this.getDbUsedBytes(account.id);
+
+      // Ambil fresh account untuk totalStorage yang mungkin sudah di-update cron
+      const freshAccount = await this.driveAccountRepository.findById(account.id);
+      const effectiveTotal = freshAccount?.totalStorageBytes ?? account.totalStorageBytes;
+
       await this.driveAccountRepository.updateQuota(account.id, {
-        totalBytes: account.totalStorageBytes,
-        usedBytes: account.usedStorageBytes + definitveSizeBytes,
-        availableBytes: Math.max(0, account.availableStorageBytes - definitveSizeBytes),
+        totalBytes: effectiveTotal,
+        usedBytes: freshUsed,
+        availableBytes: Math.max(0, effectiveTotal - freshUsed),
       });
 
       await this.uploadLogRepository.create({
@@ -241,10 +252,16 @@ export class UploadService {
       shareCode,
     });
 
+    // FIX sama seperti uploadFile: pakai DB SUM, bukan optimistic increment.
+    // Ini juga membuat finalize idempotent — retry tidak akan dobel hitung.
+    const freshUsed = await this.getDbUsedBytes(account.id);
+    const freshAccount = await this.driveAccountRepository.findById(account.id);
+    const effectiveTotal = freshAccount?.totalStorageBytes ?? account.totalStorageBytes;
+
     await this.driveAccountRepository.updateQuota(account.id, {
-      totalBytes: account.totalStorageBytes,
-      usedBytes: account.usedStorageBytes + params.sizeBytes,
-      availableBytes: Math.max(0, account.availableStorageBytes - params.sizeBytes),
+      totalBytes: effectiveTotal,
+      usedBytes: freshUsed,
+      availableBytes: Math.max(0, effectiveTotal - freshUsed),
     });
 
     await this.uploadLogRepository.create({
@@ -258,6 +275,18 @@ export class UploadService {
     }).catch(console.error);
 
     return file;
+  }
+
+  /** Hitung total bytes dari DB — sumber kebenaran untuk used quota. */
+  private async getDbUsedBytes(accountId: number): Promise<number> {
+    try {
+      const row = await this.env.DB.prepare(
+        "SELECT COALESCE(SUM(size_bytes), 0) as total FROM files WHERE drive_account_id = ? AND deleted_at IS NULL"
+      ).bind(accountId).first<{ total: number }>();
+      return row?.total ?? 0;
+    } catch {
+      return 0;
+    }
   }
 
   private async generateUniqueSlug(filename: string): Promise<string> {

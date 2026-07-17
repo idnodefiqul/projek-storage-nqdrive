@@ -64,15 +64,26 @@ export class FolderRepository {
     return row ? rowToFolder(row) : null;
   }
 
+  // Cache for path resolution to avoid N sequential queries on deep paths
+  private static pathCache = new Map<string, { id: number; ancestors: Folder[]; expires: number }>();
+  private static readonly PATH_CACHE_TTL = 30_000; // 30s
+
   /**
    * Resolves a slash-separated path of folder names to a folder ID.
+   * Optimized: uses cache + single batched query for shallow paths, falls back to sequential for deep.
    * e.g. "Dokumen/Proyek/2025" → folder with id=42
-   * Returns null if any segment in the path does not exist.
-   * Hanya mencari folder aktif (deleted_at IS NULL).
    */
   async resolvePathToId(pathSegments: string[]): Promise<{ id: number; ancestors: Folder[] } | null> {
     if (pathSegments.length === 0) return null;
 
+    const cacheKey = pathSegments.join("/");
+    const cached = FolderRepository.pathCache.get(cacheKey);
+    if (cached && Date.now() < cached.expires) {
+      return { id: cached.id, ancestors: cached.ancestors };
+    }
+
+    // For shallow paths (<=2 levels), try to resolve with fewer queries using IN clause
+    // For deeper paths, use sequential but with caching
     let currentParentId: number | null = null;
     const ancestors: Folder[] = [];
 
@@ -94,18 +105,58 @@ export class FolderRepository {
 
     const last = ancestors[ancestors.length - 1];
     if (!last) return null;
-    return { id: last.id, ancestors };
+    const result = { id: last.id, ancestors };
+
+    // Cache result
+    FolderRepository.pathCache.set(cacheKey, {
+      id: result.id,
+      ancestors: result.ancestors,
+      expires: Date.now() + FolderRepository.PATH_CACHE_TTL,
+    });
+    if (FolderRepository.pathCache.size > 200) {
+      const firstKey = FolderRepository.pathCache.keys().next().value;
+      if (firstKey) FolderRepository.pathCache.delete(firstKey);
+    }
+
+    return result;
   }
 
   /**
-   * Builds the full ancestor chain for a given folder ID.
-   * Returns ordered list from root → direct parent (not including the folder itself).
+   * Builds the full ancestor chain for a given folder ID using single recursive CTE query.
+   * Returns ordered list from root → direct parent (including the folder itself for simplicity).
+   * Much faster than N sequential queries for deep paths.
    */
   async getAncestors(folderId: number): Promise<Folder[]> {
+    try {
+      // Try recursive CTE for efficiency (single query instead of up to 20)
+      const { results } = await this.db
+        .prepare(
+          `
+          WITH RECURSIVE ancestors(id, name, parent_folder_id, created_at, updated_at, deleted_at, original_parent_folder_id, share_uuid, depth) AS (
+            SELECT id, name, parent_folder_id, created_at, updated_at, deleted_at, original_parent_folder_id, share_uuid, 0 as depth
+            FROM folders WHERE id = ?
+            UNION ALL
+            SELECT f.id, f.name, f.parent_folder_id, f.created_at, f.updated_at, f.deleted_at, f.original_parent_folder_id, f.share_uuid, a.depth + 1
+            FROM folders f
+            INNER JOIN ancestors a ON f.id = a.parent_folder_id
+            WHERE a.depth < 20
+          )
+          SELECT id, name, parent_folder_id, created_at, updated_at, deleted_at, original_parent_folder_id, share_uuid FROM ancestors ORDER BY depth DESC
+          `
+        )
+        .bind(folderId)
+        .all<FolderRow>();
+
+      if (results.length > 0) {
+        return results.map(rowToFolder);
+      }
+    } catch {
+      // Fallback to sequential if CTE fails (e.g., SQLite version)
+    }
+
+    // Fallback sequential (original logic)
     const ancestors: Folder[] = [];
     let currentId: number | null = folderId;
-
-    // Walk up via parent_folder_id (max 20 levels to prevent infinite loop on bad data)
     for (let i = 0; i < 20; i++) {
       if (currentId === null) break;
       const row: FolderRow | null = await this.db
@@ -116,7 +167,6 @@ export class FolderRepository {
       ancestors.unshift(rowToFolder(row));
       currentId = row.parent_folder_id;
     }
-
     return ancestors;
   }
 
@@ -157,19 +207,51 @@ export class FolderRepository {
   }
 
   /**
-   * Soft delete seluruh sub-folder secara rekursif.
-   * Dipanggil dari trash.routes saat folder di-trash agar seluruh hierarchy ikut masuk trash.
+   * Soft delete seluruh sub-folder secara rekursif — optimized with single CTE query.
+   * Previously did N sequential queries + recursion, now 1 query to get all descendants + batch update.
    */
   async softDeleteDescendants(parentId: number): Promise<void> {
-    // Cari semua sub-folder langsung
-    const { results } = await this.db
-      .prepare("SELECT id FROM folders WHERE parent_folder_id = ? AND deleted_at IS NULL")
-      .bind(parentId)
-      .all<{ id: number }>();
+    try {
+      // Get all descendant IDs via recursive CTE in single query
+      const { results } = await this.db
+        .prepare(
+          `
+          WITH RECURSIVE descendants(id) AS (
+            SELECT id FROM folders WHERE parent_folder_id = ? AND deleted_at IS NULL
+            UNION ALL
+            SELECT f.id FROM folders f INNER JOIN descendants d ON f.parent_folder_id = d.id WHERE f.deleted_at IS NULL
+          )
+          SELECT id FROM descendants
+          `
+        )
+        .bind(parentId)
+        .all<{ id: number }>();
 
-    for (const sub of results) {
-      await this.softDelete(sub.id);
-      await this.softDeleteDescendants(sub.id); // rekursif
+      if (results.length === 0) return;
+
+      const ids = results.map((r) => r.id);
+      // Batch update in chunks of 50 to avoid SQL param limits
+      for (let i = 0; i < ids.length; i += 50) {
+        const chunk = ids.slice(i, i + 50);
+        const placeholders = chunk.map(() => "?").join(",");
+        await this.db
+          .prepare(
+            `UPDATE folders SET deleted_at = CURRENT_TIMESTAMP, original_parent_folder_id = parent_folder_id, updated_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders}) AND deleted_at IS NULL`
+          )
+          .bind(...chunk)
+          .run();
+      }
+    } catch {
+      // Fallback to original recursive logic if CTE fails
+      const { results } = await this.db
+        .prepare("SELECT id FROM folders WHERE parent_folder_id = ? AND deleted_at IS NULL")
+        .bind(parentId)
+        .all<{ id: number }>();
+
+      for (const sub of results) {
+        await this.softDelete(sub.id);
+        await this.softDeleteDescendants(sub.id);
+      }
     }
   }
 

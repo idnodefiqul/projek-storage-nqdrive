@@ -69,7 +69,7 @@ export class GoogleAccountConnectionService {
 
     const refreshTokenEncrypted = await encryptSecret(refreshToken, this.env.ENCRYPTION_KEY);
 
-    const existing = await this.repository.findByEmail(accountInfo.email);
+    const existing = await this.repository.findByEmailAndProvider(accountInfo.email, "google_drive");
     if (existing) {
       return this.repository.reconnect(existing.id, {
         refreshTokenEncrypted,

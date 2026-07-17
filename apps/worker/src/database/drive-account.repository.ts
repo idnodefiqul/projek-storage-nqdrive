@@ -46,15 +46,27 @@ export class DriveAccountRepository {
   constructor(private readonly db: D1Database) {}
 
   async findAll(): Promise<DriveAccount[]> {
+    // FIX: Jangan filter refresh_token_encrypted — akun yang di-disconnect (status offline)
+    // karena masih punya file tetap harus terhitung. Filter sebelumnya bikin
+    // distribusi cuma 3 padahal Google Drive ada 4. Sync cron nanti skip manual jika token kosong.
+    // FIX: exclude provider telegram, box, koofr yang sudah dihapus user tapi masih nyangkut di DB
     const { results } = await this.db
-      .prepare("SELECT * FROM drive_accounts WHERE refresh_token_encrypted != '' ORDER BY created_at DESC")
+      .prepare("SELECT * FROM drive_accounts WHERE provider NOT IN ('telegram','box','koofr') ORDER BY created_at DESC")
+      .all<DriveAccountRow>();
+    return results.map(rowToDriveAccount);
+  }
+
+  // Untuk keperluan yang butuh hanya akun aktif (masih punya refresh token)
+  async findAllActive(): Promise<DriveAccount[]> {
+    const { results } = await this.db
+      .prepare("SELECT * FROM drive_accounts WHERE refresh_token_encrypted != '' AND provider NOT IN ('telegram','box','koofr') ORDER BY created_at DESC")
       .all<DriveAccountRow>();
     return results.map(rowToDriveAccount);
   }
 
   async findOnline(): Promise<DriveAccount[]> {
     const { results } = await this.db
-      .prepare("SELECT * FROM drive_accounts WHERE status = 'online' ORDER BY available_storage_bytes DESC")
+      .prepare("SELECT * FROM drive_accounts WHERE status = 'online' AND provider NOT IN ('telegram','box','koofr') ORDER BY available_storage_bytes DESC")
       .all<DriveAccountRow>();
     return results.map(rowToDriveAccount);
   }
@@ -71,6 +83,22 @@ export class DriveAccountRepository {
     const row = await this.db
       .prepare("SELECT * FROM drive_accounts WHERE email = ?")
       .bind(email)
+      .first<DriveAccountRow>();
+    return row ? rowToDriveAccount(row) : null;
+  }
+
+  /**
+   * Cari akun berdasarkan email DAN provider. Satu email boleh dipakai di beberapa
+   * provider berbeda (mis. Gmail yang sama untuk Google Drive dan Dropbox), jadi
+   * dedup saat connect harus per-provider — bukan per-email global.
+   */
+  async findByEmailAndProvider(
+    email: string,
+    provider: StorageProviderType
+  ): Promise<DriveAccount | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM drive_accounts WHERE email = ? AND provider = ?")
+      .bind(email, provider)
       .first<DriveAccountRow>();
     return row ? rowToDriveAccount(row) : null;
   }

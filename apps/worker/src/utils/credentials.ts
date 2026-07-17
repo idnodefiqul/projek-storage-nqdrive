@@ -1,6 +1,8 @@
 import type { Env } from "../config/env";
 import type { DriveAccount } from "@nqdrive/types";
 import { GoogleAccountConnectionService } from "../services/google-account-connection.service";
+import { DropboxAccountConnectionService } from "../services/dropbox-account-connection.service";
+import { OneDriveAccountConnectionService } from "../services/onedrive-account-connection.service";
 
 export interface ResolvedCredentials {
   accessToken?: string;
@@ -18,6 +20,18 @@ export async function resolveCredentials(
   if (account.provider === "google_drive") {
     const googleService = new GoogleAccountConnectionService(env);
     const accessToken = await googleService.getValidAccessToken(account);
+    return { accessToken };
+  }
+
+  if (account.provider === "dropbox") {
+    const dropboxService = new DropboxAccountConnectionService(env);
+    const accessToken = await dropboxService.getValidAccessToken(account);
+    return { accessToken };
+  }
+
+  if (account.provider === "onedrive") {
+    const oneDriveService = new OneDriveAccountConnectionService(env);
+    const accessToken = await oneDriveService.getValidAccessToken(account);
     return { accessToken };
   }
 

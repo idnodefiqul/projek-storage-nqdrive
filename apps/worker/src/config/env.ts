@@ -17,5 +17,14 @@ export interface Env {
   GOOGLE_CLIENT_ID: string;
   GOOGLE_CLIENT_SECRET: string;
   ENCRYPTION_KEY: string;
-  TELEGRAM_API_BASE?: string;
+
+  // Dropbox App Console (opsional — jika tidak diisi, provider Dropbox tidak diregistrasi).
+  DROPBOX_APP_KEY?: string;
+  DROPBOX_APP_SECRET?: string;
+  DROPBOX_OAUTH_REDIRECT_URI?: string;
+
+  // Microsoft Azure App Registration (opsional — jika tidak diisi, provider OneDrive tidak diregistrasi).
+  MICROSOFT_CLIENT_ID?: string;
+  MICROSOFT_CLIENT_SECRET?: string;
+  MICROSOFT_OAUTH_REDIRECT_URI?: string;
 }

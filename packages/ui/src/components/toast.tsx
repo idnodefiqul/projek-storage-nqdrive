@@ -1,58 +1,38 @@
-import { createContext, useCallback, useContext, useState, useEffect, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useState, useEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle2, XCircle, Info, X, Lock, EyeOff } from "lucide-react";
-import { cn } from "../lib/utils";
+import { CheckCircle2, XCircle, Info, AlertTriangle, X, Lock, EyeOff, Undo2 } from "lucide-react";
+
+export type ToastVariant = "success" | "error" | "info" | "warning" | "private" | "hidden";
+
+export interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
 
 export interface Toast {
   id: string;
   title: string;
   description?: string;
-  variant?: "success" | "error" | "info" | "warning" | "private" | "hidden";
+  variant?: ToastVariant;
+  action?: ToastAction;
+  duration?: number; // ms override
 }
 
 interface ToastContextValue {
-  toast: (input: Omit<Toast, "id">) => void;
+  toast: (input: Omit<Toast, "id">) => string;
+  dismiss: (id: string) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
 
-const VARIANT_CONFIG: Record<
-  NonNullable<Toast["variant"]>,
-  { icon: React.ElementType; classes: string }
-> = {
-  success: {
-    icon: CheckCircle2,
-    classes:
-      "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-200",
-  },
-  error: {
-    icon: XCircle,
-    classes:
-      "border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200",
-  },
-  info: {
-    icon: Info,
-    classes:
-      "border-zinc-200 bg-white text-zinc-800 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200",
-  },
-  warning: {
-    icon: Info,
-    classes:
-      "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200",
-  },
-  private: {
-    icon: Lock,
-    classes:
-      "border-zinc-300 bg-zinc-100 text-zinc-700 dark:border-zinc-600 dark:bg-zinc-800 dark:text-zinc-300",
-  },
-  hidden: {
-    icon: EyeOff,
-    classes:
-      "border-violet-200 bg-violet-50 text-violet-800 dark:border-violet-800 dark:bg-violet-950 dark:text-violet-200",
-  },
+const VARIANT_CONFIG: Record<ToastVariant, { icon: React.ElementType; ariaRole: "status" | "alert"; defaultDuration: number }> = {
+  success: { icon: CheckCircle2, ariaRole: "status", defaultDuration: 4000 },
+  error:   { icon: XCircle,      ariaRole: "alert",  defaultDuration: 6000 },
+  warning: { icon: AlertTriangle,ariaRole: "alert",  defaultDuration: 5000 },
+  info:    { icon: Info,         ariaRole: "status", defaultDuration: 4000 },
+  private: { icon: Lock,         ariaRole: "status", defaultDuration: 4000 },
+  hidden:  { icon: EyeOff,       ariaRole: "status", defaultDuration: 4000 },
 };
-
-const DEFAULT_VARIANT = VARIANT_CONFIG.info;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -61,22 +41,45 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const toast = useCallback(
-    (input: Omit<Toast, "id">) => {
-      const id = Math.random().toString(36).slice(2);
-      setToasts((prev) => [...prev, { ...input, id }]);
-      setTimeout(() => dismiss(id), 5000);
-    },
-    [dismiss]
-  );
+  const toast = useCallback((input: Omit<Toast, "id">) => {
+    const id = Math.random().toString(36).slice(2, 9);
+    // Normalize legacy variants to primary 4
+    let variant: ToastVariant = input.variant ?? "info";
+    // Keep private/hidden backward compat but they render as info styling logically
+    const full: Toast = { ...input, id, variant };
+    // Undo toasts live longer
+    if (full.action && !full.duration) {
+      full.duration = 8000;
+    }
+    setToasts((prev) => [...prev, full]);
+
+    const cfg = VARIANT_CONFIG[variant] ?? VARIANT_CONFIG.info;
+    const ms = full.duration ?? cfg.defaultDuration;
+    const timer = setTimeout(() => dismiss(id), ms);
+    // Return cleanup handled via id
+    return id;
+  }, [dismiss]);
+
+  // Global Escape dismisses topmost toast (a11y)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && toasts.length > 0) {
+        const last = toasts[toasts.length - 1];
+        if (last) dismiss(last.id);
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [toasts, dismiss]);
 
   return (
-    <ToastContext.Provider value={{ toast }}>
+    <ToastContext.Provider value={{ toast, dismiss }}>
       {children}
       {createPortal(
         <div
-          className="fixed left-1/2 top-3 z-[100] flex w-[calc(100vw-1.5rem)] max-w-[22rem] -translate-x-1/2 flex-col items-center gap-2 sm:top-5 sm:max-w-md"
+          className="pointer-events-none fixed left-1/2 top-4 z-[100] flex w-[calc(100vw-3rem)] max-w-sm -translate-x-1/2 flex-col items-center gap-2.5 sm:top-6 sm:max-w-sm"
           aria-live="polite"
+          aria-atomic="false"
           aria-label="Notifikasi"
         >
           {toasts.map((t) => (
@@ -92,45 +95,69 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 function ToastItem({ toast: t, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
   const [visible, setVisible] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const enter = requestAnimationFrame(() => setVisible(true));
-    const leaveTimer = setTimeout(() => setLeaving(true), 4700);
+    const cfg = VARIANT_CONFIG[t.variant ?? "info"] ?? VARIANT_CONFIG.info;
+    const ms = t.duration ?? cfg.defaultDuration;
+    // Start exit animation slightly before actual dismiss
+    const leaveTimer = setTimeout(() => setLeaving(true), Math.max(0, ms - 300));
     return () => {
       cancelAnimationFrame(enter);
       clearTimeout(leaveTimer);
     };
-  }, []);
+  }, [t.duration, t.variant]);
 
-  const config = t.variant ? (VARIANT_CONFIG[t.variant] ?? DEFAULT_VARIANT) : DEFAULT_VARIANT;
-  const Icon = config.icon;
+  const cfg = VARIANT_CONFIG[t.variant ?? "info"] ?? VARIANT_CONFIG.info;
+  const Icon = cfg.icon;
+  const role = t.variant === "error" || t.variant === "warning" ? "alert" : "status";
+  const themeBg = "var(--brand-fill, linear-gradient(var(--brand-a, #10b981), var(--brand-a, #10b981)))";
+
+  const handleAction = () => {
+    try { t.action?.onClick(); } catch {}
+    onDismiss(t.id);
+  };
 
   return (
     <div
-      role="status"
+      role={role}
+      aria-live={role === "alert" ? "assertive" : "polite"}
+      aria-atomic="true"
       style={{
         transition: "opacity 300ms ease, transform 300ms ease",
         opacity: visible && !leaving ? 1 : 0,
         transform: visible && !leaving ? "translateY(0)" : "translateY(-10px)",
+        backgroundColor: "var(--brand-a, rgb(var(--foreground)))",
+        backgroundImage: themeBg,
       }}
-      className={cn(
-        "flex w-full items-start gap-2 rounded-xl border p-3 shadow-lg shadow-black/10 backdrop-blur sm:gap-3 sm:p-4",
-        config.classes
-      )}
+      className="pointer-events-auto flex w-full items-start gap-3 rounded-2xl border-0 px-4 py-3.5 text-white shadow-lg shadow-black/20 backdrop-blur"
     >
-      <Icon className="mt-0.5 h-4 w-4 shrink-0 sm:h-5 sm:w-5" />
+      <Icon className="mt-0.5 h-5 w-5 shrink-0 text-white/90" aria-hidden="true" />
       <div className="min-w-0 flex-1">
-        <p className="text-xs font-semibold leading-snug sm:text-sm">{t.title}</p>
+        <p className="text-sm font-semibold leading-snug">{t.title}</p>
         {t.description && (
-          <p className="mt-0.5 break-words text-xs leading-snug opacity-75 sm:text-sm">{t.description}</p>
+          <p className="mt-1 break-words text-[13px] leading-snug text-white/80">{t.description}</p>
+        )}
+        {t.action && (
+          <button
+            type="button"
+            onClick={handleAction}
+            className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-white/15 px-3 py-1 text-xs font-semibold text-white ring-1 ring-white/20 hover:bg-white/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--brand-a)]"
+          >
+            <Undo2 className="h-3.5 w-3.5" aria-hidden="true" />
+            {t.action.label}
+          </button>
         )}
       </div>
       <button
+        ref={closeBtnRef}
+        type="button"
         onClick={() => onDismiss(t.id)}
         aria-label="Tutup notifikasi"
-        className="mt-0.5 shrink-0 opacity-50 transition-opacity hover:opacity-100"
+        className="mt-0.5 grid h-7 w-7 place-items-center rounded-full text-white/60 transition hover:bg-white/15 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
       >
-        <X className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+        <X className="h-4 w-4" aria-hidden="true" />
       </button>
     </div>
   );

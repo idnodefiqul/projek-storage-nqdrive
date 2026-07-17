@@ -5,54 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>%VITE_SITE_NAME% — Secure Cloud Storage</title>
     <meta name="description" content="A powerful unified cloud storage manager." />
-    <!-- Open Graph SEO -->
     <meta property="og:title" content="Unified Cloud Storage Platform" />
     <meta property="og:description" content="Manage and expand your storage capacity by connecting multiple cloud accounts seamlessly." />
     <meta property="og:type" content="website" />
-    <!-- Inter font — matches --font-sans defined in globals.css -->
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <!-- Preloads not needed — images imported via Vite are optimized automatically -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-      rel="stylesheet"
-    />
+    <style>
+      /* Critical loader — paling minimal, jangan pakai contain / content-visibility / translateZ di keyframes */
+      #app-loader{
+        position:fixed;inset:0;z-index:99999;
+        display:flex;align-items:center;justify-content:center;
+        background:#f4f6f8;
+      }
+      @media(prefers-color-scheme:dark){ #app-loader{background:#09090b} }
+      .app-loader-spinner{
+        width:40px;height:40px;
+        border:3px solid rgba(16,185,129,.2);
+        border-top-color:#10b981;
+        border-radius:50%;
+        will-change:transform;
+        animation:app-loader-spin .8s linear infinite;
+      }
+      @keyframes app-loader-spin{
+        from{transform:rotate(0deg)}
+        to{transform:rotate(360deg)}
+      }
+      @media(prefers-reduced-motion:reduce){
+        .app-loader-spinner{animation:app-loader-spin .8s linear infinite !important}
+      }
+      #app-loader.app-loader--hide{
+        opacity:0;pointer-events:none;transition:opacity .22s ease;
+      }
+    </style>
   </head>
   <body>
-    <div id="root">
-      <style>
-        .app-loader {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 100vh;
-          width: 100vw;
-          background-color: #f4f4f5;
-          font-family: 'Inter', sans-serif;
-        }
-        @media (prefers-color-scheme: dark) {
-          .app-loader {
-            background-color: #09090b;
-          }
-        }
-        .app-loader-spinner {
-          width: 40px;
-          height: 40px;
-          border: 3px solid rgba(16, 185, 129, 0.2);
-          border-top-color: #10b981;
-          border-radius: 50%;
-          animation: app-loader-spin 1s linear infinite;
-        }
-        @keyframes app-loader-spin {
-          to { transform: rotate(360deg); }
-        }
-      </style>
-      <div class="app-loader">
-        <div class="app-loader-spinner"></div>
-      </div>
-    </div>
+    <div id="app-loader"><div class="app-loader-spinner"></div></div>
+    <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

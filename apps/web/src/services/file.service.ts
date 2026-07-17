@@ -21,8 +21,10 @@ function buildQueryString(params: ListFilesParams): string {
 }
 
 export const fileService = {
-  list: (params: ListFilesParams = {}) =>
-    apiRequest<PaginatedData<FileWithAccount>>(`/files${buildQueryString(params)}`),
+  list: (params: ListFilesParams = {}, signal?: AbortSignal) =>
+    apiRequest<PaginatedData<FileWithAccount>>(`/files${buildQueryString(params)}`, {
+      signal,
+    }),
 
   rename: (id: number, filename: string) =>
     apiRequest<{ message: string }>(`/files/${id}/rename`, { method: "PATCH", body: { filename } }),

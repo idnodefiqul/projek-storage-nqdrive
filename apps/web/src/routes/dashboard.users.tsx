@@ -4,6 +4,7 @@ import { UserCircle2, Plus, ShieldAlert, Eye, EyeOff, ChevronDown, ArrowUpDown }
 import { Badge, Skeleton } from "@nqdrive/ui";
 import { useAuthContext } from "../stores/auth-provider";
 import { PageTransition } from "../components/page-transition";
+import { PageHeader } from "../components/ui-kit";
 import { useMinLoading } from "../hooks/use-min-loading";
 import { getAvatarSvg } from "../lib/avatar";
 
@@ -15,7 +16,7 @@ function EmailDisplay({ email }: { email?: string }) {
   const [shown, setShown] = useState(false);
   
   if (!email) {
-    return <span className="italic text-zinc-400 dark:text-zinc-500 text-xs md:text-sm">Belum diisi — update via database</span>;
+    return <span className="italic text-[rgb(var(--ink-500))] text-xs md:text-sm">Belum diisi — update via database</span>;
   }
 
   const maskEmail = (e: string) => {
@@ -28,11 +29,11 @@ function EmailDisplay({ email }: { email?: string }) {
 
   return (
     <div className="flex items-center gap-2">
-      <span className="text-xs md:text-sm text-zinc-600 dark:text-zinc-400">{displayEmail}</span>
+      <span className="text-xs md:text-sm text-[rgb(var(--ink-500))]">{displayEmail}</span>
       <button 
         type="button" 
         onClick={() => setShown(s => !s)}
-        className="text-zinc-400 hover:text-brand-500 transition-colors shrink-0"
+        className="text-[rgb(var(--ink-500))] hover:text-brand-500 transition-colors shrink-0"
       >
         {shown ? <EyeOff className="h-3.5 w-3.5 md:h-4 md:w-4" /> : <Eye className="h-3.5 w-3.5 md:h-4 md:w-4" />}
       </button>
@@ -61,38 +62,38 @@ function UsersPage() {
     <PageTransition>
       <div className="flex h-full flex-col gap-6">
         {/* Header */}
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-zinc-900 dark:text-zinc-100">Users</h1>
-            <p className="text-sm text-zinc-500 dark:text-zinc-400">
-              Kelola akses pengguna untuk aplikasi {import.meta.env.VITE_SITE_NAME || "NQDRIVE"}.
-            </p>
-          </div>
-          <button
-            disabled
-            className="inline-flex shrink-0 items-center gap-2 rounded-md bg-emerald-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all opacity-60 cursor-not-allowed"
-          >
-            <Plus className="h-4 w-4" />
-            Coming Soon
-          </button>
-        </div>
+        <PageHeader
+          eyebrow="System"
+          icon={UserCircle2}
+          title="Users"
+          description={`Kelola akses pengguna untuk aplikasi ${import.meta.env.VITE_SITE_NAME || "NQDRIVE"}.`}
+          actions={
+            <button
+              disabled
+              className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-brand-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-all opacity-60 cursor-not-allowed"
+            >
+              <Plus className="h-4 w-4" />
+              Coming Soon
+            </button>
+          }
+        />
 
         {/* Data Table Container */}
         <div className="flex flex-1 flex-col">
           {/* Table Container with Border */}
-          <div className="flex-1 flex flex-col rounded-lg border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950 overflow-hidden">
+          <div className="flex-1 flex flex-col app-card overflow-hidden">
             
             {/* Table Toolbar (Inside Card) */}
-            <div className="flex items-center justify-between p-4 border-b border-zinc-200 dark:border-zinc-800">
+            <div className="flex items-center justify-between p-4 border-b border-[rgb(var(--border-subtle))]">
               <div className="flex flex-1 items-center space-x-2">
                 <input 
                   placeholder="Filter emails..." 
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="h-9 w-[150px] lg:w-[250px] rounded-md border border-zinc-200 bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-950 dark:border-zinc-800 dark:placeholder:text-zinc-400 dark:focus-visible:ring-zinc-300" 
+                  className="h-9 w-[150px] lg:w-[250px] rounded-md border border-[rgb(var(--border-subtle))] bg-transparent px-3 py-1 text-sm shadow-sm transition-colors placeholder:text-[rgb(var(--ink-500))] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[rgb(var(--border-subtle))] dark:focus-visible:ring-[rgb(var(--border-subtle))]"
                 />
               </div>
-              <button className="inline-flex h-9 items-center justify-center rounded-md border border-zinc-200 bg-transparent px-3 py-1 text-sm font-medium shadow-sm transition-colors hover:bg-zinc-100 hover:text-zinc-900 dark:border-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-50 ml-auto">
+              <button className="inline-flex h-9 items-center justify-center rounded-md border border-[rgb(var(--border-subtle))] bg-transparent px-3 py-1 text-sm font-medium shadow-sm transition-colors hover:bg-[rgb(var(--surface-muted))] hover:text-[rgb(var(--foreground))] ml-auto">
                 Columns <ChevronDown className="ml-2 h-4 w-4" />
               </button>
             </div>
@@ -100,23 +101,23 @@ function UsersPage() {
             {/* Table */}
             <div className="flex-1 overflow-auto">
               <table className="w-full caption-bottom text-sm">
-                <thead className="border-b border-zinc-200 bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900/50">
+                <thead className="border-b border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface-muted))]">
                 <tr>
-                  <th className="h-10 px-4 align-middle font-medium text-zinc-500 dark:text-zinc-400 text-left">
+                  <th className="h-10 px-4 align-middle font-medium text-[rgb(var(--ink-500))] text-left">
                      Pengguna
                   </th>
-                  <th className="hidden md:table-cell h-10 px-4 align-middle font-medium text-zinc-500 dark:text-zinc-400 text-left">
-                    <button className="inline-flex items-center gap-2 hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors">
+                  <th className="hidden md:table-cell h-10 px-4 align-middle font-medium text-[rgb(var(--ink-500))] text-left">
+                    <button className="inline-flex items-center gap-2 hover:text-[rgb(var(--foreground))] transition-colors">
                       Email
                       <ArrowUpDown className="h-4 w-4" />
                     </button>
                   </th>
-                  <th className="hidden md:table-cell h-10 px-4 align-middle font-medium text-zinc-500 dark:text-zinc-400 text-left">Peran</th>
-                  <th className="h-10 px-4 align-middle font-medium text-zinc-500 dark:text-zinc-400 text-left md:text-right">Status</th>
-                  <th className="h-10 px-4 align-middle font-medium text-zinc-500 dark:text-zinc-400 w-12 text-center"></th>
+                  <th className="hidden md:table-cell h-10 px-4 align-middle font-medium text-[rgb(var(--ink-500))] text-left">Peran</th>
+                  <th className="h-10 px-4 align-middle font-medium text-[rgb(var(--ink-500))] text-left md:text-right">Status</th>
+                  <th className="h-10 px-4 align-middle font-medium text-[rgb(var(--ink-500))] w-12 text-center"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-zinc-200 dark:divide-zinc-800">
+              <tbody className="divide-y divide-[rgb(var(--border-subtle))]">
                 {isLoading ? (
                   // Skeleton state
                   Array.from({ length: 3 }).map((_, i) => (
@@ -145,8 +146,8 @@ function UsersPage() {
                     </tr>
                   ))
                 ) : isMatch ? (
-                  <tr className="transition-colors hover:bg-zinc-100/50 dark:hover:bg-zinc-800/50">
-                    <td className="px-4 py-4 font-medium text-zinc-900 dark:text-zinc-100 align-top md:align-middle">
+                  <tr className="transition-colors hover:bg-[rgb(var(--surface-muted))]/60">
+                    <td className="px-4 py-4 font-medium text-[rgb(var(--foreground))] align-top md:align-middle">
                       <div className="flex items-start md:items-center gap-3">
                         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-brand-50 border border-brand-200 dark:border-brand-800 dark:bg-brand-900/30 mt-0.5 md:mt-0 overflow-hidden">
                           <img 
@@ -188,7 +189,7 @@ function UsersPage() {
                     </td>
                     
                     <td className="px-4 py-4 align-middle text-center">
-                      <button className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-zinc-100 text-zinc-500 dark:hover:bg-zinc-800 transition-colors">
+                      <button className="inline-flex h-8 w-8 items-center justify-center rounded-md hover:bg-[rgb(var(--surface-muted))] text-[rgb(var(--ink-500))] transition-colors">
                         {/* Ikon 4 titik vertikal custom sesuai permintaan */}
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="h-4 w-4">
                           <circle cx="12" cy="5" r="1.7" />
@@ -201,7 +202,7 @@ function UsersPage() {
                   </tr>
                 ) : (
                   <tr>
-                    <td colSpan={5} className="h-24 text-center text-sm text-zinc-500 dark:text-zinc-400">
+                    <td colSpan={5} className="h-24 text-center text-sm text-[rgb(var(--ink-500))]">
                       No results.
                     </td>
                   </tr>
@@ -211,20 +212,20 @@ function UsersPage() {
           </div>
 
           {/* Table Footer / Pagination */}
-          <div className="flex items-center justify-between p-4 border-t border-zinc-200 dark:border-zinc-800">
-            <div className="flex-1 text-sm text-zinc-500 dark:text-zinc-400">
+          <div className="flex items-center justify-between p-4 border-t border-[rgb(var(--border-subtle))]">
+            <div className="flex-1 text-sm text-[rgb(var(--ink-500))]">
               0 of {isMatch && !isLoading ? "1" : "0"} row(s) selected.
             </div>
             <div className="flex items-center space-x-2">
               <button 
                 disabled
-                className="inline-flex h-9 items-center justify-center rounded-md border border-zinc-200 bg-transparent px-4 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-zinc-100 hover:text-zinc-900 disabled:pointer-events-none disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-[rgb(var(--border-subtle))] bg-transparent px-4 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-[rgb(var(--surface-muted))] hover:text-[rgb(var(--foreground))] disabled:pointer-events-none disabled:opacity-50"
               >
                 Previous
               </button>
               <button 
                 disabled
-                className="inline-flex h-9 items-center justify-center rounded-md border border-zinc-200 bg-transparent px-4 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-zinc-100 hover:text-zinc-900 disabled:pointer-events-none disabled:opacity-50 dark:border-zinc-800 dark:hover:bg-zinc-800 dark:hover:text-zinc-50"
+                className="inline-flex h-9 items-center justify-center rounded-md border border-[rgb(var(--border-subtle))] bg-transparent px-4 py-2 text-sm font-medium shadow-sm transition-colors hover:bg-[rgb(var(--surface-muted))] hover:text-[rgb(var(--foreground))] disabled:pointer-events-none disabled:opacity-50"
               >
                 Next
               </button>

@@ -1,40 +1,38 @@
 @import "tailwindcss";
 
-/* Scan komponen UI dari packages/ui agar class-nya masuk ke CSS output.
-   Path relatif terhadap file CSS ini (apps/web/src/styles/) → butuh 4x "../"
-   untuk mencapai root repo, baru packages/ui/src. */
 @source "../../../../packages/ui/src";
 
-/*
-  NQDRIVE Theme
-  -------------
-  Palet: emerald/teal (brand), zinc (netral).
-  Default: light mode. Dark mode via class "dark" di <html>.
-*/
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* ── Inter — 1 font profesional untuk semua menu (Material/SaaS premium, tidak terlalu tebal, premium clean) ── */
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: Inter, ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
+  --font-display: Inter, ui-sans-serif, system-ui, sans-serif;
+  --font-mono: Inter, ui-sans-serif, system-ui, sans-serif;
 
-  /* Brand - emerald/teal */
-  --color-brand-50:  #ecfdf5;
-  --color-brand-100: #d1fae5;
-  --color-brand-200: #a7f3d0;
-  --color-brand-300: #6ee7b7;
-  --color-brand-400: #34d399;
-  --color-brand-500: #10b981;
-  --color-brand-600: #059669;
-  --color-brand-700: #047857;
-  --color-brand-800: #065f46;
-  --color-brand-900: #064e3b;
+  /* Brand - deep teal (overridable at runtime via theme-provider) */
+  --color-brand-50:  #eefdfb;
+  --color-brand-100: #cff8f2;
+  --color-brand-200: #9ff0e6;
+  --color-brand-300: #63ded2;
+  --color-brand-400: #2fc4bc;
+  --color-brand-500: #0f9f9a;
+  --color-brand-600: #0e7c86;
+  --color-brand-700: #0f626b;
+  --color-brand-800: #115058;
+  --color-brand-900: #123f47;
 
-  /* Accent warning/progress */
+  /* Sandy-orange highlight accent (FinTech direction) */
+  --color-accent-400: #fbbf5a;
   --color-accent-500: #f59e0b;
   --color-accent-600: #d97706;
 
-  --radius-card: 0.75rem;
+  --radius-card: 0.875rem;
 
-  /* Custom animations */
+  /* Motion tokens */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-emphasis: cubic-bezier(0.16, 1, 0.3, 1);
+
   --animate-meteor: meteor 5s linear infinite;
   --animate-spin-slow: spin 4s linear infinite;
   --animate-bounce-slow: bounce 2s ease-in-out infinite;
@@ -42,107 +40,409 @@
 
 @layer base {
   :root {
-    --background: 255 255 255;
-    --foreground: 24 24 27;
+    /* App canvas & surfaces (rgb triplets → used via rgb(var(--x))) */
+    --background: 244 246 248;   /* soft blue-grey canvas, not pure white */
+    --foreground: 17 20 26;
+    --surface: 255 255 255;
+    --surface-muted: 238 241 245;
+    --border-subtle: 224 229 236;
+    --ink-500: 91 100 114;       /* secondary text / passive icons */
+
+    /* Sidebar — off-white glass panel (FinTech) */
+    --sidebar: 255 255 255;
+    --sidebar-ink: 61 70 84;
+    --sidebar-ink-strong: 17 20 26;
+    --sidebar-border: 226 231 238;
+    --sidebar-hover: 240 243 247;
+
+    /* Elevation */
+    --shadow-card: 0 1px 2px rgba(16, 23, 38, 0.05), 0 1px 3px rgba(16, 23, 38, 0.04);
+    --shadow-float: 0 10px 30px -12px rgba(16, 23, 38, 0.18), 0 4px 12px -6px rgba(16, 23, 38, 0.10);
+
+    /* Isian sidebar/panel — di-override runtime oleh theme-provider (solid/gradient). */
+    --brand-a: #10b981;
+    --brand-b: #06b6d4;
+    --brand-fill: linear-gradient(#10b981, #10b981);
+  }
+  .dark {
+    --background: 9 11 14;       /* deep charcoal, not absolute black */
+    --foreground: 240 242 245;
+    --surface: 20 23 28;
+    --surface-muted: 30 34 41;
+    --border-subtle: 42 47 56;
+    --ink-500: 148 156 168;
+
+    --sidebar: 15 18 22;
+    --sidebar-ink: 173 181 193;
+    --sidebar-ink-strong: 244 246 249;
+    --sidebar-border: 255 255 255;   /* used at low opacity */
+    --sidebar-hover: 255 255 255;
+
+    --shadow-card: none;
+    --shadow-float: 0 16px 40px -16px rgba(0, 0, 0, 0.55);
   }
 
-  .dark {
-    --background: 18 18 21;
-    --foreground: 244 244 245;
+  /* ── Dashboard shell — brand colors sekarang fully dikontrol runtime theme-provider
+     (tidak lagi paksa indigo). Semua --color-brand-* di-set via applyBrandColors().
+     Tinggi app shell mengikuti VIEWPORT YANG TERLIHAT (100dvh). */
+  .dashboard-shell {
+    /* Tinggi app shell mengikuti VIEWPORT YANG TERLIHAT.
+       100vh di Android termasuk area di belakang bar URL browser → konten dasar
+       (pagination) jatuh di luar layar & tak bisa di-scroll saat bar URL tampil.
+       100dvh menyesuaikan otomatis saat bar URL muncul/hilang → dasar selalu
+       terjangkau. Fallback ke 100vh untuk browser lama tanpa dukungan dvh. */
+    height: 100vh;
+    height: 100dvh;
+    height: 100svh;
+    min-height: -webkit-fill-available;
+  }
+
+  /* Support safe-area untuk semua device dengan notch/URL bar */
+  @supports (padding: env(safe-area-inset-bottom)) {
+    .dashboard-shell {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
   }
 
   body {
-    @apply bg-white text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100;
+    @apply bg-[rgb(var(--background))] text-[rgb(var(--foreground))] antialiased;
     font-family: var(--font-sans);
+    /* Inter punya tabular numbers & ss01 bawaan yang optimal untuk dashboard */
+    font-feature-settings: "cv11" 1, "ss01" 1;
+    font-variant-ligatures: common-ligatures;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    letter-spacing: -0.011em;
+    min-height: 100vh;
+    min-height: 100dvh;
+    min-height: -webkit-fill-available;
   }
 
-  /* Smooth scrolling global */
   html {
-    scroll-behavior: smooth;
+    /* NOTE: scroll-behavior smooth dipindah hanya ke .dashboard-scroll agar tidak double interpolation di Android */
+    height: -webkit-fill-available;
   }
 
-  /* Sidebar drawer transition — pastikan transform + opacity smooth */
-  .sidebar-transition {
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
-                opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* ── Animated theme toggler (Magic UI style) ─────────────────────────────
+     Matikan cross-fade default View Transitions API supaya animasi
+     clip-path circle dari tombol toggle terlihat bersih. */
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+  ::view-transition-old(root) {
+    z-index: 1;
+  }
+  ::view-transition-new(root) {
+    z-index: 2147483646;
+  }
+
+  /* ── FIX: prefers-reduced-motion SELEKTIF — jangan bunuh spinner/loader ──
+     Bug sebelumnya: `* { animation-duration: 0.01ms !important }` mematikan
+     app-loader-spinner (index.html) dan Loader2 animate-spin di files page.
+     Sekarang hanya dekorasi yang dimatikan, spinner kritis tetap hidup. */
+  @media (prefers-reduced-motion: reduce) {
+    .app-card-interactive,
+    .app-card-interactive:hover,
+    .page-transition-content {
+      animation: none !important;
+      transition: none !important;
+      transform: none !important;
+    }
+    .dashboard-scroll {
+      scroll-behavior: auto !important;
+    }
+  }
+
+  /* ── Critical spinners/loaders — WAJIB tetap animasi di semua kondisi,
+     termasuk saat prefers-reduced-motion aktif (melindungi dari override global).
+     PENTING: JANGAN kasih `transform: translateZ(0)` di sini — keyframes spin
+     Tailwind hanya punya `to { rotate(360deg) }`, sehingga base transform yang
+     bukan `none` memaksa interpolasi matrix (translateZ ↔ rotate = mismatched
+     list) dan matrix rotate(360deg) = identity → spinner terlihat MACET di
+     Android/tablet. will-change saja sudah cukup untuk GPU layer. */
+  .keep-motion,
+  .app-loader-spinner,
+  .animate-spin {
+    will-change: transform;
+  }
+  /* Override --animate-spin Tailwind agar pakai keyframes nq-spin (from/to
+     eksplisit). Di built CSS, Tailwind utilities layer menang atas base
+     layer, jadi .animate-spin { animation: var(--animate-spin) } selalu
+     dipakai. Override variabel = satu-satunya cara bersih tanpa !important. */
+  .animate-spin {
+    --animate-spin: nq-spin 1s linear infinite;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .keep-motion,
+    .app-loader-spinner,
+    .animate-spin,
+    [class*="animate-spin"] {
+      animation-duration: 0.8s !important;
+      animation-iteration-count: infinite !important;
+    }
+    .app-loader-spinner {
+      animation: app-loader-spin 1s linear infinite !important;
+    }
+    .animate-spin,
+    [class*="animate-spin"] {
+      animation: nq-spin 1s linear infinite !important;
+    }
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--brand-a, #0e7c86);
+    outline-offset: 2px;
+    border-radius: 8px;
+  }
+  :focus:not(:focus-visible) {
+    outline: none;
   }
 }
 
 @layer utilities {
-  /* Hide scrollbar tapi masih bisa scroll */
   .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+    scrollbar-color: transparent transparent !important;
   }
   .scrollbar-hide::-webkit-scrollbar {
-    display: none;
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+  .scrollbar-hide::-webkit-scrollbar-thumb,
+  .scrollbar-hide::-webkit-scrollbar-track {
+    display: none !important;
+    background: transparent !important;
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .safe-bottom-plus {
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  }
+  .dashboard-scroll {
+    overscroll-behavior: contain;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    /* will-change dihapus persisten — hanya tambah via JS class .is-scrolling bila perlu
+       contain: paint -> dihapus karena blokir compositor optimize di Android mid-range */
+    transform: translateZ(0); /* promote ke GPU layer tanpa cost will-change */
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+    scrollbar-color: transparent transparent !important;
+    scroll-padding-bottom: env(safe-area-inset-bottom);
+    /* cegah layout shift saat scrollbar muncul/hilang di desktop */
+    scrollbar-gutter: stable;
+  }
+  .dashboard-scroll::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+    background: transparent !important;
+  }
+  .dashboard-scroll::-webkit-scrollbar-thumb,
+  .dashboard-scroll::-webkit-scrollbar-track {
+    display: none !important;
+  }
+  /* File list area — virtualization-friendly: skip paint offscreen */
+  .files-list-scroll {
+    -ms-overflow-style: none !important;
+    scrollbar-width: none !important;
+    scrollbar-color: transparent transparent !important;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    /* bantu browser skip paint item di luar viewport — smooth 60fps */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 96px;
+  }
+  .files-list-scroll::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+  .files-list-scroll::-webkit-scrollbar-thumb,
+  .files-list-scroll::-webkit-scrollbar-track {
+    display: none !important;
+  }
+  /* Item di dalam files-list-scroll — pastikan content-visibility-aware */
+  .files-list-scroll > * {
+    contain: layout style;
+  }
+  /* Files page: pagination sticky bottom harus selalu terlihat penuh */
+  .files-pagination-sticky {
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+    margin-top: auto;
+  }
+  @supports (bottom: env(safe-area-inset-bottom)) {
+    .files-pagination-sticky {
+      bottom: env(safe-area-inset-bottom);
+    }
+  }
+  @supports (height: 100dvh) {
+    .files-page-minh {
+      min-height: calc(100dvh - 100px);
+    }
+  }
+  .premium-panel {
+    border: 1px solid rgb(var(--border-subtle));
+    background: rgb(var(--surface));
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  }
+  .dark .premium-panel {
+    background: rgba(var(--surface), 0.86);
+    box-shadow: none;
+  }
+
+  /* ── Shared card surface — one family across the whole dashboard ── */
+  .app-card {
+    border: 1px solid rgb(var(--border-subtle));
+    background: rgb(var(--surface));
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+    /* contain untuk optimasi paint offscreen cards */
+    contain: layout style;
+  }
+  .app-card-interactive {
+    transition: box-shadow 0.22s var(--ease-standard), border-color 0.22s var(--ease-standard);
+  }
+  /* Hover lift HANYA di device dengan hover capability (desktop), tidak di touch/Android */
+  @media (hover: hover) and (pointer: fine) {
+    .app-card-interactive {
+      transition: transform 0.22s var(--ease-standard), box-shadow 0.22s var(--ease-standard), border-color 0.22s var(--ease-standard);
+    }
+    .app-card-interactive:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--shadow-float);
+      border-color: rgb(var(--color-brand-300));
+    }
+  }
+  /* Touch device: hanya shadow change, no transform */
+  @media (hover: none) {
+    .app-card-interactive:active {
+      border-color: rgb(var(--color-brand-300));
+    }
+  }
+  .elevate-float { box-shadow: var(--shadow-float); }
+
+  /* Sembunyikan sidebar & topbar saat logout animation */
+  body.logging-out aside,
+  body.logging-out nav,
+  body.logging-out header { visibility: hidden !important; }
+
+  /* Button yang mengikuti tema (support gradient via --brand-fill) */
+  .btn-brand-fill {
+    background-color: var(--brand-a, var(--color-brand-500));
+    background-image: var(--brand-fill);
+    color: #fff;
+    box-shadow: 0 4px 14px -4px rgba(0,0,0,0.2);
+  }
+  .btn-brand-fill:hover {
+    filter: brightness(1.1);
+    box-shadow: 0 6px 20px -4px rgba(0,0,0,0.3);
+  }
+
+  /* Subtle top hairline highlight for glass panels */
+  .glass-panel {
+    background: color-mix(in srgb, rgb(var(--surface)) 82%, transparent);
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  }
+
+  .font-display { font-family: var(--font-display); }
+  .tabular { font-variant-numeric: tabular-nums; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-card-interactive:hover { transform: none; }
   }
 }
 
-/* ─── Theme-aware scrollbar ────────────────────────────────────────────────
-   Replaces the jarring default white/OS scrollbar with a slim,
-   zinc-toned bar that adapts to light and dark mode automatically.
-   Applied globally so every overflow-y-auto element is consistent.
-   ─────────────────────────────────────────────────────────────────────── */
+/* ─── Scrollbar ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { border-radius: 999px; background-color: #c7cdd6; }
+::-webkit-scrollbar-thumb:hover { background-color: #9099a8; }
+.dark ::-webkit-scrollbar-thumb { background-color: #3a3f49; }
+.dark ::-webkit-scrollbar-thumb:hover { background-color: #565d6b; }
+* { scrollbar-width: thin; scrollbar-color: #c7cdd6 transparent; }
+.dark * { scrollbar-color: #3a3f49 transparent; }
+.scrollbar-hide, .dark .scrollbar-hide { scrollbar-width: none !important; -ms-overflow-style: none !important; }
+.scrollbar-hide::-webkit-scrollbar { display: none !important; }
 
-/* Webkit (Chrome, Edge, Safari) */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+/* ─── React Flow controls (di atas kartu vibrant/gradient) ──────────────────
+   Default React Flow: tombol putih dengan ikon gelap → di light mode terlihat
+   "kotak putih" di atas gradient. Kita override CSS variables agar tombol
+   jadi kaca transparan putih + ikon putih, terbaca di semua warna brand
+   & kedua mode (light/dark). */
+.vibrant-flow-controls {
+  --xy-controls-box-shadow: none;
+  --xy-controls-button-background-color: rgba(255, 255, 255, 0.18);
+  --xy-controls-button-background-color-hover: rgba(255, 255, 255, 0.32);
+  --xy-controls-button-color: #ffffff;
+  --xy-controls-button-color-hover: #ffffff;
+  --xy-controls-button-border-color: rgba(255, 255, 255, 0.15);
+}
+.vibrant-flow-controls .react-flow__controls-button {
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+.vibrant-flow-controls .react-flow__controls-button svg {
+  fill: currentColor !important;
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
+/* ─── Keyframes ──────────────────────────────────────────────────────────── */
+/* nq-spin: nama sendiri agar TIDAK bentrok dengan @keyframes spin milik
+   Tailwind (yang hanya punya `to`, tanpa `from` — dan bisa saling timpa
+   tergantung urutan layer). from → to eksplisit biar Chrome Android tidak
+   interpolate dari computed transform. */
+@keyframes nq-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+@keyframes app-loader-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
-::-webkit-scrollbar-thumb {
-  border-radius: 999px;
-  background-color: #d4d4d8; /* zinc-300 — light mode */
+/* ── #app-loader fallback — jangan pakai contain:strict / content-visibility
+   itu bikin Chrome desktop pause spinner pas main thread parse chunk baru abis deploy ── */
+#app-loader {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 99999 !important;
+}
+#app-loader .app-loader-spinner {
+  animation: app-loader-spin .8s linear infinite !important;
+  will-change: transform;
+}
+#app-loader.app-loader--hide {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity .22s ease !important;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background-color: #a1a1aa; /* zinc-400 */
-}
-
-/* Dark mode overrides */
-.dark ::-webkit-scrollbar-thumb {
-  background-color: #52525b; /* zinc-600 */
-}
-
-.dark ::-webkit-scrollbar-thumb:hover {
-  background-color: #71717a; /* zinc-500 */
-}
-
-.dark ::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-/* Firefox — thin scrollbar with theme colors */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: #d4d4d8 transparent; /* thumb track — light */
-}
-
-.dark * {
-  scrollbar-color: #52525b transparent; /* thumb track — dark */
-}
-
-/* scrollbar-hide must override the global * rule above */
-.scrollbar-hide,
-.dark .scrollbar-hide {
-  scrollbar-width: none !important;
-  -ms-overflow-style: none !important;
-}
-.scrollbar-hide::-webkit-scrollbar {
-  display: none !important;
-}
-
-/* Meteor keyframes — harus di luar @layer agar dikenal Tailwind v4 */
 @keyframes meteor {
   0%   { transform: rotate(var(--angle, 215deg)) translateX(0);       opacity: 1; }
   70%  {                                                              opacity: 1; }
   100% { transform: rotate(var(--angle, 215deg)) translateX(-500px);  opacity: 0; }
 }
-/* Cache buster */
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 .cache-buster-123 { display: none; }
 .cache-buster-2 { display: none; }

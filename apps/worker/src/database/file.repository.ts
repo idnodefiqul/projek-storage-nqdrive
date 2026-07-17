@@ -21,6 +21,7 @@ interface FileRow {
 
 interface FileWithAccountRow extends FileRow {
   drive_account_email: string;
+  drive_account_provider: string;
 }
 
 function rowToFile(row: FileRow): FileEntity {
@@ -44,7 +45,7 @@ function rowToFile(row: FileRow): FileEntity {
 }
 
 function rowToFileWithAccount(row: FileWithAccountRow): FileWithAccount {
-  return { ...rowToFile(row), driveAccountEmail: row.drive_account_email };
+  return { ...rowToFile(row), driveAccountEmail: row.drive_account_email, driveAccountProvider: row.drive_account_provider };
 }
 
 export interface ListFilesParams {
@@ -94,7 +95,7 @@ export class FileRepository {
 
     const { results } = await this.db
       .prepare(
-        `SELECT f.*, d.email as drive_account_email
+        `SELECT f.*, d.email as drive_account_email, d.provider as drive_account_provider
          FROM files f
          JOIN drive_accounts d ON d.id = f.drive_account_id
          ${whereClause}
@@ -275,7 +276,7 @@ export class FileRepository {
   async listTrashed(): Promise<FileWithAccount[]> {
     const { results } = await this.db
       .prepare(
-        `SELECT f.*, d.email as drive_account_email
+        `SELECT f.*, d.email as drive_account_email, d.provider as drive_account_provider
          FROM files f
          JOIN drive_accounts d ON d.id = f.drive_account_id
          WHERE f.deleted_at IS NOT NULL

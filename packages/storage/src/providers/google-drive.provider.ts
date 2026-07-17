@@ -331,8 +331,16 @@ export class GoogleDriveProvider implements StorageProvider {
 
   /**
    * List semua file (bukan folder) milik akun ini, dengan pagination.
-   * Dipakai migrasi untuk menjaring file yang tidak tercatat di database aplikasi.
-   * Folder dikecualikan karena files.copy tidak mendukung folder.
+   * Dipakai migrasi & deteksi distribusi untuk menjaring file yang tidak tercatat di database.
+   *
+   * FIX distribusi 4 vs 3:
+   * - Google Drive UI menghitung Google Docs/Sheets/Slides sebagai file, tapi mereka tidak
+   *   punya size dan tidak bisa didownload via `files?alt=media` (butuh export).
+   * - Query lama hanya exclude folder, sehingga Docs ikut ke-list → mismatch dengan DB
+   *   yang hanya menyimpan file binary hasil upload aplikasi.
+   * - Sekarang kita fetch mimeType dan filter semua `application/vnd.google-apps.*`
+   *   di kode, sehingga hitungan distribusi sinkron dengan file yang benar-benar
+   *   bisa di-manage oleh NQDrive.
    */
   async listFiles(params: {
     credentials: ProviderCredentials;
@@ -344,11 +352,13 @@ export class GoogleDriveProvider implements StorageProvider {
     let pageToken: string | undefined;
     do {
       const url = new URL(`${GOOGLE_DRIVE_API_BASE}/files`);
+      // Tetap filter folder di query, tapi untuk google-apps lain kita filter manual
+      // karena query `mimeType != 'application/vnd.google-apps.folder'` saja tidak cukup
       url.searchParams.set(
         "q",
         "'me' in owners and trashed = false and mimeType != 'application/vnd.google-apps.folder'"
       );
-      url.searchParams.set("fields", "nextPageToken, files(id, name, size)");
+      url.searchParams.set("fields", "nextPageToken, files(id, name, size, mimeType)");
       url.searchParams.set("pageSize", "1000");
       url.searchParams.set("spaces", "drive");
       if (pageToken) url.searchParams.set("pageToken", pageToken);
@@ -364,9 +374,15 @@ export class GoogleDriveProvider implements StorageProvider {
 
       const data = (await response.json()) as {
         nextPageToken?: string;
-        files?: Array<{ id: string; name: string; size?: string }>;
+        files?: Array<{ id: string; name: string; size?: string; mimeType?: string }>;
       };
       for (const file of data.files ?? []) {
+        const mime = file.mimeType ?? "";
+        // Exclude semua Google Docs native types (Docs, Sheets, Slides, Forms, etc)
+        // Mereka tidak punya size dan tidak bisa didownload binary
+        if (mime.startsWith("application/vnd.google-apps.")) {
+          continue;
+        }
         files.push({
           providerFileId: file.id,
           filename: file.name,

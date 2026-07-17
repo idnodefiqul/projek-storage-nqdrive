@@ -27,7 +27,9 @@ import {
 import { cn } from "@nqdrive/ui";
 import { motion, AnimatePresence } from "framer-motion";
 import { PageTransition } from "../components/page-transition";
+import { PageHeader, SectionCard } from "../components/ui-kit";
 import { apiRequest } from "../lib/client";
+import { formatLocal } from "../lib/datetime";
 
 export const Route = createFileRoute("/dashboard/audit-logs")({
   component: AuditLogsPage,
@@ -63,7 +65,7 @@ function getBrowser(ua: string): string {
   if (ua.includes("Firefox")) return "Firefox";
   if (ua.includes("Safari") && !ua.includes("Chrome")) return "Safari";
   if (ua.includes("OPR") || ua.includes("Opera")) return "Opera";
-  return ua.slice(0, 20) + (ua.length > 20 ? "…" : "");
+  return ua.slice(0, 20) + (ua.length > 20 ? "â€¦" : "");
 }
 
 function getOS(ua: string): string {
@@ -104,10 +106,10 @@ function StatCard({ label, value, icon: Icon, color, change, index }: {
       <Card className="p-4 sm:p-5">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 truncate">{label}</p>
-            <p className="mt-1.5 text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">{value.toLocaleString()}</p>
+            <p className="text-xs font-medium text-[rgb(var(--ink-500))] truncate">{label}</p>
+            <p className="mt-1.5 text-xl sm:font-display text-2xl font-extrabold tracking-tight text-[rgb(var(--foreground))] tabular-nums">{value.toLocaleString()}</p>
           </div>
-          <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-zinc-100 dark:bg-zinc-800", color)}>
+          <div className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-[rgb(var(--surface-muted))]", color)}>
             <Icon className="h-4.5 w-4.5" />
           </div>
         </div>
@@ -117,7 +119,7 @@ function StatCard({ label, value, icon: Icon, color, change, index }: {
             <span className={cn("text-[11px] font-semibold", isPositive ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")}>
               {isPositive ? "+" : ""}{change.toFixed(1)}%
             </span>
-            <span className="text-[11px] text-zinc-400 dark:text-zinc-500">vs yesterday</span>
+            <span className="text-[11px] text-[rgb(var(--ink-500))]">vs yesterday</span>
           </div>
         )}
       </Card>
@@ -138,17 +140,17 @@ const EMPTY_FILTERS: FilterState = { status: "", user: "", action: "", dateFrom:
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (v: string) => void; options: string[] }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">{label}</label>
+      <label className="text-[11px] font-semibold uppercase tracking-wider text-[rgb(var(--ink-500))]">{label}</label>
       <div className="relative">
         <select
           value={value}
           onChange={(e) => onChange(e.target.value)}
-          className="h-9 w-full appearance-none rounded-lg border border-zinc-200 bg-white px-3 pr-8 text-sm text-zinc-800 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:focus:border-brand-500/60"
+          className="h-9 w-full appearance-none rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] px-3 pr-8 text-sm text-[rgb(var(--foreground))] outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:focus:border-brand-500/60"
         >
           <option value="">All</option>
           {options.map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
-        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-400" />
+        <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[rgb(var(--ink-500))]" />
       </div>
     </div>
   );
@@ -313,7 +315,7 @@ function AuditLogsPage() {
     {
       accessorKey: "action",
       header: ({ column }) => (
-        <button className="flex items-center gap-1 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" onClick={() => column.toggleSorting()}>
+        <button className="flex items-center gap-1 hover:text-[rgb(var(--ink-500))] dark:hover:text-[rgb(var(--foreground))] transition-colors" onClick={() => column.toggleSorting()}>
           Action <ArrowUpDown className="h-3 w-3" />
         </button>
       ),
@@ -329,7 +331,7 @@ function AuditLogsPage() {
       accessorKey: "ip",
       header: "IP Address",
       size: 130,
-      cell: ({ row }) => <span className="font-mono text-xs text-zinc-500 dark:text-zinc-400">{row.original.ip}</span>,
+      cell: ({ row }) => <span className="font-mono text-xs text-[rgb(var(--ink-500))]">{row.original.ip}</span>,
     },
     { accessorKey: "country", header: "Country", size: 110 },
     {
@@ -341,14 +343,14 @@ function AuditLogsPage() {
     {
       accessorKey: "created_at",
       header: ({ column }) => (
-        <button className="flex items-center gap-1 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors" onClick={() => column.toggleSorting()}>
+        <button className="flex items-center gap-1 hover:text-[rgb(var(--ink-500))] dark:hover:text-[rgb(var(--foreground))] transition-colors" onClick={() => column.toggleSorting()}>
           Timestamp <ArrowUpDown className="h-3 w-3" />
         </button>
       ),
       size: 170,
       cell: ({ row }) => (
-        <span className="font-mono text-[11px] text-zinc-500 dark:text-zinc-400 whitespace-nowrap">
-          {new Date(row.original.created_at).toLocaleString("id-ID", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+        <span className="font-mono text-[11px] text-[rgb(var(--ink-500))] whitespace-nowrap">
+          {formatLocal(row.original.created_at)}
         </span>
       ),
     },
@@ -365,7 +367,7 @@ function AuditLogsPage() {
               setCopied(true);
               setTimeout(() => setCopied(false), 1500);
             }}
-            className="rounded-md p-1.5 text-zinc-400 hover:text-zinc-600 hover:bg-zinc-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 transition-colors"
+            className="rounded-md p-1.5 text-[rgb(var(--ink-500))] hover:text-[rgb(var(--ink-500))] hover:bg-[rgb(var(--surface-muted))] dark:hover:text-[rgb(var(--foreground))] transition-colors"
             title="Copy log"
           >
             <Copy className="h-3.5 w-3.5" />
@@ -375,7 +377,7 @@ function AuditLogsPage() {
               e.stopPropagation();
               setSelectedLog(row.original);
             }}
-            className="rounded-md p-1.5 text-zinc-400 hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/30 dark:hover:text-brand-400 transition-colors"
+            className="rounded-md p-1.5 text-[rgb(var(--ink-500))] hover:text-brand-600 hover:bg-brand-50 dark:hover:bg-brand-950/30 dark:hover:text-brand-400 transition-colors"
             title="View detail"
           >
             <Eye className="h-3.5 w-3.5" />
@@ -405,17 +407,19 @@ function AuditLogsPage() {
 
   return (
     <PageTransition>
-      <div className="mx-auto w-full max-w-[1400px] space-y-6 p-4 sm:p-6">
-        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
-          <h1 className="text-xl sm:text-2xl font-bold text-zinc-900 dark:text-zinc-100">Audit Logs</h1>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">Monitor and review all system activity and security events.</p>
-        </motion.div>
+      <div className="flex flex-col gap-6">
+        <PageHeader
+          eyebrow="Settings"
+          icon={ShieldCheck}
+          title="Audit Logs"
+          description="Monitor and review all system activity and security events."
+        />
 
         {isLoadingStats ? (
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
             {Array.from({ length: 6 }).map((_, i) => (
               <Card key={i} className="p-4 sm:p-5">
-                <div className="h-[72px] animate-pulse rounded-lg bg-zinc-100 dark:bg-zinc-800" />
+                <div className="h-[72px] animate-pulse rounded-lg bg-[rgb(var(--surface-muted))]" />
               </Card>
             ))}
           </div>
@@ -429,32 +433,30 @@ function AuditLogsPage() {
 
         <div className="grid gap-4 lg:grid-cols-3">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.15 }} className="lg:col-span-2">
-            <Card className="p-4 sm:p-5">
-              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Activity Trend</h3>
+            <SectionCard title="Activity Trend" icon={Activity} bodyClassName="p-4 sm:p-5">
               <div className="h-[220px] sm:h-[260px]">
                 {trendData.length === 0 ? (
-                  <div className="flex h-full items-center justify-center text-sm text-zinc-400">No trend data yet</div>
+                  <div className="flex h-full items-center justify-center text-sm text-[rgb(var(--ink-500))]">No trend data yet</div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <LineChart data={trendData} margin={{ top: 5, right: 10, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-zinc-200 dark:stroke-zinc-800" />
-                      <XAxis dataKey="date" tick={{ fontSize: 11 }} className="fill-zinc-500 dark:fill-zinc-400" />
-                      <YAxis tick={{ fontSize: 11 }} className="fill-zinc-500 dark:fill-zinc-400" />
-                      <RechartsTooltip contentStyle={{ borderRadius: 12, border: "1px solid #e4e4e7", fontSize: 12, boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }} />
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-[rgb(var(--border-subtle))]" />
+                      <XAxis dataKey="date" tick={{ fontSize: 11 }} className="fill-[rgb(var(--ink-500))]" />
+                      <YAxis tick={{ fontSize: 11 }} className="fill-[rgb(var(--ink-500))]" />
+                      <RechartsTooltip contentStyle={{ borderRadius: 12, border: "1px solid rgb(var(--border-subtle))", fontSize: 12, boxShadow: "0 4px 6px -1px rgba(0,0,0,0.05)" }} />
                       <Line type="monotone" dataKey="events" stroke="#6366f1" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2 }} />
                     </LineChart>
                   </ResponsiveContainer>
                 )}
               </div>
-            </Card>
+            </SectionCard>
           </motion.div>
 
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.35, delay: 0.2 }}>
-            <Card className="p-4 sm:p-5 h-full">
-              <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-4">Event Severity</h3>
+            <SectionCard title="Event Severity" icon={ShieldCheck} className="h-full" bodyClassName="p-4 sm:p-5">
               <div className="h-[220px] sm:h-[260px]">
                 {severityData.length === 0 || severityData.every((d) => d.value === 0) ? (
-                  <div className="flex h-full items-center justify-center text-sm text-zinc-400">No events yet</div>
+                  <div className="flex h-full items-center justify-center text-sm text-[rgb(var(--ink-500))]">No events yet</div>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -463,13 +465,13 @@ function AuditLogsPage() {
                           <Cell key={entry.name} fill={entry.color} />
                         ))}
                       </Pie>
-                      <Legend verticalAlign="bottom" iconType="circle" iconSize={8} formatter={(value: string) => <span className="text-xs text-zinc-600 dark:text-zinc-400">{value}</span>} />
-                      <RechartsTooltip contentStyle={{ borderRadius: 12, border: "1px solid #e4e4e7", fontSize: 12 }} />
+                      <Legend verticalAlign="bottom" iconType="circle" iconSize={8} formatter={(value: string) => <span className="text-xs text-[rgb(var(--ink-500))]">{value}</span>} />
+                      <RechartsTooltip contentStyle={{ borderRadius: 12, border: "1px solid rgb(var(--border-subtle))", fontSize: 12 }} />
                     </PieChart>
                   </ResponsiveContainer>
                 )}
               </div>
-            </Card>
+            </SectionCard>
           </motion.div>
         </div>
 
@@ -478,7 +480,7 @@ function AuditLogsPage() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-1 items-center gap-2">
                 <div className="relative flex-1 max-w-sm">
-                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[rgb(var(--ink-500))]" />
                   <Input
                     placeholder="Search logs..."
                     value={search}
@@ -494,7 +496,7 @@ function AuditLogsPage() {
                   )}
                 </Button>
                 {activeFilterCount > 0 && (
-                  <button onClick={handleClearFilters} className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors flex items-center gap-1">
+                  <button onClick={handleClearFilters} className="text-xs text-[rgb(var(--ink-500))] hover:text-[rgb(var(--ink-500))] dark:hover:text-[rgb(var(--foreground))] transition-colors flex items-center gap-1">
                     <X className="h-3 w-3" /> Clear
                   </button>
                 )}
@@ -512,14 +514,14 @@ function AuditLogsPage() {
             <AnimatePresence>
               {showFilters && (
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25, ease: [0.4, 0, 0.2, 1] }} className="overflow-hidden">
-                  <div className="mt-3 grid grid-cols-2 gap-3 border-t border-zinc-100 pt-3 dark:border-zinc-800 sm:grid-cols-3 lg:grid-cols-5">
+                  <div className="mt-3 grid grid-cols-2 gap-3 border-t border-[rgb(var(--border-subtle))] pt-3 dark:border-[rgb(var(--border-subtle))] sm:grid-cols-3 lg:grid-cols-5">
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Date From</label>
-                      <input type="date" value={filters.dateFrom} onChange={(e) => setFilter("dateFrom", e.target.value)} className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200" />
+                      <label className="text-[11px] font-semibold uppercase tracking-wider text-[rgb(var(--ink-500))]">Date From</label>
+                      <input type="date" value={filters.dateFrom} onChange={(e) => setFilter("dateFrom", e.target.value)} className="h-9 w-full rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] px-3 text-sm text-[rgb(var(--foreground))] outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface))] dark:text-[rgb(var(--foreground))]" />
                     </div>
                     <div className="flex flex-col gap-1.5">
-                      <label className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">Date To</label>
-                      <input type="date" value={filters.dateTo} onChange={(e) => setFilter("dateTo", e.target.value)} className="h-9 w-full rounded-lg border border-zinc-200 bg-white px-3 text-sm text-zinc-800 outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200" />
+                      <label className="text-[11px] font-semibold uppercase tracking-wider text-[rgb(var(--ink-500))]">Date To</label>
+                      <input type="date" value={filters.dateTo} onChange={(e) => setFilter("dateTo", e.target.value)} className="h-9 w-full rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] px-3 text-sm text-[rgb(var(--foreground))] outline-none transition-colors focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface))] dark:text-[rgb(var(--foreground))]" />
                     </div>
                     <FilterSelect label="Status" value={filters.status} onChange={(v) => setFilter("status", v)} options={["success","warning","error","info"]} />
                     <FilterSelect label="User" value={filters.user} onChange={(v) => setFilter("user", v)} options={filterOptions.users} />
@@ -536,7 +538,7 @@ function AuditLogsPage() {
             <Table>
               <TableHeader>
                 {table.getHeaderGroups().map((hg) => (
-                  <TableRow key={hg.id} className="bg-zinc-50/80 dark:bg-zinc-900/60">
+                  <TableRow key={hg.id} className="bg-[rgb(var(--surface-muted))]/80 dark:bg-[rgb(var(--surface))]/60">
                     {hg.headers.map((header) => (
                       <TableHead key={header.id} style={{ width: header.getSize() }}>
                         {header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())}
@@ -549,7 +551,7 @@ function AuditLogsPage() {
                 {isLoading ? (
                   <TableRow>
                     <TableCell colSpan={columns.length} className="h-32 text-center">
-                      <div className="flex items-center justify-center gap-2 text-sm text-zinc-400">
+                      <div className="flex items-center justify-center gap-2 text-sm text-[rgb(var(--ink-500))]">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         Loading logs...
                       </div>
@@ -557,7 +559,7 @@ function AuditLogsPage() {
                   </TableRow>
                 ) : logs.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={columns.length} className="h-32 text-center text-sm text-zinc-400">
+                    <TableCell colSpan={columns.length} className="h-32 text-center text-sm text-[rgb(var(--ink-500))]">
                       No logs found matching your criteria.
                     </TableCell>
                   </TableRow>
@@ -575,17 +577,17 @@ function AuditLogsPage() {
               </TableBody>
             </Table>
 
-            <div className="flex flex-col items-center justify-between gap-3 border-t border-zinc-200 px-4 py-3 dark:border-zinc-800 sm:flex-row">
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <div className="flex flex-col items-center justify-between gap-3 border-t border-[rgb(var(--border-subtle))] px-4 py-3 dark:border-[rgb(var(--border-subtle))] sm:flex-row">
+              <p className="text-xs text-[rgb(var(--ink-500))]">
                 Showing{" "}
-                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{total === 0 ? 0 : pageIndex * pageSize + 1}</span>
+                <span className="font-semibold text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))]">{total === 0 ? 0 : pageIndex * pageSize + 1}</span>
                 {" - "}
-                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{Math.min((pageIndex + 1) * pageSize, total)}</span>
+                <span className="font-semibold text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))]">{Math.min((pageIndex + 1) * pageSize, total)}</span>
                 {" of "}
-                <span className="font-semibold text-zinc-700 dark:text-zinc-300">{total}</span> logs
+                <span className="font-semibold text-[rgb(var(--ink-500))] dark:text-[rgb(var(--foreground))]">{total}</span> logs
               </p>
               <div className="flex items-center gap-1.5">
-                <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPageIndex(0); }} className="h-8 rounded-lg border border-zinc-200 bg-white px-2 text-xs text-zinc-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPageIndex(0); }} className="h-8 rounded-lg border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] px-2 text-xs text-[rgb(var(--ink-500))] dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface))] dark:text-[rgb(var(--foreground))]">
                   {[10, 20, 50].map((size) => <option key={size} value={size}>{size} / page</option>)}
                 </select>
                 <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setPageIndex(0)} disabled={pageIndex === 0}>
@@ -594,7 +596,7 @@ function AuditLogsPage() {
                 <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setPageIndex((p) => p - 1)} disabled={pageIndex === 0}>
                   <ChevronLeft className="h-3.5 w-3.5" />
                 </Button>
-                <span className="px-2 text-xs font-medium text-zinc-600 dark:text-zinc-400">{pageIndex + 1} / {pageCount}</span>
+                <span className="px-2 text-xs font-medium text-[rgb(var(--ink-500))] dark:text-[rgb(var(--ink-500))]">{pageIndex + 1} / {pageCount}</span>
                 <Button variant="outline" size="sm" className="h-8 w-8 p-0" onClick={() => setPageIndex((p) => p + 1)} disabled={pageIndex >= pageCount - 1}>
                   <ChevronRight className="h-3.5 w-3.5" />
                 </Button>
@@ -612,7 +614,7 @@ function AuditLogsPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="fixed bottom-6 right-6 z-50 rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-medium text-zinc-800 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
+              className="fixed bottom-6 right-6 z-50 rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface))] px-4 py-2.5 text-sm font-medium text-[rgb(var(--foreground))] shadow-lg dark:border-[rgb(var(--border-subtle))] dark:bg-[rgb(var(--surface))] dark:text-[rgb(var(--foreground))]"
             >
               Copied to clipboard
             </motion.div>
@@ -641,11 +643,11 @@ function AuditLogsPage() {
                     ["User Agent", selectedLog.user_agent, false],
                     ["Detail", selectedLog.detail ?? "-", true],
                     ["Status", selectedLog.status, false],
-                    ["Timestamp", new Date(selectedLog.created_at).toLocaleString("id-ID", { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }), false],
+                    ["Timestamp", formatLocal(selectedLog.created_at, { day: "2-digit", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" }), false],
                   ] as [string, string, boolean][]).map(([label, value, mono]) => (
-                    <div key={label} className="flex items-start justify-between gap-4 border-b border-zinc-100 pb-2.5 last:border-0 dark:border-zinc-800">
-                      <span className="text-zinc-500 dark:text-zinc-400 shrink-0">{label}</span>
-                      <span className={cn("text-right text-zinc-900 dark:text-zinc-100 break-all", mono && "font-mono text-xs")}>{value}</span>
+                    <div key={label} className="flex items-start justify-between gap-4 border-b border-[rgb(var(--border-subtle))] pb-2.5 last:border-0 dark:border-[rgb(var(--border-subtle))]">
+                      <span className="text-[rgb(var(--ink-500))] shrink-0">{label}</span>
+                      <span className={cn("text-right text-[rgb(var(--foreground))] break-all", mono && "font-mono text-xs")}>{value}</span>
                     </div>
                   ))}
                 </div>
