@@ -16,16 +16,17 @@ export type StorageProviderType =
 export type DriveAccountStatus = "online" | "offline" | "error" | "syncing";
 
 /**
- * Represents a connected storage account (e.g. one Google Drive account).
- * Multiple accounts of possibly different providers form the unified virtual storage pool.
+ * Represents a connected storage account — professional ID acc_xxx
+ * id numeric internal, accountId public
  */
 export interface DriveAccount {
+  /** Internal numeric ID — internal only, not exposed in public API responses (toPublic strips it) */
   id: number;
+  /** Professional account ID: acc_xxx — public API */
+  accountId: string;
   email: string;
   provider: StorageProviderType;
-  /** Encrypted at rest. Never expose to the client. */
   refreshTokenEncrypted: string;
-  /** Short-lived, refreshed automatically by the worker cron job. Never persisted in plaintext logs. */
   accessToken: string | null;
   accessTokenExpiresAt: string | null;
   totalStorageBytes: number;

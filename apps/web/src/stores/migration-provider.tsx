@@ -12,8 +12,8 @@ function maskEmail(email: string): string {
 interface MigrationContextValue {
   activeJobs: MigrationJob[];
   recentJobs: MigrationJob[];
-  startMigration: (sourceAccountId: number, targetAccountId: number) => Promise<MigrationJob>;
-  cancelMigration: (jobId: number) => Promise<void>;
+  startMigration: (sourceAccountId: string, targetAccountId: string) => Promise<MigrationJob>;
+  cancelMigration: (jobId: string) => Promise<void>;
   isStarting: boolean;
 }
 
@@ -101,20 +101,20 @@ export function MigrationProvider({ children }: { children: ReactNode }) {
 
         for (const job of jobs) {
           try {
-            const { job: updated } = await migrationService.process(job.id);
+            const { job: updated } = await migrationService.process(job.taskId);
 
             queryClient.setQueryData(
               ["migrations", "active"],
               (old: { jobs: MigrationJob[] } | undefined) => ({
                 jobs: (old?.jobs ?? [])
-                  .map((j) => (j.id === updated.id ? updated : j))
+                  .map((j) => (j.taskId === updated.taskId ? updated : j))
                   .filter((j) => j.status === "running"),
               })
             );
 
             if (updated.status !== "running") onJobFinished(updated);
           } catch (error) {
-            console.error(`Gagal memproses batch migrasi job ${job.id}:`, error);
+            console.error(`Gagal memproses batch migrasi job ${job.taskId}:`, error);
             await new Promise((resolve) => setTimeout(resolve, 5000));
           }
         }
@@ -144,7 +144,7 @@ export function MigrationProvider({ children }: { children: ReactNode }) {
   }, [activeJobs.length, runProcessingLoop]);
 
   const startMutation = useMutation({
-    mutationFn: ({ sourceAccountId, targetAccountId }: { sourceAccountId: number; targetAccountId: number }) =>
+    mutationFn: ({ sourceAccountId, targetAccountId }: { sourceAccountId: string; targetAccountId: string }) =>
       migrationService.start(sourceAccountId, targetAccountId),
     onSuccess: (data) => {
       queryClient.setQueryData(
@@ -158,7 +158,7 @@ export function MigrationProvider({ children }: { children: ReactNode }) {
   });
 
   const startMigration = useCallback(
-    async (sourceAccountId: number, targetAccountId: number) => {
+    async (sourceAccountId: string, targetAccountId: string) => {
       const result = await startMutation.mutateAsync({ sourceAccountId, targetAccountId });
       return result.job;
     },
@@ -166,12 +166,12 @@ export function MigrationProvider({ children }: { children: ReactNode }) {
   );
 
   const cancelMigration = useCallback(
-    async (jobId: number) => {
+    async (jobId: string) => {
       const { job } = await migrationService.cancel(jobId);
       queryClient.setQueryData(
         ["migrations", "active"],
         (old: { jobs: MigrationJob[] } | undefined) => ({
-          jobs: (old?.jobs ?? []).filter((j) => j.id !== jobId),
+          jobs: (old?.jobs ?? []).filter((j) => j.taskId !== job.taskId),
         })
       );
       queryClient.invalidateQueries({ queryKey: ["migrations"] });

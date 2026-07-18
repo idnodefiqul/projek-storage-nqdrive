@@ -17,7 +17,7 @@ export function useDriveAccounts() {
 export function useDeleteDriveAccount() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => driveAccountService.remove(id),
+    mutationFn: (id: string) => driveAccountService.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["drive-accounts"] });
       queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
@@ -86,7 +86,7 @@ export function useSyncAllAccounts() {
 export function useFormatDriveAccount() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => driveAccountService.format(id),
+    mutationFn: (id: string) => driveAccountService.format(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["drive-accounts"] });
       queryClient.invalidateQueries({ queryKey: ["storage-manager"] });

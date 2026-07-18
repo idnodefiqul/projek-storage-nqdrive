@@ -186,13 +186,12 @@ app.get("/api/files/stream", async (c) => {
   if (parts.length !== 3) return c.text("Invalid token", 403);
 
   const [fileIdStr, expiryStr, sigHex] = parts;
-  const fileId = Number(fileIdStr);
   const expiry = Number(expiryStr);
-
-  if (isNaN(fileId) || isNaN(expiry)) return c.text("Invalid token", 403);
+  if (!fileIdStr || isNaN(expiry)) return c.text("Invalid token", 403);
   if (Math.floor(Date.now() / 1000) > expiry) return c.text("Token expired", 403);
 
-  const data = `${fileId}:${expiry}`;
+  // Professional: fileIdStr can be fil_xxx publicId or legacy numeric
+  const data = `${fileIdStr}:${expiry}`;
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", encoder.encode(c.env.JWT_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
   const sigBytes = new Uint8Array(sigHex!.match(/.{2}/g)!.map(h => parseInt(h, 16)));
@@ -204,7 +203,7 @@ app.get("/api/files/stream", async (c) => {
   const { GoogleAccountConnectionService } = await import("./services/google-account-connection.service");
 
   const fileRepo = new FileRepository(c.env.DB);
-  const file = await fileRepo.findById(fileId);
+  const file = await (fileRepo as any).findByPublicIdOrId(fileIdStr);
   if (!file) return c.text("Not Found", 404);
 
   const driveRepo = new DriveAccountRepository(c.env.DB);

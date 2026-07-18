@@ -15,20 +15,60 @@ folderRoutes.use("*", requireAuth);
 
 const renameFolderSchema = z.object({ name: z.string().min(1).max(255) });
 
+function toPublicFolder(folder: any) {
+  const folderId = folder.folderId ?? folder.publicId ?? folder.public_id ?? null;
+  const parentFolderId = folder.parentFolderPublicId ?? folder.parentFolderId ?? null;
+  // Determine if parentFolderId is professional (fld_) or should be null
+  const profParentId = parentFolderId && typeof parentFolderId === "string" && parentFolderId.startsWith("fld_") 
+    ? parentFolderId 
+    : (folder.parentFolderPublicId ?? null);
+  return {
+    folderId,
+    parentFolderId: profParentId,
+    name: folder.name,
+    shareUuid: folder.shareUuid,
+    sizeBytes: folder.sizeBytes,
+    createdAt: folder.createdAt,
+    updatedAt: folder.updatedAt,
+    deletedAt: folder.deletedAt,
+    originalParentFolderId: folder.originalParentFolderPublicId ?? null,
+  };
+}
+
 /**
  * GET /api/folders
  * Lists folders under a parent — accepts ?parentFolderId=<id> (internal use only).
  * Frontend should prefer /api/folders/resolve for human-readable navigation.
- * Hanya menampilkan folder yang TIDAK di-trash (deleted_at IS NULL) — dihandle oleh repository.
+ * Hanya menampilkan folder yang TIDAK di-trash (deleted_at IS NULL).
+ * Dual-mode: accepts fld_xxx or numeric legacy
  */
 folderRoutes.get("/", async (c) => {
   const parentFolderIdParam = c.req.query("parentFolderId");
-  const parentFolderId = parentFolderIdParam ? Number(parentFolderIdParam) : null;
-
   const repository = new FolderRepository(c.env.DB);
-  const folders = await repository.findByParent(parentFolderId);
+  let parentFolderId: number | null = null;
 
-  return c.json({ success: true, data: { folders } });
+  if (parentFolderIdParam) {
+    if (typeof parentFolderIdParam === "string" && parentFolderIdParam.startsWith("fld_")) {
+      const parent = await repository.findByPublicId(parentFolderIdParam);
+      parentFolderId = parent ? parent.id : null;
+      // If not found and looks numeric string, fallback
+      if (parentFolderId === null) {
+        const num = Number(parentFolderIdParam);
+        if (!isNaN(num)) parentFolderId = num;
+      }
+    } else {
+      const num = Number(parentFolderIdParam);
+      parentFolderId = isNaN(num) ? null : num;
+      // Also try public_id lookup if numeric parse failed but string provided
+      if (parentFolderId === null) {
+        const byPub = await repository.findByPublicId(parentFolderIdParam);
+        if (byPub) parentFolderId = byPub.id;
+      }
+    }
+  }
+
+  const folders = await repository.findByParent(parentFolderId);
+  return c.json({ success: true, data: { folders: folders.map(toPublicFolder) } });
 });
 
 /**
@@ -49,7 +89,7 @@ folderRoutes.get("/resolve", async (c) => {
     const children = await repository.findByParent(null);
     return c.json({
       success: true,
-      data: { folder: null, folderId: null, ancestors: [], children },
+      data: { folder: null, folderId: null, ancestors: [], children: children.map(toPublicFolder) },
     });
   }
 
@@ -62,7 +102,7 @@ folderRoutes.get("/resolve", async (c) => {
     const children = await repository.findByParent(null);
     return c.json({
       success: true,
-      data: { folder: null, folderId: null, ancestors: [], children },
+      data: { folder: null, folderId: null, ancestors: [], children: children.map(toPublicFolder) },
     });
   }
 
@@ -83,10 +123,11 @@ folderRoutes.get("/resolve", async (c) => {
   return c.json({
     success: true,
     data: {
-      folder: currentFolder,
-      folderId: resolved.id,
-      ancestors,
-      children,
+      folder: toPublicFolder(currentFolder),
+      folderId: (currentFolder as any).folderId ?? (currentFolder as any).publicId ?? resolved.id,
+      folderPublicId: (currentFolder as any).folderId ?? (currentFolder as any).publicId ?? null,
+      ancestors: ancestors.map(toPublicFolder),
+      children: children.map(toPublicFolder),
     },
   });
 });
@@ -94,32 +135,28 @@ folderRoutes.get("/resolve", async (c) => {
 /**
  * GET /api/folders/:id/ancestors
  * Returns the ancestor chain for a given folder ID, root → direct parent.
+ * Dual-mode: accepts fld_xxx or numeric
  */
 folderRoutes.get("/:id/ancestors", async (c) => {
-  const id = Number(c.req.param("id"));
-  if (!Number.isInteger(id) || id <= 0) {
-    return c.json({ success: false, error: { code: "INVALID_ID", message: "ID tidak valid." } }, 400);
-  }
-
+  const rawId = c.req.param("id");
   const repository = new FolderRepository(c.env.DB);
-  const folder = await repository.findById(id);
+  const folder = await (repository as any).findByPublicIdOrId(rawId) as any;
   if (!folder) {
     return c.json({ success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan." } }, 404);
   }
-
-  const ancestors = await repository.getAncestors(id);
-  return c.json({ success: true, data: { folder, ancestors } });
+  const ancestors = await repository.getAncestors(folder.id);
+  return c.json({ success: true, data: { folder: toPublicFolder(folder), ancestors: ancestors.map(toPublicFolder) } });
 });
 
 folderRoutes.post("/:id/share", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const repository = new FolderRepository(c.env.DB);
-  const folder = await repository.findById(id);
+  const folder = await (repository as any).findByPublicIdOrId(rawId) as any;
   if (!folder) {
     return c.json({ success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan." } }, 404);
   }
   const uuid = uuidv4();
-  await repository.setPublic(id, uuid);
+  await repository.setPublic(folder.id, uuid);
   writeAuditLog(c, { action: "folder.share", status: "success", detail: folder.name });
   return c.json({
     success: true,
@@ -128,51 +165,67 @@ folderRoutes.post("/:id/share", async (c) => {
 });
 
 folderRoutes.delete("/:id/share", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const repository = new FolderRepository(c.env.DB);
-  const folder = await repository.findById(id);
+  const folder = await (repository as any).findByPublicIdOrId(rawId) as any;
   if (!folder) {
     return c.json({ success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan." } }, 404);
   }
-  await repository.setPrivate(id);
+  await repository.setPrivate(folder.id);
   writeAuditLog(c, { action: "folder.unshare", status: "success", detail: folder.name });
   return c.json({ success: true, data: { message: "Folder tidak lagi dibagikan publik." } });
 });
 folderRoutes.get("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const repository = new FolderRepository(c.env.DB);
-  const folder = await repository.findById(id);
-
+  const folder = await (repository as any).findByPublicIdOrId(rawId) as any;
   if (!folder) {
     return c.json({ success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan." } }, 404);
   }
-  return c.json({ success: true, data: { folder } });
+  return c.json({ success: true, data: { folder: toPublicFolder(folder) } });
 });
 
 folderRoutes.post("/", zValidator("json", createFolderSchema), async (c) => {
-  const input = c.req.valid("json");
+  const input = c.req.valid("json") as any;
   const repository = new FolderRepository(c.env.DB);
+  let parentFolderId: number | null = null;
+  const rawParent = input.parentFolderId;
+  if (rawParent !== undefined && rawParent !== null) {
+    if (typeof rawParent === "string" && rawParent.startsWith("fld_")) {
+      const parent = await repository.findByPublicId(rawParent);
+      parentFolderId = parent ? parent.id : null;
+    } else if (typeof rawParent === "number") {
+      parentFolderId = rawParent;
+    } else if (typeof rawParent === "string" && /^\d+$/.test(rawParent)) {
+      parentFolderId = Number(rawParent);
+    } else if (typeof rawParent === "string") {
+      const parent = await repository.findByPublicId(rawParent);
+      if (parent) parentFolderId = parent.id;
+      else {
+        const num = Number(rawParent);
+        if (!isNaN(num)) parentFolderId = num;
+      }
+    }
+  }
 
   const folder = await repository.create({
     name: input.name,
-    parentFolderId: input.parentFolderId ?? null,
+    parentFolderId,
   });
 
   writeAuditLog(c, { action: "folder.create", status: "success", detail: input.name });
-  return c.json({ success: true, data: { folder } }, 201);
+  return c.json({ success: true, data: { folder: toPublicFolder(folder) } }, 201);
 });
 
 folderRoutes.patch("/:id", zValidator("json", renameFolderSchema), async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const { name } = c.req.valid("json");
   const repository = new FolderRepository(c.env.DB);
-
-  const existing = await repository.findById(id);
+  const existing = await (repository as any).findByPublicIdOrId(rawId) as any;
   if (!existing) {
     return c.json({ success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan." } }, 404);
   }
-
-  await repository.rename(id, name);
+  await repository.rename(existing.id, name);
   writeAuditLog(c, { action: "folder.rename", status: "success", detail: name });
   return c.json({ success: true, data: { message: "Folder berhasil diganti nama." } });
 });
@@ -183,16 +236,19 @@ folderRoutes.patch("/:id", zValidator("json", renameFolderSchema), async (c) => 
  * - Folder itu sendiri + semua sub-folder ikut di-soft-delete
  * - Semua file di dalam folder (termasuk sub-folder) ikut di-soft-delete
  * - File public otomatis diubah ke private
+ * Dual-mode: fld_xxx or numeric
  */
 folderRoutes.delete("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const folderRepository = new FolderRepository(c.env.DB);
   const fileRepository = new FileRepository(c.env.DB);
 
-  const existing = await folderRepository.findById(id);
+  const existing = await (folderRepository as any).findByPublicIdOrId(rawId) as any;
   if (!existing) {
     return c.json({ success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan." } }, 404);
   }
+
+  const id = existing.id;
 
   // Soft delete folder utama
   await folderRepository.softDelete(id);

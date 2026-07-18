@@ -219,14 +219,37 @@ export class UploadService {
     filename: string;
     mimeType: string;
     sizeBytes: number;
-    folderId: number | null;
+    folderId: number | string | null;
     providerFileId: string;
-    accountId: number;
+    accountId: number | string;
   }): Promise<FileEntity> {
-    this.validate(params);
+    this.validate(params as any);
 
-    const account = await this.driveAccountRepository.findById(params.accountId);
+    // Resolve accountId: can be acc_xxx or numeric
+    let account: any = null;
+    if (typeof params.accountId === "string" && (params.accountId as string).startsWith("acc_")) {
+      account = await (this.driveAccountRepository as any).findByPublicId(params.accountId);
+    } else {
+      const num = Number(params.accountId);
+      if (!isNaN(num)) account = await this.driveAccountRepository.findById(num);
+      else account = await (this.driveAccountRepository as any).findByPublicId(params.accountId as string);
+    }
     if (!account) throw new Error("Account not found");
+
+    // Resolve folderId: can be fld_xxx or numeric or null
+    let folderInternalId: number | null = null;
+    if (params.folderId !== null && params.folderId !== undefined) {
+      if (typeof params.folderId === "string" && (params.folderId as string).startsWith("fld_")) {
+        const { FolderRepository } = await import("../database/folder.repository");
+        const folderRepo = new FolderRepository(this.env.DB);
+        const folder = await folderRepo.findByPublicId(params.folderId as string);
+        folderInternalId = folder ? folder.id : null;
+      } else {
+        const num = Number(params.folderId);
+        folderInternalId = isNaN(num) ? null : num;
+        if (folderInternalId === 0) folderInternalId = null; // root
+      }
+    }
 
     const slug = await this.generateUniqueSlug(params.filename);
 
@@ -245,7 +268,7 @@ export class UploadService {
       slug,
       providerFileId: params.providerFileId,
       driveAccountId: account.id,
-      folderId: params.folderId,
+      folderId: folderInternalId,
       sizeBytes: params.sizeBytes,
       mimeType: params.mimeType,
       visibility: "private",

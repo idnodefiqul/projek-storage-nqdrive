@@ -14,7 +14,13 @@ export function useFolderByPath(path: string) {
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     retry: 2,
-    placeholderData: (prev) => prev,
+    // JANGAN pertahankan placeholder saat path berubah — kalau tidak, children/folderId
+    // milik folder LAMA dipakai dulu beberapa detik sebelum data folder baru datang.
+    placeholderData: (prev, prevQuery) => {
+      const prevPath = prevQuery?.queryKey?.[2] as string | undefined;
+      if (prevPath !== path) return undefined;
+      return prev;
+    },
   });
 }
 
@@ -22,7 +28,7 @@ export function useFolderByPath(path: string) {
  * Legacy hook — lists folders by parentFolderId (integer).
  * Kept for backward-compat but prefer useFolderByPath in new code.
  */
-export function useFolders(parentFolderId: number | null = null) {
+export function useFolders(parentFolderId: string | null = null) {
   return useQuery({
     queryKey: ["folders", "list", parentFolderId],
     queryFn: ({ signal }) => folderService.list(parentFolderId, signal),
@@ -46,7 +52,7 @@ export function useCreateFolder() {
 export function useDeleteFolder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => folderService.remove(id),
+    mutationFn: (id: string) => folderService.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["folders"] });
       queryClient.invalidateQueries({ queryKey: ["files"] });
@@ -58,7 +64,7 @@ export function useDeleteFolder() {
 export function useRenameFolder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, name }: { id: number; name: string }) => folderService.rename(id, name),
+    mutationFn: ({ id, name }: { id: string; name: string }) => folderService.rename(id, name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["folders"] });
     },
@@ -67,7 +73,7 @@ export function useRenameFolder() {
 export function useShareFolder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => folderService.share(id),
+    mutationFn: (id: string) => folderService.share(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["folders"] }),
   });
 }
@@ -75,7 +81,7 @@ export function useShareFolder() {
 export function useUnshareFolder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => folderService.unshare(id),
+    mutationFn: (id: string) => folderService.unshare(id),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["folders"] }),
   });
 }

@@ -37,8 +37,12 @@ export const Route = createFileRoute("/dashboard/audit-logs")({
 
 type LogStatus = "success" | "warning" | "error" | "info";
 
+function getAuditLogId(l: { logId?: string | null } | null | undefined): string {
+  return l?.logId ?? "";
+}
+
 interface AuditLogEntry {
-  id: number;
+  logId: string;
   status: LogStatus;
   action: string;
   user: string;
@@ -169,7 +173,7 @@ function downloadFile(content: string, filename: string, type: string) {
 
 function exportCSV(logs: AuditLogEntry[]) {
   const headers = ["ID","Status","Action","User","IP","Country","Browser","OS","Timestamp"];
-  const rows = logs.map((l) => [l.id, l.status, l.action, l.user, l.ip, l.country, getBrowser(l.user_agent), getOS(l.user_agent), l.created_at].join(","));
+  const rows = logs.map((l) => [getAuditLogId(l), l.status, l.action, l.user, l.ip, l.country, getBrowser(l.user_agent), getOS(l.user_agent), l.created_at].join(","));
   downloadFile([headers.join(","), ...rows].join("\n"), `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`, "text/csv");
 }
 
@@ -646,7 +650,7 @@ function AuditLogsPage() {
               <DialogContent>
                 <div className="grid gap-3 text-sm max-h-[60vh] overflow-y-auto pr-1">
                   {([
-                    ["ID", String(selectedLog.id), true],
+                    ["ID", getAuditLogId(selectedLog), true],
                     ["User", selectedLog.user, false],
                     ["Action", selectedLog.action, true],
                     ["IP Address", selectedLog.ip, true],

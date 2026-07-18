@@ -44,15 +44,25 @@ export class MigrationService {
     this.fileRepository = new FileRepository(env.DB);
   }
 
-  async createJob(sourceAccountId: number, targetAccountId: number): Promise<MigrationJob> {
+  private async resolveAccountId(input: number | string): Promise<{ internalId: number; account: any }> {
+    let account: any = null;
+    if (typeof input === "string" && (input.startsWith("acc_") || /^[A-Za-z0-9_]{20,}$/.test(input))) {
+      account = await (this.driveAccountRepository as any).findByPublicIdOrId(input);
+    } else {
+      const num = Number(input);
+      if (!isNaN(num)) account = await this.driveAccountRepository.findById(num);
+      else account = await (this.driveAccountRepository as any).findByPublicIdOrId(input as any);
+    }
+    if (!account) throw new Error("Akun tidak ditemukan.");
+    return { internalId: account.id, account };
+  }
+
+  async createJob(sourceAccountIdInput: number | string, targetAccountIdInput: number | string): Promise<MigrationJob> {
+    const { internalId: sourceAccountId, account: source } = await this.resolveAccountId(sourceAccountIdInput);
+    const { internalId: targetAccountId, account: target } = await this.resolveAccountId(targetAccountIdInput);
+
     if (sourceAccountId === targetAccountId) {
       throw new Error("Akun sumber dan tujuan tidak boleh sama.");
-    }
-
-    const source = await this.driveAccountRepository.findById(sourceAccountId);
-    const target = await this.driveAccountRepository.findById(targetAccountId);
-    if (!source || !target) {
-      throw new Error("Akun tidak ditemukan.");
     }
 
     const existingSource = await this.migrationRepository.findRunningForAccount(sourceAccountId);
@@ -139,11 +149,18 @@ export class MigrationService {
   /**
    * Proses satu batch. Dipanggil berulang oleh loop frontend (real-time) dan
    * cron backstop (saat tab ditutup). Mengembalikan state job terbaru.
+   * Dual-mode: jobId bisa tsk_xxx or numeric
    */
-  async processBatch(jobId: number, maxFiles = MIGRATION_BATCH_SIZE): Promise<MigrationJob> {
-    const job = await this.migrationRepository.findById(jobId);
+  async processBatch(jobIdInput: number | string, maxFiles = MIGRATION_BATCH_SIZE): Promise<MigrationJob> {
+    let job: MigrationJob | null = null;
+    if (typeof jobIdInput === "string") {
+      job = await (this.migrationRepository as any).findByPublicIdOrId(jobIdInput);
+    } else {
+      job = await this.migrationRepository.findById(jobIdInput);
+    }
     if (!job) throw new Error("Job migrasi tidak ditemukan.");
     if (job.status !== "running") return job;
+    const jobId = job.id;
 
     await this.migrationRepository.resetStaleProcessing(jobId);
     const items = await this.migrationRepository.claimPendingItems(jobId, maxFiles);
@@ -178,9 +195,15 @@ export class MigrationService {
     return finalized ?? (await this.migrationRepository.findById(jobId))!;
   }
 
-  async cancelJob(jobId: number): Promise<MigrationJob> {
-    const job = await this.migrationRepository.findById(jobId);
+  async cancelJob(jobIdInput: number | string): Promise<MigrationJob> {
+    let job: MigrationJob | null = null;
+    if (typeof jobIdInput === "string") {
+      job = await (this.migrationRepository as any).findByPublicIdOrId(jobIdInput);
+    } else {
+      job = await this.migrationRepository.findById(jobIdInput);
+    }
     if (!job) throw new Error("Job migrasi tidak ditemukan.");
+    const jobId = job.id;
     if (job.status === "running") {
       await this.migrationRepository.refreshJobCounters(jobId);
       await this.migrationRepository.finishJob(jobId, "cancelled");

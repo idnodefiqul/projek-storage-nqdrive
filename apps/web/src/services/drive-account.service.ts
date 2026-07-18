@@ -7,17 +7,17 @@ export const driveAccountService = {
   list: (signal?: AbortSignal) =>
     apiRequest<{ accounts: DriveAccountWithFileCount[] }>("/storage/accounts", { signal }),
 
-  remove: (id: number) =>
+  remove: (id: string) =>
     apiRequest<{ message: string }>(`/storage/accounts/${id}`, { method: "DELETE" }),
 
-  format: (id: number) =>
-    apiRequest<{ message: string; accountId: number; email: string; deletedFiles: number }>(`/storage/accounts/${id}/format`, { method: "POST" }),
+  format: (id: string) =>
+    apiRequest<{ message: string; accountId: string; email: string; deletedFiles: number }>(`/storage/accounts/${id}/format`, { method: "POST" }),
 
   formatAll: () =>
     apiRequest<{
       message: string;
       totalDeletedFiles: number;
-      results: Array<{ accountId: number; email: string; deletedFiles: number; status: "ok" | "error"; error?: string }>;
+      results: Array<{ accountId: string; email: string; deletedFiles: number; status: "ok" | "error"; error?: string }>;
     }>("/storage/accounts/format-all", { method: "POST" }),
 };
 

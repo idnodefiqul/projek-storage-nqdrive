@@ -14,15 +14,23 @@ apiKeyRoutes.use("*", requireAuth);
 
 const createApiKeySchema = z.object({ name: z.string().min(1).max(100) });
 
-/** Strips keyHash before sending to the client — only the prefix is ever shown after creation. */
-function toPublic(key: ApiKey) {
-  const { keyHash, ...rest } = key;
-  return rest;
+/** Strips keyHash — 100% clean professional, only apiKeyId */
+function toPublic(key: any) {
+  const { keyHash, id: _id, public_id: _pid, publicId: _pub, apiKeyId: _apiOld, ...rest } = key;
+  const pub = key.publicId ?? key.apiKeyId ?? key.public_id ?? null;
+  return {
+    apiKeyId: pub,
+    name: rest.name,
+    keyPrefix: rest.keyPrefix,
+    lastUsedAt: rest.lastUsedAt,
+    createdAt: rest.createdAt,
+    revokedAt: rest.revokedAt,
+  };
 }
 
 apiKeyRoutes.get("/", async (c) => {
   const repository = new ApiKeyRepository(c.env.DB);
-  const keys = await repository.findAll();
+  const keys = await repository.findAll() as any[];
   return c.json({ success: true, data: { apiKeys: keys.map(toPublic) } });
 });
 
@@ -44,10 +52,10 @@ apiKeyRoutes.post("/", zValidator("json", createApiKeySchema), async (c) => {
 });
 
 apiKeyRoutes.delete("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const repository = new ApiKeyRepository(c.env.DB);
-  await repository.revoke(id);
-  writeAuditLog(c, { action: "api-key.revoke", status: "warning", detail: `ID: ${id}` });
+  await (repository as any).revokeByPublicIdOrId(rawId);
+  writeAuditLog(c, { action: "api-key.revoke", status: "warning", detail: `ID: ${rawId}` });
   return c.json({ success: true, data: { message: "API key berhasil dicabut." } });
 });
 

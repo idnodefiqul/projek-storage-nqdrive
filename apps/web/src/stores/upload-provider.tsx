@@ -16,13 +16,13 @@ export type UploadItemStatus = "queued" | "uploading" | "success" | "error" | "c
 export interface UploadItem {
   id: string;
   file: File;
-  folderId: number | null;
+  folderId: string | null;
   status: UploadItemStatus;
   progress: UploadProgress;
   errorMessage?: string;
   sessionId?: string;
-  accountId?: number;
-  targetAccountId?: number | null;
+  accountId?: string;
+  targetAccountId?: string | null;
   provider?: string;
 }
 
@@ -39,8 +39,8 @@ export interface RecentUploadItem {
 export interface UploadContextValue {
   items: UploadItem[];
   recentItems: RecentUploadItem[];
-  addFilesToQueue: (files: FileList | File[], folderId?: number | null, targetAccountId?: number | null) => void;
-  setTargetAccount: (id: string, accountId: number | null, provider?: string) => void;
+  addFilesToQueue: (files: FileList | File[], folderId?: string | null, targetAccountId?: string | null) => void;
+  setTargetAccount: (id: string, accountId: string | null, provider?: string) => void;
   startUpload: (id: string) => Promise<void>;
   startAllUploads: () => void;
   pauseUpload: (id: string) => void;
@@ -174,7 +174,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     if (!dbLogs?.logs) return [];
     return dbLogs.logs
       .map((log) => {
-        const id = `db-${log.id}`;
+        const id = `db-${log.logId}`;
         let status: UploadItemStatus = "success";
         if (log.status === "failed") status = "error";
         else if (log.status === "cancelled") status = "cancelled";
@@ -224,7 +224,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     });
   }, [queryClient]);
 
-  const addFilesToQueue = useCallback((files: FileList | File[], folderId: number | null = null, targetAccountId: number | null = null) => {
+  const addFilesToQueue = useCallback((files: FileList | File[], folderId: string | null = null, targetAccountId: string | null = null) => {
     console.log("Adding files to queue:", files);
     const newItems: Record<string, UploadItem> = {};
     const list = Array.isArray(files) ? files : Array.from(files);
@@ -244,7 +244,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     setItems((prev) => ({ ...prev, ...newItems }));
   }, []);
 
-  const setTargetAccount = useCallback((id: string, accountId: number | null, provider?: string) => {
+  const setTargetAccount = useCallback((id: string, accountId: string | null, provider?: string) => {
     setItems((prev) => {
       const existing = prev[id];
       if (!existing) return prev;
@@ -461,7 +461,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   }, [recentItems]);
 
   const sortedItems = useMemo(
-    () => Object.values(items).sort((a, b) => Number(b.id.split("-").pop()) - Number(a.id.split("-").pop())),
+    () => Object.values(items).sort((a, b) => b.id.localeCompare(a.id)),
     [items]
   );
 

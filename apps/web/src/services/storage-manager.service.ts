@@ -1,5 +1,17 @@
 import { apiRequest } from "../lib/client";
 
+export interface StorageAccountSummary {
+  accountId: string;
+  email: string;
+  provider: string;
+  totalStorageBytes: number;
+  usedStorageBytes: number;
+  availableStorageBytes: number;
+  usedPercentage: number;
+  status: string;
+  lastSyncedAt: string | null;
+}
+
 export interface StorageManagerSummary {
   totalStorageBytes: number;
   usedStorageBytes: number;
@@ -10,17 +22,7 @@ export interface StorageManagerSummary {
   offlineAccounts: number;
   totalFiles: number;
   totalDownloads: number;
-  accounts: Array<{
-    id: number;
-    email: string;
-    provider: string;
-    totalStorageBytes: number;
-    usedStorageBytes: number;
-    availableStorageBytes: number;
-    usedPercentage: number;
-    status: string;
-    lastSyncedAt: string | null;
-  }>;
+  accounts: StorageAccountSummary[];
 }
 
 export const storageManagerService = {

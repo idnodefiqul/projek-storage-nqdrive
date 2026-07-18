@@ -1,4 +1,5 @@
 import type { DriveAccount, DriveAccountStatus, StorageProviderType } from "@nqdrive/types";
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "@nqdrive/shared";
 
 /**
  * Repository layer for the `drive_accounts` table.
@@ -10,6 +11,7 @@ import type { DriveAccount, DriveAccountStatus, StorageProviderType } from "@nqd
 
 interface DriveAccountRow {
   id: number;
+  public_id?: string | null;
   email: string;
   provider: string;
   refresh_token_encrypted: string;
@@ -24,9 +26,17 @@ interface DriveAccountRow {
   updated_at: string;
 }
 
-function rowToDriveAccount(row: DriveAccountRow): DriveAccount {
+type DriveAccountWithPublicId = DriveAccount & {
+  publicId?: string | null;
+  accountId: string;
+};
+
+function rowToDriveAccount(row: DriveAccountRow): DriveAccountWithPublicId {
+  const accountId = row.public_id ?? "";
   return {
     id: row.id,
+    accountId,
+    publicId: row.public_id ?? null,
     email: row.email,
     provider: row.provider as StorageProviderType,
     refreshTokenEncrypted: row.refresh_token_encrypted,
@@ -39,7 +49,11 @@ function rowToDriveAccount(row: DriveAccountRow): DriveAccount {
     lastSyncedAt: row.last_synced_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  };
+  } as DriveAccountWithPublicId;
+}
+
+function genAccountPublicId(): string {
+  return generatePublicId(PUBLIC_ID_PREFIXES.account);
 }
 
 export class DriveAccountRepository {
@@ -71,7 +85,7 @@ export class DriveAccountRepository {
     return results.map(rowToDriveAccount);
   }
 
-  async findById(id: number): Promise<DriveAccount | null> {
+  async findById(id: number): Promise<DriveAccountWithPublicId | null> {
     const row = await this.db
       .prepare("SELECT * FROM drive_accounts WHERE id = ?")
       .bind(id)
@@ -79,7 +93,38 @@ export class DriveAccountRepository {
     return row ? rowToDriveAccount(row) : null;
   }
 
-  async findByEmail(email: string): Promise<DriveAccount | null> {
+  async findByPublicId(publicId: string): Promise<DriveAccountWithPublicId | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM drive_accounts WHERE public_id = ?")
+      .bind(publicId)
+      .first<DriveAccountRow>();
+    return row ? rowToDriveAccount(row) : null;
+  }
+
+  async findByPublicIdOrId(input: string | number): Promise<DriveAccountWithPublicId | null> {
+    if (typeof input === "number" || /^\d+$/.test(String(input))) {
+      const num = Number(input);
+      if (!isNaN(num)) {
+        const byId = await this.findById(num);
+        if (byId) return byId;
+      }
+    }
+    if (typeof input === "string" && (input.startsWith("acc_") || input.startsWith("acc"))) {
+      const byPub = await this.findByPublicId(input);
+      if (byPub) return byPub;
+    }
+    if (typeof input === "string") {
+      // Try public_id generic fallback
+      const byPub = await this.findByPublicId(input);
+      if (byPub) return byPub;
+      // Try numeric string fallback
+      const num = Number(input);
+      if (!isNaN(num)) return this.findById(num);
+    }
+    return null;
+  }
+
+  async findByEmail(email: string): Promise<DriveAccountWithPublicId | null> {
     const row = await this.db
       .prepare("SELECT * FROM drive_accounts WHERE email = ?")
       .bind(email)
@@ -112,16 +157,18 @@ export class DriveAccountRepository {
     totalStorageBytes: number;
     usedStorageBytes: number;
     availableStorageBytes: number;
-  }): Promise<DriveAccount> {
+  }): Promise<DriveAccountWithPublicId> {
+    const publicId = genAccountPublicId();
     const row = await this.db
       .prepare(
         `INSERT INTO drive_accounts (
-           email, provider, refresh_token_encrypted, access_token, access_token_expires_at,
+           public_id, email, provider, refresh_token_encrypted, access_token, access_token_expires_at,
            total_storage_bytes, used_storage_bytes, available_storage_bytes, status, last_synced_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'online', CURRENT_TIMESTAMP)
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'online', CURRENT_TIMESTAMP)
          RETURNING *`
       )
       .bind(
+        publicId,
         params.email,
         params.provider,
         params.refreshTokenEncrypted,

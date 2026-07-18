@@ -8,6 +8,7 @@
 
 CREATE TABLE IF NOT EXISTS users (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id     TEXT,
   username      TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   created_at    TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
@@ -17,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   totp_enabled  INTEGER NOT NULL DEFAULT 0,
   backup_codes  TEXT
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_users_public_id ON users (public_id);
 
 CREATE TABLE IF NOT EXISTS settings (
   key        TEXT PRIMARY KEY,
@@ -29,6 +31,7 @@ INSERT OR IGNORE INTO settings (key, value) VALUES ('download_endpoint', 'defaul
 
 CREATE TABLE IF NOT EXISTS drive_accounts (
   id                       INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id                TEXT,
   email                    TEXT NOT NULL,
   provider                 TEXT NOT NULL DEFAULT 'google_drive'
                              CHECK (provider IN (
@@ -51,9 +54,11 @@ CREATE INDEX IF NOT EXISTS idx_drive_accounts_status ON drive_accounts (status);
 -- Satu email boleh dipakai lintas provider (mis. Gmail sama untuk Google Drive & Dropbox),
 -- tapi tidak boleh ganda pada provider yang sama.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_drive_accounts_email_provider ON drive_accounts (email, provider);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_drive_accounts_public_id ON drive_accounts (public_id);
 
 CREATE TABLE IF NOT EXISTS folders (
   id                        INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id                 TEXT,
   name                      TEXT NOT NULL,
   parent_folder_id          INTEGER,
   share_uuid                TEXT DEFAULT NULL,
@@ -66,14 +71,16 @@ CREATE TABLE IF NOT EXISTS folders (
 CREATE INDEX IF NOT EXISTS idx_folders_parent_folder_id ON folders (parent_folder_id);
 CREATE INDEX IF NOT EXISTS idx_folders_deleted_at ON folders (deleted_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_share_uuid ON folders (share_uuid);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_public_id ON folders (public_id);
 
 -- Untuk DB existing, scripts/migrate-d1.mjs menjalankan ALTER ini otomatis sebelum file ini:
 -- ALTER TABLE folders ADD COLUMN share_uuid TEXT DEFAULT NULL;
 
 CREATE TABLE IF NOT EXISTS files (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id          TEXT,
   filename           TEXT NOT NULL,
-  slug               TEXT NOT NULL UNIQUE,
+  slug               TEXT NOT NULL,
   provider_file_id   TEXT NOT NULL,
   drive_account_id   INTEGER NOT NULL,
   folder_id          INTEGER,
@@ -93,14 +100,19 @@ CREATE TABLE IF NOT EXISTS files (
   FOREIGN KEY (drive_account_id) REFERENCES drive_accounts (id) ON DELETE RESTRICT,
   FOREIGN KEY (folder_id) REFERENCES folders (id) ON DELETE SET NULL
 );
-CREATE UNIQUE INDEX IF NOT EXISTS idx_files_slug ON files (slug);
+-- Professional: slug unique only for active files (deleted_at IS NULL), so file in trash doesn't block upload with same name
+CREATE UNIQUE INDEX IF NOT EXISTS idx_files_slug_active ON files (slug) WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_files_folder_id ON files (folder_id);
 CREATE INDEX IF NOT EXISTS idx_files_drive_account_id ON files (drive_account_id);
 CREATE INDEX IF NOT EXISTS idx_files_visibility ON files (visibility);
 CREATE INDEX IF NOT EXISTS idx_files_deleted_at ON files (deleted_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_files_public_id ON files (public_id);
+-- Keep old index name for backward compat cleanup in migrate script, but new active index is partial
+-- Old: CREATE UNIQUE INDEX IF NOT EXISTS idx_files_slug ON files (slug);
 
 CREATE TABLE IF NOT EXISTS upload_logs (
   id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id        TEXT,
   file_id          INTEGER,
   filename         TEXT NOT NULL,
   size_bytes       INTEGER NOT NULL DEFAULT 0,
@@ -116,6 +128,7 @@ CREATE TABLE IF NOT EXISTS upload_logs (
 );
 CREATE TABLE IF NOT EXISTS download_logs (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id    TEXT,
   file_id      INTEGER,
   ip_address   TEXT NOT NULL,
   user_agent   TEXT,
@@ -129,9 +142,12 @@ CREATE INDEX IF NOT EXISTS idx_upload_logs_drive_account_id ON upload_logs (driv
 CREATE INDEX IF NOT EXISTS idx_upload_logs_created_at ON upload_logs (created_at);
 CREATE INDEX IF NOT EXISTS idx_download_logs_file_id ON download_logs (file_id);
 CREATE INDEX IF NOT EXISTS idx_download_logs_created_at ON download_logs (created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_upload_logs_public_id ON upload_logs (public_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_download_logs_public_id ON download_logs (public_id);
 
 CREATE TABLE IF NOT EXISTS api_keys (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id    TEXT,
   name         TEXT NOT NULL,
   key_hash     TEXT NOT NULL UNIQUE,
   key_prefix   TEXT NOT NULL,
@@ -140,6 +156,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   revoked_at   TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_api_keys_revoked_at ON api_keys (revoked_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_api_keys_public_id ON api_keys (public_id);
 
 CREATE TABLE IF NOT EXISTS upload_sessions (
   id                TEXT PRIMARY KEY,
@@ -159,6 +176,7 @@ CREATE INDEX IF NOT EXISTS idx_upload_sessions_created_at ON upload_sessions (cr
 -- dilanjutkan oleh loop frontend maupun cron backstop kapan saja.
 CREATE TABLE IF NOT EXISTS migration_jobs (
   id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id          TEXT,
   source_account_id  INTEGER NOT NULL,
   target_account_id  INTEGER NOT NULL,
   status             TEXT NOT NULL DEFAULT 'running'
@@ -176,6 +194,7 @@ CREATE TABLE IF NOT EXISTS migration_jobs (
   FOREIGN KEY (target_account_id) REFERENCES drive_accounts (id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_migration_jobs_status ON migration_jobs (status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_migration_jobs_public_id ON migration_jobs (public_id);
 
 -- Item per file: diisi lengkap saat job dibuat agar progress akurat dan
 -- file yang gagal bisa di-skip tanpa mengulang dari awal.
@@ -185,6 +204,7 @@ CREATE INDEX IF NOT EXISTS idx_migration_jobs_status ON migration_jobs (status);
 -- di-set private selama proses, lalu dikembalikan setelah pindah/selesai.
 CREATE TABLE IF NOT EXISTS migration_items (
   id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id            TEXT,
   job_id               INTEGER NOT NULL,
   file_id              INTEGER,
   provider_file_id     TEXT NOT NULL DEFAULT '',
@@ -198,6 +218,7 @@ CREATE TABLE IF NOT EXISTS migration_items (
   FOREIGN KEY (job_id) REFERENCES migration_jobs (id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_migration_items_job_status ON migration_items (job_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_migration_items_public_id ON migration_items (public_id);
 
 CREATE TABLE IF NOT EXISTS login_attempts (
   ip TEXT PRIMARY KEY,
@@ -212,6 +233,7 @@ CREATE TABLE IF NOT EXISTS download_attempts (
 
 CREATE TABLE IF NOT EXISTS audit_logs (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  public_id  TEXT,
   action     TEXT NOT NULL,
   status     TEXT NOT NULL DEFAULT 'success' CHECK (status IN ('success', 'warning', 'error', 'info')),
   user       TEXT NOT NULL DEFAULT 'admin',
@@ -225,3 +247,4 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs (created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs (action);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_status ON audit_logs (status);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_logs_public_id ON audit_logs (public_id);

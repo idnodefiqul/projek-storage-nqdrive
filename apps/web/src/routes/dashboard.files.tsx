@@ -7,7 +7,7 @@ import {
   Folder as FolderIcon, FolderPlus, Upload,
   ChevronRight, UploadCloud, CheckCircle2,
   FileIcon, X, Loader2, Home, Lock, Globe, EyeOff as EyeOffIcon,
-  ChevronLeft, ChevronsLeft, ChevronsRight,
+  ChevronLeft, ChevronsLeft, ChevronsRight, MoreVertical,
   Pencil, AlertTriangle, HardDrive, Share2, Link2, Globe2,
   Plus, Download, ExternalLink, FolderOpen, LayoutGrid, List,
   Sparkles, ChevronDown, Check, Ban,
@@ -67,6 +67,17 @@ function maskEmail(email: string): string {
   return `${local.slice(0, 3)}***@${domain}`;
 }
 
+// Professional ID helpers — 100% clean, only specific IDs
+function getFolderId(folder: any): string {
+  return folder?.folderId ?? "";
+}
+function getFileId(file: any): string {
+  return file?.fileId ?? "";
+}
+function getAccountId(account: any): string {
+  return account?.accountId ?? "";
+}
+
 function EmailCell({ email }: { email: string }) {
   const [shown, setShown] = useState(false);
   return (
@@ -120,7 +131,7 @@ function Breadcrumb({
       </button>
 
       {ancestors.map((folder, idx) => (
-        <span key={folder.id} className="flex items-center gap-1">
+        <span key={getFolderId(folder)} className="flex items-center gap-1">
           <ChevronRight className="h-3.5 w-3.5 text-[rgb(var(--foreground))] dark:text-[rgb(var(--ink-500))]" />
           <button
             type="button"
@@ -175,7 +186,10 @@ function FolderGlyph({ shared, size }: { shared?: boolean; size: number }) {
 
 // FileCard dan FileRow — instant mount, NO motion per-card di list panjang (Facebook style)
 // Optimized with React.memo + content-visibility for 90fps scroll
-const FileCard = React.memo(function FileCard({ item, onOpen }: { item: ItemData; onOpen: () => void }) {
+// - Semua card DIPAKSA persegi (aspect-square + overflow-hidden) — nama panjang di-clamp, tidak melarkan kotak
+// - Folder: klik card = masuk folder, titik-3 pojok kanan atas = buka sidebar detail
+// - File: klik card = buka sidebar detail (perilaku lama)
+const FileCard = React.memo(function FileCard({ item, onOpen, onMenu }: { item: ItemData; onOpen: () => void; onMenu?: () => void }) {
   const isFolder = item.type === "folder";
   const name = isFolder ? item.data.name : item.data.filename;
   const sub = isFolder
@@ -185,9 +199,21 @@ const FileCard = React.memo(function FileCard({ item, onOpen }: { item: ItemData
   return (
     <button
       onClick={onOpen}
-      className="app-card app-card-interactive group relative flex aspect-square w-full flex-col items-center justify-center gap-2 rounded-[14px] p-3 text-center sm:gap-2.5 sm:p-3.5"
+      className="app-card app-card-interactive group relative flex aspect-square w-full flex-col items-center justify-center gap-2 overflow-hidden rounded-[14px] p-3 text-center sm:gap-2.5 sm:p-3.5"
     >
-      <div className="grid h-[52px] w-[52px] place-items-center sm:h-[60px] sm:w-[60px]">
+      {onMenu && (
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Menu ${name}`}
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); onMenu(); }}
+          onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onMenu(); } }}
+          className="absolute right-1.5 top-1.5 z-10 grid h-7 w-7 place-items-center rounded-lg text-[rgb(var(--ink-500))]/70 transition hover:bg-[rgb(var(--surface-muted))]/80 hover:text-[rgb(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+        >
+          <MoreVertical className="h-4 w-4" />
+        </span>
+      )}
+      <div className="grid h-[52px] w-[52px] shrink-0 place-items-center sm:h-[60px] sm:w-[60px]">
         {isFolder ? (
           <FolderGlyph shared={!!item.data.shareUuid} size={48} />
         ) : (
@@ -197,17 +223,17 @@ const FileCard = React.memo(function FileCard({ item, onOpen }: { item: ItemData
           })()
         )}
       </div>
-      <div className="flex w-full flex-col items-center gap-0.5 px-1">
-        <span className="line-clamp-2 w-full break-words text-[12px] font-semibold leading-[1.25] text-[rgb(var(--foreground))] sm:text-[13px]" title={name}>
+      <div className="flex w-full shrink-0 flex-col items-center gap-0.5 px-1">
+        <span className="line-clamp-2 h-[30px] w-full break-words text-[12px] font-semibold leading-[1.25] text-[rgb(var(--foreground))] sm:h-[33px] sm:text-[13px]" title={name}>
           {name}
         </span>
-        <span className="truncate text-[10.5px] font-medium leading-none text-[rgb(var(--ink-500))]/80 sm:text-[11px]">{sub}</span>
+        <span className="w-full truncate text-[10.5px] font-medium leading-none text-[rgb(var(--ink-500))]/80 sm:text-[11px]">{sub}</span>
       </div>
     </button>
   );
 });
 
-const FileRow = React.memo(function FileRow({ item, onOpen }: { item: ItemData; onOpen: () => void }) {
+const FileRow = React.memo(function FileRow({ item, onOpen, onMenu }: { item: ItemData; onOpen: () => void; onMenu?: () => void }) {
   const isFolder = item.type === "folder";
   const name = isFolder ? item.data.name : item.data.filename;
   const sub = isFolder
@@ -230,7 +256,20 @@ const FileRow = React.memo(function FileRow({ item, onOpen }: { item: ItemData; 
         <span className="block truncate text-sm font-semibold leading-tight text-[rgb(var(--foreground))]" title={name}>{name}</span>
         <span className="block truncate text-xs leading-tight text-[rgb(var(--ink-500))]">{sub}</span>
       </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-[rgb(var(--ink-500))]/60 transition group-hover:translate-x-0.5" />
+      {onMenu ? (
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label={`Menu ${name}`}
+          onClick={(e: React.MouseEvent) => { e.stopPropagation(); onMenu(); }}
+          onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); onMenu(); } }}
+          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-[rgb(var(--ink-500))]/70 transition hover:bg-[rgb(var(--surface-muted))]/80 hover:text-[rgb(var(--foreground))] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-500"
+        >
+          <MoreVertical className="h-4 w-4" />
+        </span>
+      ) : (
+        <ChevronRight className="h-4 w-4 shrink-0 text-[rgb(var(--ink-500))]/60 transition group-hover:translate-x-0.5" />
+      )}
     </button>
   );
 });
@@ -933,8 +972,7 @@ function FilesPage() {
     isError: isPathError,
   } = useFolderByPath(currentFolderPath);
 
-  // folderId folder aktif (null = root). Berlaku baik saat browse maupun search.
-  const currentFolderId = pathData?.folderId ?? null;
+  const currentFolderId = (pathData as any)?.folderId ?? null;
 
   const emptyArray = useMemo(() => [] as any[], []);
 
@@ -973,7 +1011,7 @@ function FilesPage() {
 
   const { data: filesData, isLoading: isLoadingFiles, isFetching: isFetchingFiles } = useFiles(
     {
-      folderId: currentFolderId !== null ? currentFolderId : 0,
+      folderId: currentFolderId ?? null,
       page: fileQueryMeta.page,
       pageSize: fileQueryMeta.pageSize,
       search: debouncedSearch || undefined,
@@ -988,7 +1026,7 @@ function FilesPage() {
   // OPTIMIZED: gunakan placeholderData dan longer staleTime untuk hindari double fetch, totalItems sebenarnya bisa diambil dari filesData.totalItems
   const { data: totalFilesData, isLoading: isLoadingTotalFiles } = useFiles(
     {
-      folderId: currentFolderId !== null ? currentFolderId : 0,
+      folderId: currentFolderId ?? null,
       page: 1,
       pageSize: 1,
       search: debouncedSearch || undefined,
@@ -1063,7 +1101,7 @@ function FilesPage() {
   const handleDeleteFolder = async () => {
     if (!folderToDelete) return;
     try {
-      await deleteFolder.mutateAsync(folderToDelete.id);
+      await deleteFolder.mutateAsync(getFolderId(folderToDelete));
       toast({ title: "Folder dipindahkan ke Trash", variant: "success" });
     } catch (error) {
       toast({
@@ -1100,7 +1138,7 @@ function FilesPage() {
 
   const handleShareFolder = useCallback(async (folder: Folder): Promise<string | null> => {
     try {
-      const result = await shareFolder.mutateAsync(folder.id);
+      const result = await shareFolder.mutateAsync(getFolderId(folder));
       const url = `${window.location.origin}${result.pageUrl}`;
       await navigator.clipboard.writeText(url);
       toast({ title: "Folder berhasil dibagikan", description: url, variant: "success" });
@@ -1113,7 +1151,7 @@ function FilesPage() {
 
   const handleUnshareFolder = useCallback(async (folder: Folder) => {
     try {
-      await unshareFolder.mutateAsync(folder.id);
+      await unshareFolder.mutateAsync(getFolderId(folder));
       toast({ title: "Folder tidak lagi dibagikan publik", variant: "success" });
     } catch (error) {
       toast({ title: "Gagal membatalkan share", description: error instanceof Error ? error.message : undefined, variant: "error" });
@@ -1129,7 +1167,7 @@ function FilesPage() {
   const handleDeleteFile = async () => {
     if (!fileToDelete) return;
     try {
-      await deleteFile.mutateAsync(fileToDelete.id);
+      await deleteFile.mutateAsync(getFileId(fileToDelete));
       toast({ title: "File dipindahkan ke Trash", variant: "success" });
     } catch (error) {
       toast({
@@ -1154,7 +1192,7 @@ function FilesPage() {
   };
 
   const handleStartRenameFile = useCallback((file: FileWithAccount) => {
-    setRenamingId(`file-${file.id}`);
+    setRenamingId(`file-${getFileId(file)}`);
     setRenameValue(file.filename);
     setTimeout(() => {
       const input = renameInputRef.current;
@@ -1171,28 +1209,30 @@ function FilesPage() {
   }, []);
 
   const handleStartRenameFolder = useCallback((folder: Folder) => {
-    setRenamingId(`folder-${folder.id}`);
+    setRenamingId(`folder-${getFolderId(folder)}`);
     setRenameValue(folder.name);
     setTimeout(() => renameInputRef.current?.select(), 50);
   }, []);
 
   // Rename LANGSUNG (dipakai dari DetailPanel) — submit + invalidate cache.
   const handleRenameFileDirect = useCallback(async (file: FileWithAccount) => {
-    await renameFile.mutateAsync({ id: file.id, filename: file.filename });
+    await renameFile.mutateAsync({ id: getFileId(file), filename: file.filename });
     await queryClient.invalidateQueries();
     toast({ title: "Nama file diubah", variant: "success" });
   }, [renameFile, queryClient, toast]);
 
   const handleRenameFolderDirect = useCallback(async (folder: Folder) => {
-    await renameFolder.mutateAsync({ id: folder.id, name: folder.name });
+    await renameFolder.mutateAsync({ id: getFolderId(folder), name: folder.name });
     await queryClient.invalidateQueries();
     toast({ title: "Nama folder diubah", variant: "success" });
   }, [renameFolder, queryClient, toast]);
 
   const handleRenameSubmit = useCallback(async () => {
     if (!renamingId || !renameValue.trim()) { setRenamingId(null); return; }
-    const [type, idStr] = renamingId.split("-");
-    const id = Number(idStr);
+    const dashIdx = renamingId.indexOf("-");
+    const type = dashIdx >= 0 ? renamingId.slice(0, dashIdx) : renamingId;
+    const id = dashIdx >= 0 ? renamingId.slice(dashIdx + 1) : "";
+    if (!id) { setRenamingId(null); return; }
     try {
       if (type === "file") {
         await renameFile.mutateAsync({ id, filename: renameValue.trim() });
@@ -1236,10 +1276,10 @@ function FilesPage() {
     };
 
     try {
-      await updateVisibility.mutateAsync({ id: file.id, visibility });
+      await updateVisibility.mutateAsync({ id: getFileId(file), visibility });
       // Fix C: update selectedItem langsung agar sidebar menampilkan visibilitas terbaru
       setSelectedItem((prev) => {
-        if (prev && prev.type === "file" && prev.data.id === file.id) {
+        if (prev && prev.type === "file" && getFileId(prev.data) === getFileId(file)) {
           return { type: "file", data: { ...prev.data, visibility } };
         }
         return prev;
@@ -1430,9 +1470,10 @@ function FilesPage() {
             <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 sm:gap-3 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 scrollbar-hide files-list-scroll">
               {itemList.map((item) => (
                 <FileCard
-                  key={item.type === "folder" ? `f-${item.data.id}` : `fi-${item.data.id}`}
+                  key={item.type === "folder" ? `f-${getFolderId(item.data as any)}` : `fi-${getFileId(item.data as any)}`}
                   item={item}
-                  onOpen={() => setSelectedItem(item)}
+                  onOpen={item.type === "folder" ? () => handleFolderClick(item.data as Folder) : () => setSelectedItem(item)}
+                  onMenu={item.type === "folder" ? () => setSelectedItem(item) : undefined}
                 />
               ))}
             </div>
@@ -1440,9 +1481,10 @@ function FilesPage() {
             <div className="space-y-2 scrollbar-hide files-list-scroll">
               {itemList.map((item) => (
                 <FileRow
-                  key={item.type === "folder" ? `f-${item.data.id}` : `fi-${item.data.id}`}
+                  key={item.type === "folder" ? `f-${getFolderId(item.data as any)}` : `fi-${getFileId(item.data as any)}`}
                   item={item}
-                  onOpen={() => setSelectedItem(item)}
+                  onOpen={item.type === "folder" ? () => handleFolderClick(item.data as Folder) : () => setSelectedItem(item)}
+                  onMenu={item.type === "folder" ? () => setSelectedItem(item) : undefined}
                 />
               ))}
             </div>
@@ -1481,10 +1523,10 @@ function FilesPage() {
           onShareFolder: async (f) => {
             const newShareUuid = await handleShareFolder(f);
             if (newShareUuid) {
-              setSelectedItem((prev) => prev && prev.type === "folder" && prev.data.id === f.id ? { type: "folder", data: { ...prev.data, shareUuid: newShareUuid } } : prev);
+              setSelectedItem((prev) => prev && prev.type === "folder" && getFolderId(prev.data) === getFolderId(f) ? { type: "folder", data: { ...prev.data, shareUuid: newShareUuid } } : prev);
             }
           },
-          onUnshareFolder: async (f) => { await handleUnshareFolder(f); setSelectedItem((prev) => prev && prev.type === "folder" && prev.data.id === f.id ? { type: "folder", data: { ...prev.data, shareUuid: null } } : prev); },
+          onUnshareFolder: async (f) => { await handleUnshareFolder(f); setSelectedItem((prev) => prev && prev.type === "folder" && getFolderId(prev.data) === getFolderId(f) ? { type: "folder", data: { ...prev.data, shareUuid: null } } : prev); },
           onCopyFolderLink: handleCopyFolderLink,
           onRenameFolder: handleRenameFolderDirect,
           onDeleteFolder: (f) => setFolderToDelete(f),
@@ -1619,7 +1661,7 @@ function DestinationSelect({
 }: {
   item: any;
   accounts: any[];
-  onChange: (accountId: number | null, provider?: string) => void;
+  onChange: (accountId: string | null, provider?: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [pos, setPos] = useState({ top: 0, left: 0, width: 256, flipUp: false });
@@ -1628,7 +1670,7 @@ function DestinationSelect({
 
   const online = accounts.filter((a) => a.status === "online");
   const selected = item.targetAccountId
-    ? accounts.find((a) => a.id === item.targetAccountId)
+    ? accounts.find((a: any) => getAccountId(a) === (item.targetAccountId ?? ""))
     : null;
   const fileSize = item.file?.size ?? 0;
 
@@ -1725,13 +1767,14 @@ function DestinationSelect({
               <p className="px-2.5 pb-1 pt-1.5 text-[10px] font-bold uppercase tracking-wider text-[rgb(var(--ink-500))]">{group.label}</p>
               {group.items.map((acc) => {
                 const fits = accountFitsFile(acc, fileSize);
-                const isSelected = item.targetAccountId === acc.id;
+                const accPublicId = getAccountId(acc);
+                const isSelected = (item.targetAccountId ?? "") === accPublicId;
                 return (
                   <button
-                    key={acc.id}
+                    key={accPublicId}
                     type="button"
                     disabled={!fits}
-                    onClick={() => { onChange(acc.id, acc.provider); setOpen(false); }}
+                    onClick={() => { onChange(accPublicId, acc.provider); setOpen(false); }}
                     className={cn(
                       "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-xs transition-colors",
                       fits ? "hover:bg-[rgb(var(--surface-muted))] dark:hover:bg-[rgb(var(--surface-muted))]" : "cursor-not-allowed opacity-50",
@@ -1776,7 +1819,7 @@ function UploadDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  currentFolderId: number | null;
+  currentFolderId: string | null;
   currentFolderPath: string;
 }) {
   const uploadHook = useUpload();

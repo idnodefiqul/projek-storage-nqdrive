@@ -4,14 +4,19 @@
  * State migrasi drive-ke-drive disimpan di D1 (bukan di browser) sehingga
  * proses bisa dilanjutkan kapan saja oleh loop frontend maupun cron backstop.
  */
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "@nqdrive/shared";
 
 export type MigrationJobStatus = "running" | "completed" | "failed" | "cancelled";
 export type MigrationItemStatus = "pending" | "processing" | "done" | "failed";
 
 export interface MigrationJob {
   id: number;
+  publicId?: string | null;
+  taskId?: string | null;
   sourceAccountId: number;
   targetAccountId: number;
+  sourceAccountPublicId?: string | null;
+  targetAccountPublicId?: string | null;
   sourceEmail: string;
   targetEmail: string;
   status: MigrationJobStatus;
@@ -28,6 +33,7 @@ export interface MigrationJob {
 
 export interface MigrationItem {
   id: number;
+  publicId?: string | null;
   jobId: number;
   /** NULL = file drive asli yang tidak tercatat di dashboard. */
   fileId: number | null;
@@ -42,10 +48,13 @@ export interface MigrationItem {
 
 interface MigrationJobRow {
   id: number;
+  public_id?: string | null;
   source_account_id: number;
   target_account_id: number;
   source_email: string;
   target_email: string;
+  source_account_public_id?: string | null;
+  target_account_public_id?: string | null;
   status: string;
   total_files: number;
   migrated_files: number;
@@ -60,6 +69,7 @@ interface MigrationJobRow {
 
 interface MigrationItemRow {
   id: number;
+  public_id?: string | null;
   job_id: number;
   file_id: number | null;
   provider_file_id: string;
@@ -71,10 +81,15 @@ interface MigrationItemRow {
 }
 
 function rowToJob(row: MigrationJobRow): MigrationJob {
+  const pub = (row as any).public_id ?? null;
   return {
     id: row.id,
+    publicId: pub,
+    taskId: pub,
     sourceAccountId: row.source_account_id,
     targetAccountId: row.target_account_id,
+    sourceAccountPublicId: (row as any).source_account_public_id ?? null,
+    targetAccountPublicId: (row as any).target_account_public_id ?? null,
     sourceEmail: row.source_email,
     targetEmail: row.target_email,
     status: row.status as MigrationJobStatus,
@@ -91,8 +106,10 @@ function rowToJob(row: MigrationJobRow): MigrationJob {
 }
 
 function rowToItem(row: MigrationItemRow): MigrationItem {
+  const pub = (row as any).public_id ?? null;
   return {
     id: row.id,
+    publicId: pub,
     jobId: row.job_id,
     fileId: row.file_id,
     providerFileId: row.provider_file_id,
@@ -104,9 +121,17 @@ function rowToItem(row: MigrationItemRow): MigrationItem {
   };
 }
 
-// Query dasar job + email kedua akun (untuk tampilan sidebar).
+function genTaskPublicId(): string {
+  return generatePublicId(PUBLIC_ID_PREFIXES.task);
+}
+function genMigrationItemPublicId(): string {
+  return generatePublicId(PUBLIC_ID_PREFIXES.migrationItem);
+}
+
+// Query dasar job + email + public_id kedua akun (professional IDs)
 const JOB_SELECT = `
-  SELECT m.*, s.email AS source_email, t.email AS target_email
+  SELECT m.*, s.email AS source_email, t.email AS target_email,
+         s.public_id AS source_account_public_id, t.public_id AS target_account_public_id
   FROM migration_jobs m
   JOIN drive_accounts s ON s.id = m.source_account_id
   JOIN drive_accounts t ON t.id = m.target_account_id`;
@@ -120,6 +145,31 @@ export class MigrationRepository {
       .bind(id)
       .first<MigrationJobRow>();
     return row ? rowToJob(row) : null;
+  }
+
+  async findByPublicId(publicId: string): Promise<MigrationJob | null> {
+    const row = await this.db
+      .prepare(`${JOB_SELECT} WHERE m.public_id = ?`)
+      .bind(publicId)
+      .first<MigrationJobRow>();
+    return row ? rowToJob(row) : null;
+  }
+
+  async findByPublicIdOrId(input: string | number): Promise<MigrationJob | null> {
+    if (typeof input === "number" || /^\d+$/.test(String(input))) {
+      const num = Number(input);
+      if (!isNaN(num)) {
+        const byId = await this.findById(num);
+        if (byId) return byId;
+      }
+    }
+    if (typeof input === "string") {
+      const byPub = await this.findByPublicId(input);
+      if (byPub) return byPub;
+      const num = Number(input);
+      if (!isNaN(num)) return this.findById(num);
+    }
+    return null;
   }
 
   async findRunning(): Promise<MigrationJob[]> {
@@ -156,17 +206,39 @@ export class MigrationRepository {
     totalFiles: number;
     totalBytes: number;
   }): Promise<number> {
+    const publicId = genTaskPublicId();
     const row = await this.db
       .prepare(
-        `INSERT INTO migration_jobs (source_account_id, target_account_id, total_files, total_bytes)
-         VALUES (?, ?, ?, ?)
+        `INSERT INTO migration_jobs (public_id, source_account_id, target_account_id, total_files, total_bytes)
+         VALUES (?, ?, ?, ?, ?)
          RETURNING id`
       )
-      .bind(params.sourceAccountId, params.targetAccountId, params.totalFiles, params.totalBytes)
+      .bind(publicId, params.sourceAccountId, params.targetAccountId, params.totalFiles, params.totalBytes)
       .first<{ id: number }>();
 
     if (!row) throw new Error("Failed to create migration job: no row returned");
     return row.id;
+  }
+
+  async createReturningJob(params: {
+    sourceAccountId: number;
+    targetAccountId: number;
+    totalFiles: number;
+    totalBytes: number;
+  }): Promise<MigrationJob> {
+    const publicId = genTaskPublicId();
+    const row = await this.db
+      .prepare(
+        `INSERT INTO migration_jobs (public_id, source_account_id, target_account_id, total_files, total_bytes)
+         VALUES (?, ?, ?, ?, ?)
+         RETURNING id, public_id`
+      )
+      .bind(publicId, params.sourceAccountId, params.targetAccountId, params.totalFiles, params.totalBytes)
+      .first<{ id: number; public_id: string }>();
+    if (!row) throw new Error("Failed to create migration job");
+    const job = await this.findById(row.id);
+    if (!job) throw new Error("Failed to fetch created job");
+    return job;
   }
 
   /** Isi item per file sekaligus (batch insert) saat job dibuat. */
@@ -180,22 +252,24 @@ export class MigrationRepository {
       originalVisibility: string | null;
     }>
   ): Promise<void> {
-    const statements = files.map((file) =>
-      this.db
+    const statements = files.map((file) => {
+      const pub = genMigrationItemPublicId();
+      return this.db
         .prepare(
           `INSERT INTO migration_items
-             (job_id, file_id, provider_file_id, filename, size_bytes, original_visibility)
-           VALUES (?, ?, ?, ?, ?, ?)`
+             (public_id, job_id, file_id, provider_file_id, filename, size_bytes, original_visibility)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
+          pub,
           jobId,
           file.fileId,
           file.providerFileId,
           file.filename,
           file.sizeBytes,
           file.originalVisibility
-        )
-    );
+        );
+    });
     // D1 batch: maksimal aman per panggilan, pecah per 50 statement.
     for (let offset = 0; offset < statements.length; offset += 50) {
       await this.db.batch(statements.slice(offset, offset + 50));

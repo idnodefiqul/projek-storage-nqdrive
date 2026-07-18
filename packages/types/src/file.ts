@@ -6,49 +6,57 @@ export type FileVisibility = "public" | "private" | "hidden";
  * this row is the unified metadata record.
  */
 export interface FileEntity {
+  /** Internal numeric ID — still present for internal DB ops, but not exposed in public API responses */
   id: number;
+  /** Professional file ID: fil_xxx — public API */
+  fileId: string;
   filename: string;
-  /** URL-safe unique identifier used for public download links, e.g. /windows11.gz */
+  /** URL-safe unique identifier used for public download links */
   slug: string;
-  /** 23-character random string to protect direct download links */
+  /** 23-char random string to protect direct download links */
   shareCode: string;
-  /** The file ID as known by the underlying storage provider (e.g. Google Drive file id). */
+  /** Provider file ID */
   providerFileId: string;
+  /** Professional account ID: acc_xxx — public API */
+  accountId: string;
+  /** Internal legacy numeric driveAccountId — internal only, not exposed */
   driveAccountId: number;
-  folderId: number | null;
+  /** Professional folder ID: fld_xxx or null for root — public API */
+  folderId: string | null;
+  /** Internal numeric folderId — internal only */
+  folderIdNumeric?: number | null;
   sizeBytes: number;
   mimeType: string;
   visibility: FileVisibility;
   downloadCount: number;
   createdAt: string;
   updatedAt: string;
-  /** Timestamp kapan file dipindahkan ke Trash. Undefined = file aktif. */
   deletedAt?: string;
-  /** ID folder asal sebelum di-trash — digunakan untuk restore. */
-  originalFolderId?: number | null;
+  originalFolderId?: string | null;
 }
 
 export interface Folder {
+  /** Internal numeric ID — internal only */
   id: number;
+  /** Professional folder ID: fld_xxx — public API */
+  folderId: string;
   name: string;
-  parentFolderId: number | null;
-  /** UUID v4 kalau folder di-share publik, null/undefined kalau private. */
+  /** Professional parent folder ID: fld_xxx or null */
+  parentFolderId: string | null;
   shareUuid?: string | null;
   sizeBytes?: number;
   createdAt: string;
   updatedAt: string;
-  /** Timestamp kapan folder dipindahkan ke Trash. Undefined = folder aktif. */
   deletedAt?: string;
-  /** ID parent folder asal sebelum di-trash — digunakan untuk restore. */
-  originalParentFolderId?: number | null;
+  originalParentFolderId?: string | null;
 }
 
 /** Response from /api/folders/by-path */
 export interface FolderByPathResponse {
   /** The resolved folder, or null if at root */
   folder: Folder | null;
-  /** Integer ID for use in internal API calls (/api/files?folderId=...) */
-  folderId: number | null;
+  /** Professional folder ID: fld_xxx or null for root */
+  folderId: string | null;
   /** Ordered ancestor chain: [root, ..., direct parent] — used for breadcrumb */
   ancestors: Folder[];
   /** Direct children folders inside the resolved path */

@@ -2,11 +2,7 @@ import { apiRequest } from "../lib/client";
 import type { Folder, FolderByPathResponse } from "@nqdrive/types";
 
 export const folderService = {
-  /**
-   * List folders by parentFolderId (internal — used when you already have an ID).
-   * Prefer byPath() for user-facing navigation.
-   */
-  list: (parentFolderId: number | null = null, signal?: AbortSignal) =>
+  list: (parentFolderId: string | null = null, signal?: AbortSignal) =>
     apiRequest<{ folders: Folder[] }>(
       parentFolderId !== null ? `/folders?parentFolderId=${parentFolderId}` : "/folders",
       { signal }
@@ -39,23 +35,20 @@ export const folderService = {
     });
   },
 
-  /**
-   * Get ancestor chain for a folder ID.
-   */
-  ancestors: (id: number) =>
+  ancestors: (id: string) =>
     apiRequest<{ folder: Folder; ancestors: Folder[] }>(`/folders/${id}/ancestors`),
 
-  create: (input: { name: string; parentFolderId?: number | null }) =>
+  create: (input: { name: string; parentFolderId?: string | null }) =>
     apiRequest<{ folder: Folder }>("/folders", { method: "POST", body: input }),
 
-  rename: (id: number, name: string) =>
+  rename: (id: string, name: string) =>
     apiRequest<{ message: string }>(`/folders/${id}`, { method: "PATCH", body: { name } }),
 
-  remove: (id: number) => apiRequest<{ message: string }>(`/folders/${id}`, { method: "DELETE" }),
+  remove: (id: string) => apiRequest<{ message: string }>(`/folders/${id}`, { method: "DELETE" }),
 
-  share: (id: number) =>
+  share: (id: string) =>
     apiRequest<{ shareUuid: string; pageUrl: string }>(`/folders/${id}/share`, { method: "POST" }),
 
-  unshare: (id: number) =>
+  unshare: (id: string) =>
     apiRequest<{ message: string }>(`/folders/${id}/share`, { method: "DELETE" }),
 };

@@ -11,14 +11,16 @@ export const renameFileSchema = z.object({
 
 export const createFolderSchema = z.object({
   name: z.string().min(1, "Nama folder wajib diisi").max(255),
-  parentFolderId: z.number().int().positive().nullable().optional(),
+  // Professional: fld_xxx string, dual-mode support legacy number
+  parentFolderId: z.union([z.string(), z.number().int().positive()]).nullable().optional(),
 });
 
 export const listFilesQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(20),
   search: z.string().optional(),
-  folderId: z.coerce.number().int().nonnegative().optional(),
+  // Professional: fld_xxx, dual-mode support legacy number
+  folderId: z.union([z.string(), z.coerce.number().int().nonnegative()]).optional(),
   visibility: z.enum(FILE_VISIBILITY_OPTIONS).optional(),
 });
 

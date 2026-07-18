@@ -1,7 +1,7 @@
 import { apiRequest } from "../lib/client";
 
 export interface ApiKeyEntry {
-  id: number;
+  apiKeyId: string;
   name: string;
   keyPrefix: string;
   lastUsedAt: string | null;
@@ -12,5 +12,5 @@ export interface ApiKeyEntry {
 export const apiKeyService = {
   list: () => apiRequest<{ apiKeys: ApiKeyEntry[] }>("/api-keys"),
   create: (name: string) => apiRequest<{ apiKey: ApiKeyEntry; fullKey: string }>("/api-keys", { method: "POST", body: { name } }),
-  revoke: (id: number) => apiRequest<{ message: string }>(`/api-keys/${id}`, { method: "DELETE" }),
+  revoke: (id: string) => apiRequest<{ message: string }>(`/api-keys/${id}`, { method: "DELETE" }),
 };

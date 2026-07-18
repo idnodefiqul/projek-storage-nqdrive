@@ -1,9 +1,9 @@
 /**
- * Represents an admin user of the NQDRIVE dashboard.
- * Note: NQDRIVE only supports a single local admin (no multi-user, no Google OAuth login).
+ * Represents an admin user — internal id + professional adminId
  */
 export interface User {
   id: number;
+  adminId: string;
   username: string;
   email: string;
   passwordHash: string;
@@ -12,16 +12,21 @@ export interface User {
 }
 
 /**
- * Safe representation of a User without sensitive fields.
- * Always use this type when sending user data to the client.
+ * Safe public user — only adminId
  */
-export type PublicUser = Omit<User, "passwordHash">;
+export interface PublicUser {
+  adminId: string;
+  username: string;
+  email: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 /**
- * Payload encoded inside the JWT session token.
+ * JWT payload — sub is sadm_xxx
  */
 export interface JwtPayload {
-  sub: number; // user id
+  sub: string;
   username: string;
   email: string;
   iat: number;

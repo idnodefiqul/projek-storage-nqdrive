@@ -25,7 +25,7 @@ export const authService = {
 
   logout: () => apiRequest<{ message: string }>("/auth/logout", { method: "POST" }),
 
-  me: () => apiRequest<{ id: number; username: string; email: string; totpEnabled: boolean }>("/me"),
+  me: () => apiRequest<{ userId: string; username: string; email: string; totpEnabled: boolean }>("/me"),
 
   changePassword: (input: { currentPassword: string; newPassword: string }) =>
     apiRequest<{ message: string }>("/auth/change-password", { method: "POST", body: input }),

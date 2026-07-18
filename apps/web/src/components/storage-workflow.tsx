@@ -227,7 +227,7 @@ function WorkflowCanvas({
 }: {
   accounts: PublicDriveAccount[];
   extra: number;
-  statusOf: (id: number) => NodeStatus;
+  statusOf: (id: string) => NodeStatus;
   hubStatus: NodeStatus;
   providers: StorageProviderType[];
 }) {
@@ -279,13 +279,14 @@ function WorkflowCanvas({
         selectable: false,
       });
     } else {
-      accounts.forEach((acc, i) => {
-        const status = statusOf(acc.id);
+      accounts.forEach((acc: any, i) => {
+        const accId = acc.accountId ?? "";
+        const status = statusOf(accId);
         const total = acc.totalStorageBytes || 0;
         const used = acc.usedStorageBytes || 0;
         const usedPct = total > 0 ? Math.min(100, Math.max(0, (used / total) * 100)) : 0;
         nodes.push({
-          id: `acc-${acc.id}`,
+          id: `acc-${accId}`,
           type: "account",
           position: { x: COL_ACCOUNTS, y: i * ACCOUNT_GAP },
           data: {
@@ -300,9 +301,9 @@ function WorkflowCanvas({
           selectable: false,
         });
         edges.push({
-          id: `e-gateway-acc-${acc.id}`,
+          id: `e-gateway-acc-${accId}`,
           source: "gateway",
-          target: `acc-${acc.id}`,
+          target: `acc-${accId}`,
           animated: status !== "offline",
           style: { stroke: STATUS[status].edge, strokeWidth: 2 },
           markerEnd: { type: MarkerType.ArrowClosed, color: STATUS[status].edge },
@@ -331,7 +332,7 @@ function WorkflowCanvas({
   useEffect(() => setEdges(computedEdges), [computedEdges, setEdges]);
 
   // Re-fit hanya ketika struktur (jumlah akun) berubah — bukan saat status upload
-  const structureKey = accounts.map((a) => a.id).join(",");
+  const structureKey = accounts.map((a: any) => a.accountId ?? "").join(",");
   useEffect(() => {
     const t = setTimeout(() => rf.fitView({ padding: 0.18, duration: 300 }), 60);
     return () => clearTimeout(t);
@@ -376,9 +377,13 @@ export function StorageWorkflow() {
       : 0;
 
   const allAccounts = driveAccountsData?.accounts ?? EMPTY_ACCOUNTS;
-  // Urutkan stabil berdasarkan id agar posisi node tidak berubah saat data refetch.
+  // Urutkan stabil berdasarkan accountId (professional) agar posisi node tidak berubah saat data refetch.
   const shown = useMemo(
-    () => [...allAccounts].sort((a, b) => a.id - b.id).slice(0, 6),
+    () => [...allAccounts].sort((a: any, b: any) => {
+      const aId = a.accountId ?? "";
+      const bId = b.accountId ?? "";
+      return aId.localeCompare(bId);
+    }).slice(0, 6),
     [allAccounts]
   );
   const extra = allAccounts.length - shown.length;
@@ -398,33 +403,39 @@ export function StorageWorkflow() {
   }, [items]);
 
   const uploadStatusMap = useMemo(() => {
-    const map: Record<number, "uploading" | "error"> = {};
+    const map: Record<string, "uploading" | "error"> = {};
     if (uploadSignature) {
       for (const pair of uploadSignature.split(",")) {
         const [id, st] = pair.split(":");
-        const accId = Number(id);
-        if (st === "error") map[accId] = "error";
-        else if (st === "uploading" && map[accId] !== "error") map[accId] = "uploading";
+        if (!id) continue;
+        if (st === "error") map[id] = "error";
+        else if (st === "uploading" && map[id] !== "error") map[id] = "uploading";
       }
     }
     return map;
   }, [uploadSignature]);
 
   const statusOf = useMemo(() => {
-    const byId: Record<number, NodeStatus> = {};
-    for (const acc of allAccounts) {
-      const up = uploadStatusMap[acc.id];
-      if (up) byId[acc.id] = up;
-      else if (acc.status === "error") byId[acc.id] = "error";
-      else if (acc.status === "syncing") byId[acc.id] = "uploading";
-      else if (acc.status === "offline") byId[acc.id] = "offline";
-      else byId[acc.id] = "online";
+    const byId: Record<string, NodeStatus> = {};
+    for (const acc of allAccounts as any[]) {
+      const accId = (acc as any).accountId ?? "";
+      const up = uploadStatusMap[accId];
+      if (up) byId[accId] = up;
+      else if (acc.status === "error") byId[accId] = "error";
+      else if (acc.status === "syncing") byId[accId] = "uploading";
+      else if (acc.status === "offline") byId[accId] = "offline";
+      else byId[accId] = "online";
     }
-    return (id: number): NodeStatus => byId[id] ?? "online";
+    return (id: string): NodeStatus => {
+      return byId[id] ?? "online";
+    };
   }, [allAccounts, uploadStatusMap]);
 
   const hubStatus = useMemo<NodeStatus>(() => {
-    const statuses = shown.map((a) => statusOf(a.id));
+    const statuses = shown.map((a: any) => {
+      const accId = (a as any).accountId ?? "";
+      return statusOf(accId);
+    });
     if (statuses.includes("error")) return "error";
     if (statuses.includes("uploading")) return "uploading";
     return "online";

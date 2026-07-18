@@ -15,19 +15,82 @@ const fileRoutes = new Hono<{ Bindings: Env }>();
 
 fileRoutes.use("*", requireAuth);
 
+// Helper to convert file to professional response shape - 100% professional, no numeric id
+function toPublicFile(file: any) {
+  const fileId = file.fileId ?? file.publicId ?? file.public_id ?? null;
+  const accountId = file.accountId ?? file.driveAccountPublicId ?? null;
+  const folderId = file.folderPublicId ?? file.folder_public_id ?? null;
+  return {
+    fileId,
+    accountId,
+    folderId, // fld_xxx or null for root — professional only
+    filename: file.filename,
+    slug: file.slug,
+    shareCode: file.shareCode,
+    providerFileId: file.providerFileId,
+    sizeBytes: file.sizeBytes,
+    mimeType: file.mimeType,
+    visibility: file.visibility,
+    downloadCount: file.downloadCount,
+    createdAt: file.createdAt,
+    updatedAt: file.updatedAt,
+    deletedAt: file.deletedAt,
+    driveAccountEmail: file.driveAccountEmail,
+    driveAccountProvider: file.driveAccountProvider,
+  };
+}
+
 // GET /api/files
 fileRoutes.get("/", zValidator("query", listFilesQuerySchema), async (c) => {
   const query = c.req.valid("query");
-  const repository = new FileRepository(c.env.DB);
-  const { items, totalItems } = await repository.list({
+  const fileRepository = new FileRepository(c.env.DB);
+  const folderRepository = new (await import("../database/folder.repository")).FolderRepository(c.env.DB);
+
+  // Resolve folderId which can be string public_id (fld_xxx) or number legacy
+  // "" (string kosong) = ROOT → hanya file tanpa folder (folder_id IS NULL).
+  // undefined (param tidak dikirim) = tanpa filter folder (semua file).
+  let folderId: number | undefined = undefined;
+  let folderPublicId: string | undefined = undefined;
+  const rawFolderId = (query as any).folderId;
+
+  if (rawFolderId !== undefined && rawFolderId !== null) {
+    if (rawFolderId === "" || rawFolderId === 0) {
+      folderId = 0; // root
+    } else if (typeof rawFolderId === "string" && rawFolderId.startsWith("fld_")) {
+      folderPublicId = rawFolderId;
+      const folder = await folderRepository.findByPublicId(rawFolderId);
+      if (folder) {
+        folderId = folder.id;
+      } else {
+        // Folder tidak ditemukan → fail-closed (jangan tampilkan semua file)
+        folderId = -1;
+      }
+    } else if (typeof rawFolderId === "string" && /^\d+$/.test(rawFolderId)) {
+      folderId = Number(rawFolderId);
+    } else if (typeof rawFolderId === "number") {
+      folderId = rawFolderId;
+    } else if (typeof rawFolderId === "string") {
+      // Try generic public_id lookup
+      const folder = await folderRepository.findByPublicId(rawFolderId);
+      if (folder) folderId = folder.id;
+      else {
+        const num = Number(rawFolderId);
+        folderId = isNaN(num) ? -1 : num;
+      }
+    }
+  }
+
+  const { items, totalItems } = await fileRepository.list({
     page: query.page, pageSize: query.pageSize ?? DEFAULT_PAGE_SIZE,
-    search: query.search, folderId: query.folderId, visibility: query.visibility,
+    search: query.search, folderId, visibility: query.visibility,
   });
+
+  const publicItems = items.map(toPublicFile);
   const pageSize = query.pageSize ?? DEFAULT_PAGE_SIZE;
   return c.json({ success: true, data: {
-    items, page: query.page, pageSize, totalItems,
+    items: publicItems, page: query.page, pageSize, totalItems,
     totalPages: Math.max(1, Math.ceil(totalItems / pageSize)),
-  } as PaginatedData<FileWithAccount> });
+  } as any });
 });
 
 // GET /api/files/preview-token?slug=xxx — returns signed token for stream
@@ -35,17 +98,19 @@ fileRoutes.get("/preview", async (c) => {
   const slug = c.req.query("file");
   if (!slug) return c.json({ success: false, error: { code: "MISSING_FILE", message: "file wajib." } }, 400);
   const fileRepository = new FileRepository(c.env.DB);
-  const file = await fileRepository.findBySlug(slug);
+  const file = await fileRepository.findBySlug(slug) as any;
   if (!file) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
 
   const expiry = Math.floor(Date.now() / 1000) + 300;
-  const data = `${file.id}:${expiry}`;
+  // Professional: use publicId fil_xxx if available, fallback to numeric id for legacy
+  const identifier = file.fileId ?? file.publicId ?? String(file.id);
+  const data = `${identifier}:${expiry}`;
   const encoder = new TextEncoder();
   const key = await crypto.subtle.importKey("raw", encoder.encode(c.env.JWT_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
   const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
   const sigHex = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, "0")).join("");
 
-  return c.json({ success: true, data: { token: `${file.id}:${expiry}:${sigHex}` } });
+  return c.json({ success: true, data: { token: `${identifier}:${expiry}:${sigHex}` } });
 });
 
 // GET /api/files/content?slug=xxx
@@ -116,51 +181,47 @@ fileRoutes.patch("/rename-sync", zValidator("json", renameFileSchema), async (c)
   }
 });
 
-// GET /api/files/:id
+// GET /api/files/:id — dual-mode: accept fil_xxx or numeric legacy
 fileRoutes.get("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
+  const rawId = c.req.param("id");
   const repository = new FileRepository(c.env.DB);
-  const file = await repository.findById(id);
+  const file = await (repository as any).findByPublicIdOrId(rawId);
   if (!file) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
-  return c.json({ success: true, data: { file } });
+  return c.json({ success: true, data: { file: toPublicFile(file) } });
 });
 
-// PATCH /api/files/:id/rename
+// PATCH /api/files/:id/rename — dual-mode
 fileRoutes.patch("/:id/rename", zValidator("json", renameFileSchema), async (c) => {
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
+  const rawId = c.req.param("id");
   const { filename } = c.req.valid("json");
   const repository = new FileRepository(c.env.DB);
-  const existing = await repository.findById(id);
+  const existing = await (repository as any).findByPublicIdOrId(rawId) as any;
   if (!existing) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
-  await repository.rename(id, filename);
+  await repository.rename(existing.id, filename);
   writeAuditLog(c, { action: "file.rename", status: "success", detail: filename });
   return c.json({ success: true, data: { message: "File berhasil diganti nama." } });
 });
 
-// PATCH /api/files/:id/visibility
+// PATCH /api/files/:id/visibility — dual-mode
 fileRoutes.patch("/:id/visibility", zValidator("json", updateFileVisibilitySchema), async (c) => {
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
+  const rawId = c.req.param("id");
   const { visibility } = c.req.valid("json");
   const repository = new FileRepository(c.env.DB);
-  const existing = await repository.findById(id);
+  const existing = await (repository as any).findByPublicIdOrId(rawId) as any;
   if (!existing) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
-  await repository.updateVisibility(id, visibility);
+  await repository.updateVisibility(existing.id, visibility);
   writeAuditLog(c, { action: "file.visibility", status: "info", detail: `${existing.filename} → ${visibility}` });
   return c.json({ success: true, data: { message: "Visibilitas file berhasil diperbarui." } });
 });
 
-// DELETE /api/files/:id
+// DELETE /api/files/:id — dual-mode
 fileRoutes.delete("/:id", async (c) => {
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
+  const rawId = c.req.param("id");
   const fileRepository = new FileRepository(c.env.DB);
   const driveAccountRepository = new DriveAccountRepository(c.env.DB);
-  const file = await fileRepository.findById(id);
+  const file = await (fileRepository as any).findByPublicIdOrId(rawId) as any;
   if (!file) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
-  await fileRepository.softDelete(id);
+  await fileRepository.softDelete(file.id);
 
   // Re-calc quota dari DB SUM agar akurat — fix kuota "bertambah terus" tidak pernah berkurang
   try {

@@ -31,7 +31,7 @@ export function useTrashCount() {
 export function useRestoreFile() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => trashService.restoreFile(id),
+    mutationFn: (id: string) => trashService.restoreFile(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trash"] });
       queryClient.invalidateQueries({ queryKey: ["files"] });
@@ -43,7 +43,7 @@ export function useRestoreFile() {
 export function useRestoreFolder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => trashService.restoreFolder(id),
+    mutationFn: (id: string) => trashService.restoreFolder(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trash"] });
       queryClient.invalidateQueries({ queryKey: ["files"] });
@@ -55,7 +55,7 @@ export function useRestoreFolder() {
 export function usePermanentDeleteFile() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => trashService.permanentDeleteFile(id),
+    mutationFn: (id: string) => trashService.permanentDeleteFile(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trash"] });
       queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
@@ -66,7 +66,7 @@ export function usePermanentDeleteFile() {
 export function usePermanentDeleteFolder() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => trashService.permanentDeleteFolder(id),
+    mutationFn: (id: string) => trashService.permanentDeleteFolder(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["trash"] });
       queryClient.invalidateQueries({ queryKey: ["storage-manager"] });

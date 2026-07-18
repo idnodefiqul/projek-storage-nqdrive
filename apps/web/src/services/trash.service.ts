@@ -8,20 +8,16 @@ export const trashService = {
   /** GET /api/trash/count — jumlah item di Trash (untuk badge) */
   count: () => apiRequest<{ count: number }>("/trash/count"),
 
-  /** POST /api/trash/restore/file/:id */
-  restoreFile: (id: number) =>
+  restoreFile: (id: string) =>
     apiRequest<{ message: string }>(`/trash/restore/file/${id}`, { method: "POST" }),
 
-  /** POST /api/trash/restore/folder/:id */
-  restoreFolder: (id: number) =>
+  restoreFolder: (id: string) =>
     apiRequest<{ message: string }>(`/trash/restore/folder/${id}`, { method: "POST" }),
 
-  /** DELETE /api/trash/file/:id — hapus permanen satu file */
-  permanentDeleteFile: (id: number) =>
+  permanentDeleteFile: (id: string) =>
     apiRequest<{ message: string }>(`/trash/file/${id}`, { method: "DELETE" }),
 
-  /** DELETE /api/trash/folder/:id — hapus permanen satu folder */
-  permanentDeleteFolder: (id: number) =>
+  permanentDeleteFolder: (id: string) =>
     apiRequest<{ message: string }>(`/trash/folder/${id}`, { method: "DELETE" }),
 
   /** DELETE /api/trash/empty — kosongkan seluruh Trash */

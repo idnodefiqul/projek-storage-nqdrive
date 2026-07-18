@@ -12,9 +12,39 @@ const trashRoutes = new Hono<{ Bindings: Env }>();
 
 trashRoutes.use("*", requireAuth);
 
+function toPublicFileTrash(file: any) {
+  return {
+    fileId: file.fileId ?? file.publicId ?? null,
+    accountId: file.accountId ?? null,
+    folderId: file.folderPublicId ?? file.originalFolderPublicId ?? null,
+    originalFolderId: file.originalFolderPublicId ?? file.folderPublicId ?? null,
+    filename: file.filename,
+    slug: file.slug,
+    sizeBytes: file.sizeBytes,
+    mimeType: file.mimeType,
+    createdAt: file.createdAt,
+    updatedAt: file.updatedAt,
+    deletedAt: file.deletedAt,
+    driveAccountEmail: file.driveAccountEmail,
+    driveAccountProvider: file.driveAccountProvider,
+  };
+}
+function toPublicFolderTrash(folder: any) {
+  return {
+    folderId: folder.folderId ?? folder.publicId ?? null,
+    name: folder.name,
+    parentFolderId: folder.parentFolderPublicId ?? null,
+    shareUuid: folder.shareUuid,
+    createdAt: folder.createdAt,
+    updatedAt: folder.updatedAt,
+    deletedAt: folder.deletedAt,
+  };
+}
+
 /**
  * GET /api/trash
  * Mengembalikan semua item di Trash (files + folders) untuk ditampilkan di halaman Trash.
+ * Professional only, no numeric id
  */
 trashRoutes.get("/", async (c) => {
   const fileRepository = new FileRepository(c.env.DB);
@@ -28,8 +58,8 @@ trashRoutes.get("/", async (c) => {
   return c.json({
     success: true,
     data: {
-      files: trashedFiles,
-      folders: trashedFolders,
+      files: (trashedFiles as any[]).map(toPublicFileTrash),
+      folders: (trashedFolders as any[]).map(toPublicFolderTrash),
       totalItems: trashedFiles.length + trashedFolders.length,
     },
   });
@@ -57,12 +87,13 @@ trashRoutes.get("/count", async (c) => {
 /**
  * POST /api/trash/restore/file/:id
  * Restore file dari Trash ke folder asalnya.
+ * Dual-mode: fil_xxx or numeric
  */
 trashRoutes.post("/restore/file/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const fileRepository = new FileRepository(c.env.DB);
 
-  const file = await fileRepository.findByIdIncludingTrashed(id);
+  const file = await (fileRepository as any).findByPublicIdOrIdIncludingTrashed(rawId) as any;
   if (!file) {
     return c.json(
       { success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan di Trash." } },
@@ -76,8 +107,8 @@ trashRoutes.post("/restore/file/:id", async (c) => {
     );
   }
 
-  await fileRepository.restore(id);
-  writeAuditLog(c, { action: "trash.restore-file", status: "info", detail: `File ID: ${id}` });
+  await fileRepository.restore(file.id);
+  writeAuditLog(c, { action: "trash.restore-file", status: "info", detail: `File ID: ${file.id}` });
   return c.json({ success: true, data: { message: "File berhasil dipulihkan." } });
 });
 
@@ -85,24 +116,44 @@ trashRoutes.post("/restore/file/:id", async (c) => {
  * POST /api/trash/restore/folder/:id
  * Restore folder dari Trash ke parent folder asalnya.
  * Juga mereststore semua sub-folder dan file yang ikut ter-trash.
+ * Dual-mode: fld_xxx or numeric
  */
 trashRoutes.post("/restore/folder/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const folderRepository = new FolderRepository(c.env.DB);
 
-  const folder = await folderRepository.findByIdIncludingTrashed(id);
-  if (!folder) {
+  const folder = await (folderRepository as any).findByPublicIdIncludingTrashed
+    ? await (folderRepository as any).findByPublicIdOrIdIncludingTrashed?.(rawId) ?? await folderRepository.findByIdIncludingTrashed(Number(rawId))
+    : await folderRepository.findByIdIncludingTrashed(Number(rawId));
+  // Fallback handling for dual-mode
+  let resolvedFolder: any = folder;
+  if (!resolvedFolder) {
+    resolvedFolder = await (folderRepository as any).findByPublicIdOrId(rawId) as any;
+    if (resolvedFolder) {
+      // Need trashed version
+      resolvedFolder = await folderRepository.findByIdIncludingTrashed(resolvedFolder.id);
+    }
+  }
+  if (!resolvedFolder) {
+    // Try direct public id trashed lookup
+    const maybe = await (folderRepository as any).findByPublicIdIncludingTrashed?.(rawId);
+    if (maybe) resolvedFolder = maybe;
+  }
+
+  if (!resolvedFolder) {
     return c.json(
       { success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan di Trash." } },
       404
     );
   }
-  if (!folder.deletedAt) {
+  if (!resolvedFolder.deletedAt) {
     return c.json(
       { success: false, error: { code: "NOT_TRASHED", message: "Folder ini tidak berada di Trash." } },
       400
     );
   }
+
+  const id = resolvedFolder.id;
 
   // Restore folder utama
   await folderRepository.restore(id);
@@ -154,13 +205,14 @@ trashRoutes.post("/restore/folder/:id", async (c) => {
  * DELETE /api/trash/file/:id
  * Hapus permanen sebuah file dari Trash.
  * Menghapus file dari Google Drive DAN dari database.
+ * Dual-mode: fil_xxx or numeric
  */
 trashRoutes.delete("/file/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const fileRepository = new FileRepository(c.env.DB);
   const driveAccountRepository = new DriveAccountRepository(c.env.DB);
 
-  const file = await fileRepository.findByIdIncludingTrashed(id);
+  const file = await (fileRepository as any).findByPublicIdOrIdIncludingTrashed(rawId) as any;
   if (!file) {
     return c.json(
       { success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } },
@@ -179,7 +231,7 @@ trashRoutes.delete("/file/:id", async (c) => {
   const account = await driveAccountRepository.findById(file.driveAccountId);
   if (!account) {
     // Akun hilang — hapus dari DB saja
-    await fileRepository.delete(id);
+    await fileRepository.delete(file.id);
     return c.json({ success: true, data: { message: "File dihapus dari database (akun penyimpanan tidak ditemukan)." } });
   }
 
@@ -192,7 +244,7 @@ trashRoutes.delete("/file/:id", async (c) => {
     console.error("Gagal hapus file dari provider, lanjut hapus dari DB:", err);
   }
 
-  await fileRepository.delete(id);
+  await fileRepository.delete(file.id);
 
   // Re-calc quota setelah hapus permanen — kuota harus berkurang
   try {
@@ -219,14 +271,22 @@ trashRoutes.delete("/file/:id", async (c) => {
  * DELETE /api/trash/folder/:id
  * Hapus permanen sebuah folder dari Trash.
  * Menghapus semua file di dalam folder dari Google Drive, lalu hapus folder dari DB.
+ * Dual-mode: fld_xxx or numeric
  */
 trashRoutes.delete("/folder/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const folderRepository = new FolderRepository(c.env.DB);
   const fileRepository = new FileRepository(c.env.DB);
   const driveAccountRepository = new DriveAccountRepository(c.env.DB);
 
-  const folder = await folderRepository.findByIdIncludingTrashed(id);
+  let folder: any = await (folderRepository as any).findByPublicIdIncludingTrashed?.(rawId) 
+    ?? await (folderRepository as any).findByPublicIdOrId(rawId) 
+    ?? await folderRepository.findByIdIncludingTrashed(Number(rawId));
+  if (!folder) {
+    const byPubOrId = await (folderRepository as any).findByPublicIdOrId(rawId) as any;
+    if (byPubOrId) folder = await folderRepository.findByIdIncludingTrashed(byPubOrId.id);
+  }
+  const id = folder?.id;
   if (!folder) {
     return c.json(
       { success: false, error: { code: "NOT_FOUND", message: "Folder tidak ditemukan." } },
@@ -283,7 +343,10 @@ trashRoutes.delete("/empty", async (c) => {
   const connectionService = new GoogleAccountConnectionService(c.env);
 
   // Kumpulkan affected account IDs untuk recalc quota setelahnya
-  const affectedAccountIds = new Set<number>(trashedFiles.map(f => f.driveAccountId));
+  // Filter undefined to satisfy Set<number> type - driveAccountId is now required number but guard anyway
+  const affectedAccountIds = new Set<number>(
+    trashedFiles.map(f => f.driveAccountId).filter((id): id is number => typeof id === "number")
+  );
 
   // Hapus semua file fisik dari Google Drive
   for (const file of trashedFiles) {

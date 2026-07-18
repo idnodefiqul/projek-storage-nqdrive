@@ -1,7 +1,8 @@
 import { apiRequest } from "../lib/client";
 
 export interface UploadLogEntry {
-  id: number;
+  logId: string;
+  fileId?: string | null;
   filename: string;
   size_bytes: number;
   status: string;
@@ -11,8 +12,8 @@ export interface UploadLogEntry {
 }
 
 export interface DownloadLogEntry {
-  id: number;
-  file_id: number | null;
+  logId: string;
+  fileId?: string | null;
   filename: string | null;
   ip_address: string;
   country: string | null;

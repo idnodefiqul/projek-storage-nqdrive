@@ -1,8 +1,9 @@
 import type { Folder } from "@nqdrive/types";
-import { slugifyFilename } from "@nqdrive/shared";
+import { slugifyFilename, generatePublicId, PUBLIC_ID_PREFIXES } from "@nqdrive/shared";
 
 interface FolderRow {
   id: number;
+  public_id?: string | null;
   name: string;
   parent_folder_id: number | null;
   size_bytes?: number;
@@ -13,18 +14,37 @@ interface FolderRow {
   share_uuid: string | null;
 }
 
-function rowToFolder(row: FolderRow): Folder {
+type FolderWithPublicId = Folder & {
+  publicId?: string | null;
+  folderId: string;
+  parentFolderId: string | null;
+  parentFolderPublicId?: string | null;
+  originalParentFolderPublicId?: string | null;
+};
+
+function rowToFolder(row: FolderRow): FolderWithPublicId {
+  const folderId = row.public_id ?? "";
+  const parentFolderPublicId = (row as any).parent_folder_public_id ?? null;
+  const originalParentPublicId = (row as any).original_parent_folder_public_id ?? null;
   return {
     id: row.id,
+    folderId,
+    publicId: row.public_id ?? null,
     name: row.name,
-    parentFolderId: row.parent_folder_id,
+    parentFolderId: parentFolderPublicId,
+    parentFolderPublicId,
     sizeBytes: row.size_bytes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at ?? undefined,
-    originalParentFolderId: row.original_parent_folder_id ?? undefined,
+    originalParentFolderId: originalParentPublicId ?? (row.original_parent_folder_id != null ? String(row.original_parent_folder_id) : undefined),
+    originalParentFolderPublicId: originalParentPublicId,
     shareUuid: row.share_uuid ?? undefined,
-  };
+  } as FolderWithPublicId;
+}
+
+function genFolderPublicId(): string {
+  return generatePublicId(PUBLIC_ID_PREFIXES.folder);
 }
 
 export class FolderRepository {
@@ -47,7 +67,7 @@ export class FolderRepository {
     return results.map(rowToFolder);
   }
 
-  async findById(id: number): Promise<Folder | null> {
+  async findById(id: number): Promise<FolderWithPublicId | null> {
     const row = await this.db
       .prepare("SELECT * FROM folders WHERE id = ? AND deleted_at IS NULL")
       .bind(id)
@@ -55,11 +75,48 @@ export class FolderRepository {
     return row ? rowToFolder(row) : null;
   }
 
+  async findByPublicId(publicId: string): Promise<FolderWithPublicId | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM folders WHERE public_id = ? AND deleted_at IS NULL")
+      .bind(publicId)
+      .first<FolderRow>();
+    return row ? rowToFolder(row) : null;
+  }
+
+  async findByPublicIdOrId(input: string | number): Promise<FolderWithPublicId | null> {
+    if (typeof input === "number" || /^\d+$/.test(String(input))) {
+      const num = Number(input);
+      if (!isNaN(num)) {
+        const byId = await this.findById(num);
+        if (byId) return byId;
+      }
+    }
+    if (typeof input === "string" && input.startsWith("fld_")) {
+      const byPub = await this.findByPublicId(input);
+      if (byPub) return byPub;
+    }
+    if (typeof input === "string") {
+      const byPub = await this.findByPublicId(input);
+      if (byPub) return byPub;
+      const num = Number(input);
+      if (!isNaN(num)) return this.findById(num);
+    }
+    return null;
+  }
+
   /** Untuk keperluan Trash restore/delete — mencari folder meski sudah di-trash. */
-  async findByIdIncludingTrashed(id: number): Promise<Folder | null> {
+  async findByIdIncludingTrashed(id: number): Promise<FolderWithPublicId | null> {
     const row = await this.db
       .prepare("SELECT * FROM folders WHERE id = ?")
       .bind(id)
+      .first<FolderRow>();
+    return row ? rowToFolder(row) : null;
+  }
+
+  async findByPublicIdIncludingTrashed(publicId: string): Promise<FolderWithPublicId | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM folders WHERE public_id = ?")
+      .bind(publicId)
       .first<FolderRow>();
     return row ? rowToFolder(row) : null;
   }
@@ -170,12 +227,23 @@ export class FolderRepository {
     return ancestors;
   }
 
-  async create(params: { name: string; parentFolderId: number | null }): Promise<Folder> {
+  async create(params: { name: string; parentFolderId: number | null }): Promise<FolderWithPublicId> {
+    const publicId = genFolderPublicId();
     const row = await this.db
-      .prepare("INSERT INTO folders (name, parent_folder_id) VALUES (?, ?) RETURNING *")
-      .bind(params.name, params.parentFolderId)
+      .prepare("INSERT INTO folders (public_id, name, parent_folder_id) VALUES (?, ?, ?) RETURNING *")
+      .bind(publicId, params.name, params.parentFolderId)
       .first<FolderRow>();
 
+    if (!row) throw new Error("Failed to create folder: no row returned");
+    return rowToFolder(row);
+  }
+
+  async createWithPublicId(params: { name: string; parentFolderId: number | null; publicId?: string }): Promise<FolderWithPublicId> {
+    const publicId = params.publicId ?? genFolderPublicId();
+    const row = await this.db
+      .prepare("INSERT INTO folders (public_id, name, parent_folder_id) VALUES (?, ?, ?) RETURNING *")
+      .bind(publicId, params.name, params.parentFolderId)
+      .first<FolderRow>();
     if (!row) throw new Error("Failed to create folder: no row returned");
     return rowToFolder(row);
   }

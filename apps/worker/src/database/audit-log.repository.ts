@@ -1,5 +1,8 @@
+import { generatePublicId, PUBLIC_ID_PREFIXES } from "@nqdrive/shared";
+
 export interface AuditLogRow {
   id: number;
+  public_id?: string | null;
   action: string;
   status: string;
   user: string;
@@ -9,6 +12,10 @@ export interface AuditLogRow {
   user_agent: string;
   detail: string | null;
   created_at: string;
+}
+
+function genAuditPublicId(): string {
+  return generatePublicId(PUBLIC_ID_PREFIXES.audit);
 }
 
 export interface AuditLogCreateParams {
@@ -37,13 +44,15 @@ export class AuditLogRepository {
   constructor(private readonly db: D1Database) {}
 
   async create(params: AuditLogCreateParams): Promise<void> {
+    const publicId = genAuditPublicId();
     try {
       await this.db
         .prepare(
-          `INSERT INTO audit_logs (action, status, user, ip, country, timezone, user_agent, detail)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+          `INSERT INTO audit_logs (public_id, action, status, user, ip, country, timezone, user_agent, detail)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
         )
         .bind(
+          publicId,
           params.action,
           params.status,
           params.user ?? "admin",
@@ -58,10 +67,46 @@ export class AuditLogRepository {
       // Fallback for old DB without timezone column (backward compat)
       // @ts-ignore
       if (String(e).includes("no column named timezone") || String(e).includes("has no column named timezone")) {
+        try {
+          await this.db
+            .prepare(
+              `INSERT INTO audit_logs (public_id, action, status, user, ip, country, user_agent, detail)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+              publicId,
+              params.action,
+              params.status,
+              params.user ?? "admin",
+              params.ip ?? "",
+              params.country ?? "",
+              params.userAgent ?? "",
+              params.detail ?? null
+            )
+            .run();
+        } catch {
+          await this.db
+            .prepare(
+              `INSERT INTO audit_logs (action, status, user, ip, country, user_agent, detail)
+               VALUES (?, ?, ?, ?, ?, ?, ?)`
+            )
+            .bind(
+              params.action,
+              params.status,
+              params.user ?? "admin",
+              params.ip ?? "",
+              params.country ?? "",
+              params.userAgent ?? "",
+              params.detail ?? null
+            )
+            .run();
+        }
+      } else if (String(e).includes("no column named public_id") || String(e).includes("has no column named public_id")) {
+        // Fallback for DB before public_id column added
         await this.db
           .prepare(
-            `INSERT INTO audit_logs (action, status, user, ip, country, user_agent, detail)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`
+            `INSERT INTO audit_logs (action, status, user, ip, country, timezone, user_agent, detail)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
           )
           .bind(
             params.action,
@@ -69,6 +114,7 @@ export class AuditLogRepository {
             params.user ?? "admin",
             params.ip ?? "",
             params.country ?? "",
+            params.timezone ?? "",
             params.userAgent ?? "",
             params.detail ?? null
           )

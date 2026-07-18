@@ -3,9 +3,9 @@ import { apiRequest } from "../lib/client";
 export type MigrationJobStatus = "running" | "completed" | "failed" | "cancelled";
 
 export interface MigrationJob {
-  id: number;
-  sourceAccountId: number;
-  targetAccountId: number;
+  taskId: string;
+  sourceAccountId: string;
+  targetAccountId: string;
   sourceEmail: string;
   targetEmail: string;
   status: MigrationJobStatus;
@@ -20,13 +20,8 @@ export interface MigrationJob {
   finishedAt: string | null;
 }
 
-/**
- * Service migrasi isi Google Drive antar akun.
- * Job dibuat sekali, lalu /process dipanggil berulang oleh MigrationProvider
- * (loop latar belakang) sampai job selesai — mirip pola chunked upload.
- */
 export const migrationService = {
-  start: (sourceAccountId: number, targetAccountId: number) =>
+  start: (sourceAccountId: string, targetAccountId: string) =>
     apiRequest<{ job: MigrationJob }>(`/storage/accounts/${sourceAccountId}/migrate`, {
       method: "POST",
       body: { targetAccountId },
@@ -36,9 +31,9 @@ export const migrationService = {
 
   listRecent: () => apiRequest<{ jobs: MigrationJob[] }>("/storage/migrations/recent"),
 
-  process: (jobId: number) =>
+  process: (jobId: string) =>
     apiRequest<{ job: MigrationJob }>(`/storage/migrations/${jobId}/process`, { method: "POST" }),
 
-  cancel: (jobId: number) =>
+  cancel: (jobId: string) =>
     apiRequest<{ job: MigrationJob }>(`/storage/migrations/${jobId}/cancel`, { method: "POST" }),
 };

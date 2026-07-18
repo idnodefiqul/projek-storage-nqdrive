@@ -2,7 +2,7 @@ import { createContext, useContext, type ReactNode } from "react";
 import { useMe } from "../hooks/auth";
 
 interface AuthContextValue {
-  user: { id: number; username: string; email: string } | undefined;
+  user: { userId: string; username: string; email: string } | undefined;
   isLoading: boolean;
   isAuthenticated: boolean;
 }

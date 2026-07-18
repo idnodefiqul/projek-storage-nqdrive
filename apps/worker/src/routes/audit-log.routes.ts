@@ -19,7 +19,20 @@ auditLogRoutes.get("/", async (c) => {
     dateTo: c.req.query("dateTo") || undefined,
     search: c.req.query("search") || undefined,
   });
-  return c.json({ success: true, data: result });
+  // 100% clean professional: only auditId
+  const professionalLogs = result.logs.map((log: any) => ({
+    auditId: log.public_id ?? log.publicId ?? null,
+    action: log.action,
+    status: log.status,
+    user: log.user,
+    ip: log.ip,
+    country: log.country,
+    timezone: log.timezone,
+    user_agent: log.user_agent,
+    detail: log.detail,
+    created_at: log.created_at,
+  }));
+  return c.json({ success: true, data: { logs: professionalLogs, total: result.total } });
 });
 
 auditLogRoutes.get("/stats", async (c) => {

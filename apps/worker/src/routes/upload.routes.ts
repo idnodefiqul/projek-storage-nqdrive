@@ -48,7 +48,14 @@ uploadRoutes.post("/session", async (c) => {
 
   if (targetAccountIdHeader) {
     const accountRepo = new DriveAccountRepository(c.env.DB);
-    account = await accountRepo.findById(Number(targetAccountIdHeader));
+    // Dual-mode: acc_xxx or numeric
+    if (targetAccountIdHeader.startsWith("acc_")) {
+      account = await (accountRepo as any).findByPublicId(targetAccountIdHeader);
+    } else {
+      const num = Number(targetAccountIdHeader);
+      if (!isNaN(num)) account = await accountRepo.findById(num);
+      else account = await (accountRepo as any).findByPublicId(targetAccountIdHeader);
+    }
 
     // Guard: akun yang dipilih manual harus punya ruang cukup (termasuk cadangan
     // per-provider — Dropbox sisakan 300 MB). Cegah upload melebihi kuota.
@@ -99,7 +106,8 @@ uploadRoutes.post("/session", async (c) => {
        VALUES (?, ?, 'dropbox', ?, ?, ?, ?)`
     ).bind(sessionId, dropboxSessionId, account.id, decodedFilename, mimeType, sizeBytes).run();
 
-    return c.json({ success: true, data: { sessionId, accountId: account.id, provider: account.provider } }, 200);
+    const accPubId = (account as any).accountId ?? (account as any).publicId ?? String(account.id);
+    return c.json({ success: true, data: { sessionId, accountId: accPubId, provider: account.provider } }, 200);
   }
 
   if (account.provider === "onedrive") {
@@ -125,7 +133,8 @@ uploadRoutes.post("/session", async (c) => {
        VALUES (?, ?, 'onedrive', ?, ?, ?, ?)`
     ).bind(sessionId, uploadUrl, account.id, decodedFilename, mimeType, sizeBytes).run();
 
-    return c.json({ success: true, data: { sessionId, accountId: account.id, provider: account.provider } }, 200);
+    const accPubIdOne = (account as any).accountId ?? (account as any).publicId ?? String(account.id);
+    return c.json({ success: true, data: { sessionId, accountId: accPubIdOne, provider: account.provider } }, 200);
   }
 
   // Google Drive (default)
@@ -157,7 +166,8 @@ uploadRoutes.post("/session", async (c) => {
      VALUES (?, ?, 'google_drive', ?, ?, ?, ?)`
   ).bind(sessionId, googleUploadUrl, account.id, decodedFilename, mimeType, sizeBytes).run();
 
-  return c.json({ success: true, data: { sessionId, accountId: account.id, provider: account.provider } }, 200);
+  const accPubIdG = (account as any).accountId ?? (account as any).publicId ?? String(account.id);
+  return c.json({ success: true, data: { sessionId, accountId: accPubIdG, provider: account.provider } }, 200);
 });
 
 /**

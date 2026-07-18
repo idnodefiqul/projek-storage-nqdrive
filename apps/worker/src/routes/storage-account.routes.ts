@@ -212,14 +212,39 @@ async function formatDriveAccount(params: {
 
   return { deletedFiles: deletedFromDrive };
 }
-function toPublic(account: DriveAccount): PublicDriveAccount {
+function toPublic(account: any): any {
   const {
     refreshTokenEncrypted: _refresh,
     accessToken: _access,
     accessTokenExpiresAt: _expiry,
+    id: _id,
+    public_id: _pid,
+    publicId: _pubOld,
+    accountId: _accOld,
     ...safe
   } = account;
-  return safe;
+  const pub = account.publicId ?? account.accountId ?? (account as any).public_id ?? null;
+  // 100% clean professional: only accountId, no publicId duplicate, no numeric id
+  return {
+    accountId: pub,
+    email: safe.email,
+    provider: safe.provider,
+    totalStorageBytes: safe.totalStorageBytes,
+    usedStorageBytes: safe.usedStorageBytes,
+    availableStorageBytes: safe.availableStorageBytes,
+    status: safe.status,
+    lastSyncedAt: safe.lastSyncedAt,
+    createdAt: safe.createdAt,
+    updatedAt: safe.updatedAt,
+  };
+}
+
+function toPublicAccountList(account: any, fileCount?: number) {
+  const base = toPublic(account);
+  return {
+    ...base,
+    fileCount: fileCount ?? 0,
+  };
 }
 
 /**
@@ -245,26 +270,21 @@ const connectTokenSchema = z.object({
 // ─── GET /api/storage/accounts ────────────────────────────────────────────
 storageAccountRoutes.get("/accounts", async (c) => {
   const repository = new DriveAccountRepository(c.env.DB);
-  const accounts = await repository.findAll();
+  const accounts = await repository.findAll() as any[];
 
   // FIX: akun yang sudah DISCONNECT (refresh_token_encrypted dikosongkan oleh
   // DELETE /accounts/:id karena masih punya file) JANGAN tampil lagi di list
-  // provider (Google Drive / OneDrive / Dropbox). Sebelumnya findAll() polos →
-  // user klik disconnect tapi akun tetap muncul. Konsisten dengan dashboard
-  // yang juga sudah exclude token kosong.
   const connectedAccounts = accounts.filter(
     (a) => (a.provider as string) !== "telegram" && (a.refreshTokenEncrypted ?? "") !== ""
   );
 
   const accountsWithCounts = await Promise.all(
     connectedAccounts.map(async (account) => {
-      // FIX: filter deleted_at IS NULL agar konsisten dengan dashboard & file listing
-      // Jika tidak, file di Trash tetap kehitung → distribusi tidak sinkron (4 di Drive, 3 di DB dsb)
       const row = await c.env.DB.prepare(
         "SELECT COUNT(*) as count FROM files WHERE drive_account_id = ? AND deleted_at IS NULL"
       ).bind(account.id).first<{ count: number }>();
 
-      return { ...toPublic(account), fileCount: row?.count ?? 0 };
+      return toPublicAccountList(account, row?.count ?? 0);
     })
   );
 
@@ -324,9 +344,9 @@ storageAccountRoutes.post("/accounts/purge-telegram", async (c) => {
 // Hard-delete semua file dari semua akun Google Drive, tapi akun tetap terhubung.
 storageAccountRoutes.post("/accounts/format-all", async (c) => {
   const driveAccountRepository = new DriveAccountRepository(c.env.DB);
-  const accounts = await driveAccountRepository.findAll();
+  const accounts = await driveAccountRepository.findAll() as any[];
   const results: Array<{
-    accountId: number;
+    accountId: string;
     email: string;
     deletedFiles: number;
     status: "ok" | "error";
@@ -336,11 +356,13 @@ storageAccountRoutes.post("/accounts/format-all", async (c) => {
   for (const account of accounts) {
     try {
       const result = await formatDriveAccount({ env: c.env, account });
-      results.push({ accountId: account.id, email: account.email, deletedFiles: result.deletedFiles, status: "ok" });
+      const pub = (account as any).accountId ?? (account as any).publicId ?? String(account.id);
+      results.push({ accountId: pub, email: account.email, deletedFiles: result.deletedFiles, status: "ok" });
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       console.error(`Gagal format drive akun ${account.id}:`, error);
-      results.push({ accountId: account.id, email: account.email, deletedFiles: 0, status: "error", error: message });
+      const pub = (account as any).accountId ?? (account as any).publicId ?? String(account.id);
+      results.push({ accountId: pub, email: account.email, deletedFiles: 0, status: "error", error: message });
     }
   }
 
@@ -357,17 +379,11 @@ storageAccountRoutes.post("/accounts/format-all", async (c) => {
 
 // --- POST /api/storage/accounts/:id/format ---
 // Hard-delete semua file di satu akun Google Drive, tapi akun tetap terhubung.
+// Dual-mode: accepts acc_xxx or numeric legacy
 storageAccountRoutes.post("/accounts/:id/format", async (c) => {
-  const id = Number(c.req.param("id"));
-  if (isNaN(id)) {
-    return c.json(
-      { success: false, error: { code: "NOT_FOUND", message: "Akun tidak ditemukan." } },
-      404
-    );
-  }
-
+  const rawId = c.req.param("id");
   const driveAccountRepository = new DriveAccountRepository(c.env.DB);
-  const account = await driveAccountRepository.findById(id);
+  const account = await (driveAccountRepository as any).findByPublicIdOrId(rawId) as any;
 
   if (!account) {
     return c.json(
@@ -377,11 +393,12 @@ storageAccountRoutes.post("/accounts/:id/format", async (c) => {
   }
 
   const result = await formatDriveAccount({ env: c.env, account });
+  const pubId = account.accountId ?? account.publicId ?? String(account.id);
   return c.json({
     success: true,
     data: {
       message: "Drive berhasil diformat.",
-      accountId: account.id,
+      accountId: pubId,
       email: account.email,
       deletedFiles: result.deletedFiles,
     },
@@ -389,10 +406,11 @@ storageAccountRoutes.post("/accounts/:id/format", async (c) => {
 });
 
 // ─── GET /api/storage/accounts/:id ────────────────────────────────────────
+// Dual-mode
 storageAccountRoutes.get("/accounts/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const repository = new DriveAccountRepository(c.env.DB);
-  const account = await repository.findById(id);
+  const account = await (repository as any).findByPublicIdOrId(rawId) as any;
 
   if (!account) {
     return c.json(
@@ -405,17 +423,19 @@ storageAccountRoutes.get("/accounts/:id", async (c) => {
 });
 
 // ─── DELETE /api/storage/accounts/:id ─────────────────────────────────────
+// Dual-mode
 storageAccountRoutes.delete("/accounts/:id", async (c) => {
-  const id = Number(c.req.param("id"));
+  const rawId = c.req.param("id");
   const repository = new DriveAccountRepository(c.env.DB);
 
-  const account = await repository.findById(id);
+  const account = await (repository as any).findByPublicIdOrId(rawId) as any;
   if (!account) {
     return c.json(
       { success: false, error: { code: "NOT_FOUND", message: "Akun tidak ditemukan." } },
       404
     );
   }
+  const id = account.id;
 
   // FIX telegram: force delete meski ada file, karena provider sudah deprecated dan user sudah hapus tapi masih muncul di distribusi
   // + fix FK RESTRICT: hapus upload_logs & sessions dulu baru bisa delete akun
@@ -576,13 +596,13 @@ storageAccountRoutes.post("/accounts/sync-all", async (c) => {
   const driveAccountRepository = new DriveAccountRepository(c.env.DB);
   const { StorageProviderFactory } = await import("@nqdrive/storage");
 
-  const accounts = await driveAccountRepository.findAll();
-  const results: { id: number; email: string; status: "ok" | "error"; error?: string }[] = [];
+  const accounts = await driveAccountRepository.findAll() as any[];
+  const results: { accountId: string; email: string; status: "ok" | "error"; error?: string }[] = [];
 
   for (const account of accounts) {
-    // Skip disconnect (token kosong) — already offline
+    const pubId = account.accountId ?? account.publicId ?? null;
     if (!account.refreshTokenEncrypted) {
-      results.push({ id: account.id, email: account.email, status: "ok" });
+      results.push({ accountId: pubId, email: account.email, status: "ok" });
       continue;
     }
     try {
@@ -592,11 +612,11 @@ storageAccountRoutes.post("/accounts/sync-all", async (c) => {
 
       await driveAccountRepository.updateQuota(account.id, quota);
       await driveAccountRepository.updateStatus(account.id, "online");
-      results.push({ id: account.id, email: account.email, status: "ok" });
+      results.push({ accountId: pubId, email: account.email, status: "ok" });
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Unknown error";
       await driveAccountRepository.updateStatus(account.id, "error");
-      results.push({ id: account.id, email: account.email, status: "error", error: msg });
+      results.push({ accountId: pubId, email: account.email, status: "error", error: msg });
     }
   }
 
@@ -615,9 +635,7 @@ storageAccountRoutes.get("/summary", async (c) => {
   const driveAccountRepository = new DriveAccountRepository(c.env.DB);
   const fileRepository = new FileRepository(c.env.DB);
 
-  const allAccounts = await driveAccountRepository.findAll();
-  // Konsisten dengan GET /accounts & dashboard: akun disconnect (token kosong)
-  // dan telegram legacy tidak ikut dihitung di summary Storage Manager
+  const allAccounts = await driveAccountRepository.findAll() as any[];
   const accounts = allAccounts.filter(
     (a) => (a.provider as string) !== "telegram" && (a.refreshTokenEncrypted ?? "") !== ""
   );
@@ -628,8 +646,8 @@ storageAccountRoutes.get("/summary", async (c) => {
   const usedStorageBytes = accounts.reduce((sum, a) => sum + a.usedStorageBytes, 0);
   const availableStorageBytes = accounts.reduce((sum, a) => sum + a.availableStorageBytes, 0);
 
-  const accountBreakdown = accounts.map((account) => ({
-    id: account.id,
+  const accountBreakdown = accounts.map((account: any) => ({
+    accountId: account.accountId ?? account.publicId ?? null,
     email: account.email,
     provider: account.provider,
     totalStorageBytes: account.totalStorageBytes,

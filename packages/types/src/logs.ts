@@ -1,10 +1,10 @@
 export interface UploadLog {
-  id: number;
-  fileId: number | null;
+  id?: number;
+  logId: string;
+  fileId: string | null;
   filename: string;
   sizeBytes: number;
-  driveAccountId: number;
-  /** Upload duration in milliseconds, used for speed analytics. */
+  accountId: string;
   durationMs: number;
   status: "success" | "failed" | "cancelled";
   errorMessage: string | null;
@@ -12,8 +12,9 @@ export interface UploadLog {
 }
 
 export interface DownloadLog {
-  id: number;
-  fileId: number;
+  id?: number;
+  logId: string;
+  fileId: string;
   ipAddress: string;
   userAgent: string | null;
   bytesServed: number;
@@ -22,11 +23,10 @@ export interface DownloadLog {
 }
 
 export interface ApiKey {
-  id: number;
+  id?: number;
+  apiKeyId: string;
   name: string;
-  /** Hashed, never stored in plaintext. */
   keyHash: string;
-  /** Only the prefix is stored in plaintext for identification in the UI, e.g. "nqd_live_a1b2". */
   keyPrefix: string;
   lastUsedAt: string | null;
   createdAt: string;

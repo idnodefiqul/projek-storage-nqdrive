@@ -45,11 +45,14 @@ export async function requireAuth(c: Context<{ Bindings: Env }>, next: Next) {
 
       if (apiKey && !apiKey.revokedAt) {
         // Update last_used_at (fire-and-forget, jangan block response)
-        void apiKeyRepo.updateLastUsed(apiKey.id);
+        // apiKey.id is optional in type, but exists in DB row
+        if (apiKey.id !== undefined) {
+          void apiKeyRepo.updateLastUsed(apiKey.id);
+        }
 
         // Buat synthetic payload agar handler downstream tetap kompatibel
         const syntheticPayload: JwtPayload = {
-          sub: 0, // API key tidak terikat ke user ID spesifik
+          sub: apiKey.apiKeyId, // API key tidak terikat ke user ID spesifik, pakai apiKeyId sebagai sub
           username: `apikey:${apiKey.keyPrefix}`,
           email: "api-key@nqdrive.internal",
           iat: Math.floor(Date.now() / 1000),

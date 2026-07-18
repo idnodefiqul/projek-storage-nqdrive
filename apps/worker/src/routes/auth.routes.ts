@@ -147,10 +147,11 @@ authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
 
     // 2. Check if 2FA (TOTP) is enabled
     // Note: user.totpEnabled comes from rowToUser mapping we edited
+    const publicIdForToken = (user as any).adminId ?? (user as any).publicId ?? user.id;
     if ((user as any).totpEnabled) {
-      // Issue a short-lived temp token (valid for 5 mins / 300 seconds)
+      // Issue a short-lived temp token (valid for 5 mins / 300 seconds) — use publicId
       const tempToken = await signJwt(
-        { sub: user.id, username: user.username, email: user.email, type: "2fa_pending" } as any,
+        { sub: publicIdForToken, username: user.username, email: user.email, type: "2fa_pending" } as any,
         c.env.JWT_SECRET,
         300
       );
@@ -164,9 +165,9 @@ authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
       });
     }
 
-    // Standard login flow (2FA disabled) Ã¢â‚¬â€ issue JWT directly (password already verified above)
+    // Standard login flow (2FA disabled) — issue JWT directly (password already verified above) — use publicId
     const token = await signJwt(
-      { sub: user.id, username: user.username, email: user.email },
+      { sub: publicIdForToken, username: user.username, email: user.email },
       c.env.JWT_SECRET,
       JWT_EXPIRY_SECONDS
     );
@@ -183,7 +184,7 @@ authRoutes.post("/login", zValidator("json", loginSchema), async (c) => {
 
     c.header("Set-Cookie", cookieAttributes);
     writeAuditLog(c, { action: "login", status: "success", user: user.username, detail: "Login berhasil" });
-    return c.json({ success: true, data: { user: { id: user.id, username: user.username, email: user.email } } });
+    return c.json({ success: true, data: { user: { adminId: (user as any).adminId ?? (user as any).publicId ?? null, username: user.username, email: user.email } } });
   } catch (error) {
     if (error instanceof AuthError) {
       writeAuditLog(c, { action: "login", status: "error", user: input.username, detail: error.message });
@@ -226,9 +227,16 @@ authRoutes.post("/login/2fa", async (c) => {
       return c.json({ success: false, error: { message: "Token tidak valid." } }, 400);
     }
 
-    // 2. Fetch user row
+    // 2. Fetch user row — dual-mode sub can be sadm_xxx or numeric
     const userRepo = new UserRepository(c.env.DB);
-    const user = await userRepo.findById(Number(payload.sub));
+    let user: any = null;
+    if (typeof payload.sub === "string" && (payload.sub.startsWith("sadm_") || payload.sub.startsWith("usr_"))) {
+      user = await userRepo.findByPublicId(payload.sub as any);
+    } else {
+      const num = Number(payload.sub);
+      if (!isNaN(num)) user = await userRepo.findById(num);
+      else user = await userRepo.findByPublicId(String(payload.sub));
+    }
     if (!user) {
       return c.json({ success: false, error: { message: "User tidak ditemukan." } }, 400);
     }
@@ -263,9 +271,10 @@ authRoutes.post("/login/2fa", async (c) => {
       return c.json({ success: false, error: { code: "OTP_FAILED", message: "Kode 2FA / Backup Code salah." } }, 400);
     }
 
-    // 4. Issue final session JWT cookie
+    // 4. Issue final session JWT cookie — use publicId
+    const publicIdFinal = (user as any).adminId ?? (user as any).publicId ?? user.id;
     const token = await signJwt(
-      { sub: user.id, username: user.username, email: user.email },
+      { sub: publicIdFinal, username: user.username, email: user.email },
       c.env.JWT_SECRET,
       JWT_EXPIRY_SECONDS
     );
@@ -282,7 +291,7 @@ authRoutes.post("/login/2fa", async (c) => {
 
     c.header("Set-Cookie", cookieAttributes);
     writeAuditLog(c, { action: "login.2fa", status: "success", user: user.username, detail: "Login 2FA berhasil" });
-    return c.json({ success: true, data: { user: { id: user.id, username: user.username, email: user.email } } });
+    return c.json({ success: true, data: { user: { adminId: (user as any).adminId ?? (user as any).publicId ?? null, username: user.username, email: user.email } } });
   } catch (err) {
     writeAuditLog(c, { action: "login.2fa", status: "error", detail: "Verifikasi 2FA gagal" });
     return c.json({ success: false, error: { message: "Verifikasi 2FA kedaluwarsa atau tidak valid." } }, 401);
@@ -310,11 +319,18 @@ authRoutes.post("/logout", requireAuth, (c) => {
   return c.json({ success: true, data: { message: "Logout berhasil." } });
 });
 
-/** GET /api/me */
+/** GET /api/me — dual-mode sub */
 meRoutes.get("/", requireAuth, async (c) => {
   const payload = getAuthPayload(c);
   const userRepo = new UserRepository(c.env.DB);
-  const user = await userRepo.findById(payload.sub);
+  let user: any = null;
+  if (typeof payload.sub === "string" && ((payload.sub as string).startsWith("sadm_") || (payload.sub as string).startsWith("usr_"))) {
+    user = await userRepo.findByPublicId(payload.sub as any);
+  } else {
+    const num = Number(payload.sub);
+    if (!isNaN(num)) user = await userRepo.findById(num);
+    else user = await userRepo.findByPublicId(String(payload.sub));
+  }
 
   if (!user) {
     return c.json({ success: false, error: { code: "USER_NOT_FOUND", message: "User tidak ditemukan." } }, 404);
@@ -323,7 +339,7 @@ meRoutes.get("/", requireAuth, async (c) => {
   return c.json({
     success: true,
     data: {
-      id: user.id,
+      adminId: user.adminId ?? user.publicId ?? null,
       username: user.username,
       email: user.email,
       totpEnabled: Boolean((user as any).totpEnabled),

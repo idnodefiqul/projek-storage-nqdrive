@@ -24,6 +24,10 @@ export const Route = createFileRoute("/folder/$shareUuid/$folderName")({
   component: PublicFolderPage,
 });
 
+function getFolderId(f: { folderId?: string | null } | null | undefined): string {
+  return f?.folderId ?? "";
+}
+
 const SITE_NAME = (import.meta.env?.VITE_SITE_NAME as string) || "NQDRIVE";
 const WORKER_BASE = (import.meta.env?.VITE_WORKER_URL as string | undefined) ?? "";
 
@@ -154,7 +158,7 @@ function PublicFolderPage() {
   const hasItems = filteredSubfolders.length > 0 || filteredFiles.length > 0;
 
   const allEntries = [
-    ...filteredSubfolders.map((folder) => ({ type: "folder" as const, id: `f-${folder.id}`, data: folder })),
+    ...filteredSubfolders.map((folder) => ({ type: "folder" as const, id: `f-${getFolderId(folder)}`, data: folder })),
     ...sortedFiles.map((file) => ({ type: "file" as const, id: `d-${file.filename}`, data: file })),
   ];
   const startIndex = (page - 1) * pageSize;

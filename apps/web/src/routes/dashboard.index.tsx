@@ -20,6 +20,16 @@ const container = { hidden: { opacity: 0 }, show: { opacity: 1, transition: { st
 const item = { hidden: { opacity: 0 }, show: { opacity: 1, y: 0, transition: { duration: 0.16, ease: [0.22, 1, 0.36, 1] as const } } };
 export const Route = createFileRoute("/dashboard/")({ component: DashboardOverviewPage });
 
+function getFileId(f: { fileId?: string | null } | null | undefined): string {
+  return f?.fileId ?? "";
+}
+function getFolderId(f: { folderId?: string | null } | null | undefined): string {
+  return f?.folderId ?? "";
+}
+function getAccountId(a: { accountId?: string | null } | null | undefined): string {
+  return a?.accountId ?? "";
+}
+
 function maskEmail(email: string){ const [l,d]=email.split("@"); if(!l||!d) return email; if(l.length<=4) return l[0]+"***@"+d; return l.substring(0,4)+"***@"+d; }
 const ACCOUNT_COLORS=["#6366f1","#10b981","#f59e0b","#ef4444","#8b5cf6","#06b6d4","#ec4899","#84cc16","#f97316","#14b8a6"];
 
@@ -285,7 +295,8 @@ function PolarBentoCard({accounts}:{accounts:AccountStorageInfo[]}){
               const shortLabel = prov==="google_drive" ? "GDrive" : prov==="onedrive" ? "OneDrive" : prov==="dropbox" ? "Dropbox" : prov==="cloudflare_r2" ? "R2" : prov==="amazon_s3" ? "S3" : label;
               const bg = PROVIDER_BG[prov] ?? "bg-[rgb(var(--surface))]";
               const ring = PROVIDER_RING[prov] ?? "ring-[rgb(var(--border-subtle))]";
-              const key = (a as any).id ? `${(a as any).id}-${prov}-${i}` : `${a.email}-${prov}-${i}`;
+              const accProfId = getAccountId(a as any);
+              const key = `${accProfId}-${prov}-${i}`;
               return (
                 <div key={key} className="group flex cursor-pointer items-center gap-2.5 rounded-xl border border-transparent p-1.5 -mx-1.5 transition hover:border-[rgb(var(--border-subtle))]/60 hover:bg-[rgb(var(--surface-muted))]/60" title={`${a.email} | provider=${prov} | ${label} | ${formatBytes(a.usedStorageBytes||0)}`}>
                   {/* Ring + Provider Icon — BEDA JELAS PER PROVIDER */}
@@ -377,7 +388,7 @@ function TopDlBentoCard({files}:{files:FileEntity[]}){
               const isTop3 = globalIdx<3;
               return (
                 <motion.div
-                  key={f.id}
+                  key={`file-${getFileId(f)}`}
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx*0.04, duration: 0.35, ease: [0.22,1,0.36,1] as const }}
@@ -480,7 +491,7 @@ function FilesBentoCard({files}:{files:FileEntity[]}){
               const typeInfo = getFileTypeInfo(f.filename);
               const Icon = typeInfo.Icon;
               return (
-                <li key={f.id} className="group/item flex cursor-pointer items-center gap-3 rounded-xl border border-transparent p-2.5 transition hover:border-[rgb(var(--border-subtle))]/60 hover:bg-[rgb(var(--surface-muted))]/60">
+                <li key={`file-${getFileId(f)}`} className="group/item flex cursor-pointer items-center gap-3 rounded-xl border border-transparent p-2.5 transition hover:border-[rgb(var(--border-subtle))]/60 hover:bg-[rgb(var(--surface-muted))]/60">
                   <Icon className={cn("h-5 w-5 shrink-0 lg:h-6 lg:w-6", typeInfo.color)} strokeWidth={2.2}/>
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-display text-[12px] font-semibold leading-tight text-[rgb(var(--foreground))] group-hover/item:text-[var(--brand-a)]" title={f.filename}>{f.filename}</span>
@@ -521,7 +532,7 @@ function FoldersBentoCard({folders}:{folders:Folder[]}){
         ):(
           <ul className="flex flex-col gap-1">
             {folders.slice(0,7).map(fd=>(
-              <li key={fd.id} className="group/item flex cursor-pointer items-center gap-3 rounded-xl border border-transparent p-2.5 transition hover:border-[rgb(var(--border-subtle))]/60 hover:bg-[rgb(var(--surface-muted))]/60">
+              <li key={`folder-${getFolderId(fd)}`} className="group/item flex cursor-pointer items-center gap-3 rounded-xl border border-transparent p-2.5 transition hover:border-[rgb(var(--border-subtle))]/60 hover:bg-[rgb(var(--surface-muted))]/60">
                 <FolderIcon className="h-5 w-5 shrink-0 text-amber-500 lg:h-6 lg:w-6" strokeWidth={2.2}/>
                 <span className="min-w-0 flex-1 truncate">
                   <span className="block truncate font-display text-[12px] font-semibold leading-tight text-[rgb(var(--foreground))] group-hover/item:text-amber-600" title={fd.name}>{fd.name}</span>

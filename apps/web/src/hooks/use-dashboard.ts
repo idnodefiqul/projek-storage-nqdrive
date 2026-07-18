@@ -15,7 +15,7 @@ export interface DashboardSummary {
 }
 
 export interface AccountStorageInfo {
-  id: number;
+  accountId: string;
   email: string;
   provider: import("@nqdrive/types").StorageProviderType;
   usedStorageBytes: number;

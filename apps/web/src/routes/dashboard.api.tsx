@@ -12,6 +12,10 @@ export const Route = createFileRoute("/dashboard/api")({
   component: ApiKeysPage,
 });
 
+function getApiKeyId(k: { apiKeyId?: string | null } | null | undefined): string {
+  return k?.apiKeyId ?? "";
+}
+
 function CreateKeyDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { toast } = useToast();
   const createKey = useCreateApiKey();
@@ -109,7 +113,7 @@ function ApiKeysPage() {
   const isLoading = useMinLoading(isQueryLoading, 600);
   const revokeKey = useRevokeApiKey();
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState<number | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<string | null>(null);
 
   const handleConfirmRevoke = async () => {
     if (revokeTarget === null) return;
@@ -166,7 +170,7 @@ function ApiKeysPage() {
                 </thead>
                 <tbody className="divide-y divide-[rgb(var(--border-subtle))]">
                   {data?.apiKeys.map((key) => (
-                    <tr key={key.id} className="transition-colors hover:bg-[rgb(var(--surface-muted))]/60">
+                    <tr key={getApiKeyId(key)} className="transition-colors hover:bg-[rgb(var(--surface-muted))]/60">
                       <td className="px-4 py-3 font-medium text-[rgb(var(--foreground))]">
                         <div className="flex items-center gap-2">
                           <Key className="h-3.5 w-3.5 text-[rgb(var(--ink-500))] shrink-0" aria-hidden="true" />
@@ -184,7 +188,7 @@ function ApiKeysPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         {!key.revokedAt && (
-                          <button type="button" onClick={() => setRevokeTarget(key.id)}
+                          <button type="button" onClick={() => setRevokeTarget(getApiKeyId(key))}
                             disabled={revokeKey.isPending}
                             aria-label={"Cabut API key " + key.name}
                             className="rounded-lg p-2 text-[rgb(var(--ink-500))] transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500">

@@ -29,6 +29,13 @@ export const Route = createFileRoute("/dashboard/trash")({
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+function getFileId(f: { fileId?: string | null } | null | undefined): string {
+  return f?.fileId ?? "";
+}
+function getFolderId(f: { folderId?: string | null } | null | undefined): string {
+  return f?.folderId ?? "";
+}
+
 function getDaysInTrash(deletedAt: string): number {
   const deleted = new Date(deletedAt).getTime();
   const now = Date.now();
@@ -391,9 +398,8 @@ function TrashPage() {
   const [foldersExpanded, setFoldersExpanded] = useState(true);
   const [filesExpanded, setFilesExpanded] = useState(true);
 
-  // Confirm delete state
   const [confirmDelete, setConfirmDelete] = useState<{
-    id: number;
+    id: string;
     name: string;
     type: "file" | "folder";
   } | null>(null);
@@ -429,7 +435,7 @@ function TrashPage() {
     [folders, files]
   );
 
-  const handleRestoreFile = async (id: number) => {
+  const handleRestoreFile = async (id: string) => {
     try {
       await restoreFile.mutateAsync(id);
       toast({ title: "File berhasil dipulihkan", description: "File dikembalikan ke lokasi asalnya.", variant: "success" });
@@ -438,7 +444,7 @@ function TrashPage() {
     }
   };
 
-  const handleRestoreFolder = async (id: number) => {
+  const handleRestoreFolder = async (id: string) => {
     try {
       await restoreFolder.mutateAsync(id);
       toast({ title: "Folder berhasil dipulihkan", description: "Folder dikembalikan ke lokasi asalnya.", variant: "success" });
@@ -574,12 +580,12 @@ function TrashPage() {
                         </tr>
                         {foldersExpanded && sortedFolders.map((folder) => (
                           <TrashItemRow
-                            key={`folder-${folder.id}`}
+                            key={`folder-${getFolderId(folder)}`}
                             type="folder"
                             item={folder}
-                            onRestore={() => handleRestoreFolder(folder.id)}
+                            onRestore={() => handleRestoreFolder(getFolderId(folder))}
                             onPermanentDelete={() => setConfirmDelete({
-                              id: folder.id,
+                              id: getFolderId(folder),
                               name: folder.name,
                               type: "folder",
                             })}
@@ -604,12 +610,12 @@ function TrashPage() {
                         </tr>
                         {filesExpanded && sortedFiles.map((file) => (
                           <TrashItemRow
-                            key={`file-${file.id}`}
+                            key={`file-${getFileId(file)}`}
                             type="file"
                             item={file}
-                            onRestore={() => handleRestoreFile(file.id)}
+                            onRestore={() => handleRestoreFile(getFileId(file))}
                             onPermanentDelete={() => setConfirmDelete({
-                              id: file.id,
+                              id: getFileId(file),
                               name: file.filename,
                               type: "file",
                             })}

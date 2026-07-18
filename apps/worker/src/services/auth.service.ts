@@ -57,7 +57,7 @@ export class AuthService {
 
   /** Validates credentials and returns a signed session JWT on success. */
   async login(params: { username: string; password: string }): Promise<{ token: string; user: PublicUser }> {
-    const user = await this.userRepository.findByUsername(params.username);
+    const user = await this.userRepository.findByUsername(params.username) as any;
 
     // Deliberately generic error message + same code path whether the username doesn't
     // exist or the password is wrong, to avoid leaking which one was incorrect.
@@ -70,8 +70,9 @@ export class AuthService {
       throw new AuthError("Username atau password salah.", 401);
     }
 
+    const publicId = user.publicId ?? user.adminId ?? null;
     const token = await signJwt(
-      { sub: user.id, username: user.username, email: user.email },
+      { sub: publicId ?? user.id, username: user.username, email: user.email } as any,
       this.env.JWT_SECRET,
       JWT_EXPIRY_SECONDS
     );
@@ -79,8 +80,16 @@ export class AuthService {
     return { token, user: toPublicUser(user) };
   }
 
-  async changePassword(userId: number, params: { currentPassword: string; newPassword: string }): Promise<void> {
-    const user = await this.userRepository.findById(userId);
+  async changePassword(userId: number | string, params: { currentPassword: string; newPassword: string }): Promise<void> {
+    // Support both numeric and public_id for dual-mode
+    let user: any = null;
+    if (typeof userId === "string" && (userId.startsWith("sadm_") || userId.startsWith("usr_"))) {
+      user = await this.userRepository.findByPublicId(userId);
+    } else {
+      const num = Number(userId);
+      if (!isNaN(num)) user = await this.userRepository.findById(num);
+      else user = await this.userRepository.findByPublicId(String(userId));
+    }
     if (!user) {
       throw new AuthError("User tidak ditemukan.", 404);
     }
@@ -91,16 +100,40 @@ export class AuthService {
     }
 
     const newPasswordHash = await hashPassword(params.newPassword);
-    await this.userRepository.updatePasswordHash(userId, newPasswordHash);
+    await this.userRepository.updatePasswordHash(user.id, newPasswordHash);
+  }
+
+  /** For 2FA login flow that already has user */
+  async loginWithUser(user: any): Promise<{ token: string; user: PublicUser }> {
+    const publicId = (user as any).publicId ?? (user as any).adminId ?? null;
+    const token = await signJwt(
+      { sub: publicId ?? user.id, username: user.username, email: user.email } as any,
+      this.env.JWT_SECRET,
+      JWT_EXPIRY_SECONDS
+    );
+    return { token, user: toPublicUser(user) };
   }
 }
 
-function toPublicUser(user: { id: number; username: string; email: string; createdAt: string; updatedAt: string }): PublicUser {
+function toPublicUser(user: {
+  id: number;
+  publicId?: string | null;
+  adminId?: string | null;
+  userId?: string | null;
+  username: string;
+  email: string;
+  createdAt: string;
+  updatedAt: string;
+}): PublicUser {
+  const pub = (user as any).publicId ?? (user as any).adminId ?? null;
   return {
     id: user.id,
+    adminId: pub ?? undefined,
+    userId: pub ?? undefined,
+    publicId: pub ?? undefined,
     username: user.username,
     email: user.email,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
-  };
+  } as any;
 }

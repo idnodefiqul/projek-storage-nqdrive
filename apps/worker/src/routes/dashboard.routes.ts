@@ -61,23 +61,27 @@ dashboardRoutes.get("/metrics", async (c) => {
     recentFolders,
     topCountriesRows,
   ] = await Promise.all([
-    driveAccountRepository.findAll(),
+    driveAccountRepository.findAll() as Promise<any[]>,
     fileRepository.countAll(),
     // Hitung dari download_logs (sudah terdeduplikasi) agar konsisten dengan halaman Logs
     c.env.DB.prepare(
       `SELECT COUNT(*) as total FROM download_logs`
     ).first<{ total: number }>(),
     // Top downloaded: hitung dari download_logs, bukan kolom download_count yang stale
-    // FIX: filter deleted_at IS NULL agar file di Trash tidak ikut → sinkron distribusi
     c.env.DB.prepare(
-      `SELECT f.*, COUNT(dl.id) as log_count
+      `SELECT f.*, f.public_id as file_public_id, 
+              da.public_id as drive_account_public_id,
+              fld.public_id as folder_public_id,
+              COUNT(dl.id) as log_count
         FROM files f
         LEFT JOIN download_logs dl ON dl.file_id = f.id
+        LEFT JOIN drive_accounts da ON da.id = f.drive_account_id
+        LEFT JOIN folders fld ON fld.id = f.folder_id
         WHERE f.deleted_at IS NULL
         GROUP BY f.id
         ORDER BY log_count DESC
         LIMIT ?`
-    ).bind(limitPopular).all<{ id: number; filename: string; slug: string; provider_file_id: string; drive_account_id: number; folder_id: number | null; size_bytes: number; mime_type: string; visibility: string; download_count: number; created_at: string; updated_at: string; log_count: number }>(),
+    ).bind(limitPopular).all<any>(),
     fileRepository.getRecent(limitRecent),
     folderRepository.getRecent(limitRecent),
     c.env.DB.prepare(
@@ -95,27 +99,26 @@ dashboardRoutes.get("/metrics", async (c) => {
 
   const downloadCount = downloadCountRow?.total ?? 0;
 
-  // Map top downloaded files — pakai log_count sebagai download_count agar konsisten
-  const topDownloaded = topDownloadedFiles.results.map((row) => ({
-    id: row.id,
+  // 100% clean professional: only fileId, accountId, folderId
+  const topDownloaded = topDownloadedFiles.results.map((row: any) => ({
+    fileId: row.file_public_id ?? row.public_id ?? null,
     filename: row.filename,
     slug: row.slug,
     providerFileId: row.provider_file_id,
-    driveAccountId: row.drive_account_id,
-    folderId: row.folder_id,
+    accountId: (row as any).drive_account_public_id ?? null,
+    folderId: (row as any).folder_public_id ?? null,
     sizeBytes: row.size_bytes,
     mimeType: row.mime_type,
     visibility: row.visibility,
-    downloadCount: row.log_count,  // gunakan hitungan dari logs, bukan kolom stale
+    downloadCount: row.log_count,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
 
-  // Distribusi & Volume sekarang hanya yang online aktif (bukan telegram, token ada, status online)
   const distribusiAccounts = finalAccountsForDisplay;
 
-  const accountsStorageDistribusi = distribusiAccounts.map((a) => ({
-    id: a.id,
+  const accountsStorageDistribusi = distribusiAccounts.map((a: any) => ({
+    accountId: a.accountId ?? a.publicId ?? null,
     email: a.email,
     provider: a.provider,
     usedStorageBytes: a.usedStorageBytes,
@@ -123,13 +126,36 @@ dashboardRoutes.get("/metrics", async (c) => {
     status: a.status,
   }));
 
-  const accountsStorageActive = finalAccountsForDisplay.map((a) => ({
-    id: a.id,
+  const accountsStorageActive = finalAccountsForDisplay.map((a: any) => ({
+    accountId: a.accountId ?? a.publicId ?? null,
     email: a.email,
     provider: a.provider,
     usedStorageBytes: a.usedStorageBytes,
     totalStorageBytes: a.totalStorageBytes,
     status: a.status,
+  }));
+
+  const mappedRecentFiles = (recentFiles as any[]).map((f: any) => ({
+    fileId: f.fileId ?? f.publicId ?? null,
+    accountId: f.accountId ?? null,
+    folderId: f.folderPublicId ?? null,
+    filename: f.filename,
+    slug: f.slug,
+    providerFileId: f.providerFileId,
+    sizeBytes: f.sizeBytes,
+    mimeType: f.mimeType,
+    visibility: f.visibility,
+    downloadCount: f.downloadCount,
+    createdAt: f.createdAt,
+    updatedAt: f.updatedAt,
+  }));
+  const mappedRecentFolders = (recentFolders as any[]).map((fld: any) => ({
+    folderId: fld.folderId ?? fld.publicId ?? null,
+    name: fld.name,
+    parentFolderId: fld.parentFolderPublicId ?? null,
+    shareUuid: fld.shareUuid,
+    createdAt: fld.createdAt,
+    updatedAt: fld.updatedAt,
   }));
 
   const responseData = {
@@ -153,8 +179,8 @@ dashboardRoutes.get("/metrics", async (c) => {
       accountsStorageDistribusi,
       topCountries: (topCountriesRows?.results ?? []).map(r => ({ country: r.country, count: r.count })),
       topDownloadedFiles: topDownloaded,
-      recentFiles,
-      recentFolders,
+      recentFiles: mappedRecentFiles,
+      recentFolders: mappedRecentFolders,
     },
   };
 

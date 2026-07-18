@@ -18,6 +18,13 @@ import { useUploadGlobal } from "../stores/upload-provider";
 import { useMigrationGlobal, maskEmail } from "../stores/migration-provider";
 import { motion, AnimatePresence } from "framer-motion";
 
+function getTaskId(j: { taskId?: string | null } | null | undefined): string {
+  return j?.taskId ?? "";
+}
+function getFileIdFromItem(it: { fileId?: string | null } | null | undefined): string {
+  return it?.fileId ?? "";
+}
+
 const PANEL_TRANSITION = {
   type: "tween" as const,
   ease: [0.32, 0.72, 0, 1],
@@ -109,7 +116,7 @@ export function UploadSidebar() {
 
   const handleClose = useCallback(() => setUploadSidebarOpen(false), [setUploadSidebarOpen]);
 
-  const handleCancelMigration = (jobId: number, sourceEmail: string, targetEmail: string) => {
+  const handleCancelMigration = (jobId: string, sourceEmail: string, targetEmail: string) => {
     if (!confirm(`Batalkan migrasi ${maskEmail(sourceEmail)} → ${maskEmail(targetEmail)}?\n\nFile yang sudah terlanjur dipindahkan tetap berada di akun tujuan.`)) return;
     void cancelMigration(jobId);
   };
@@ -299,7 +306,7 @@ export function UploadSidebar() {
                       const percent = job.totalFiles > 0 ? (job.migratedFiles / job.totalFiles) * 100 : 0;
                       return (
                         <div
-                          key={job.id}
+                          key={getTaskId(job)}
                           className="p-3 rounded-xl border border-zinc-100 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/10 space-y-2 relative"
                         >
                           <div className="flex items-start justify-between gap-3">
@@ -317,7 +324,7 @@ export function UploadSidebar() {
                               </div>
                             </div>
                             <button
-                              onClick={() => handleCancelMigration(job.id, job.sourceEmail, job.targetEmail)}
+                              onClick={() => handleCancelMigration(getTaskId(job), job.sourceEmail, job.targetEmail)}
                               className="text-zinc-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg p-1 transition-colors shrink-0"
                               title="Batalkan migrasi"
                             >
@@ -348,7 +355,7 @@ export function UploadSidebar() {
                     </h3>
                     {recentMigrations.map((job) => (
                       <div
-                        key={job.id}
+                        key={getTaskId(job)}
                         className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-zinc-100 dark:border-zinc-800 bg-white dark:bg-zinc-900"
                       >
                         <div className="min-w-0 flex-1">

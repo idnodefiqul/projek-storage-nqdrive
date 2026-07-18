@@ -16,7 +16,14 @@ export function useFiles(params: ListFilesParams, options?: { enabled?: boolean 
     refetchOnReconnect: false,
     retry: 2,
     retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 4000),
-    placeholderData: (prev) => prev,
+    // Placeholder HANYA dipertahankan jika masih di folder yang sama (pagination/search mulus).
+    // Saat GANTI folder, placeholder dibuang → isLoading true → skeleton muncul,
+    // sehingga file folder lama tidak "nyangkut" tampil beberapa detik.
+    placeholderData: (prev, prevQuery) => {
+      const prevParams = prevQuery?.queryKey?.[2] as ListFilesParams | undefined;
+      if ((prevParams?.folderId ?? null) !== (params.folderId ?? null)) return undefined;
+      return prev;
+    },
     enabled: options?.enabled ?? true,
   });
 }
@@ -24,7 +31,7 @@ export function useFiles(params: ListFilesParams, options?: { enabled?: boolean 
 export function useRenameFile() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, filename }: { id: number; filename: string }) => fileService.rename(id, filename),
+    mutationFn: ({ id, filename }: { id: string; filename: string }) => fileService.rename(id, filename),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["files"] }),
   });
 }
@@ -32,7 +39,7 @@ export function useRenameFile() {
 export function useUpdateFileVisibility() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, visibility }: { id: number; visibility: FileVisibility }) =>
+    mutationFn: ({ id, visibility }: { id: string; visibility: FileVisibility }) =>
       fileService.updateVisibility(id, visibility),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["files"] }),
   });
@@ -41,7 +48,7 @@ export function useUpdateFileVisibility() {
 export function useDeleteFile() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: number) => fileService.remove(id),
+    mutationFn: (id: string) => fileService.remove(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["files"] });
       queryClient.invalidateQueries({ queryKey: ["storage-manager"] });

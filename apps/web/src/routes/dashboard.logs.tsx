@@ -49,6 +49,10 @@ const STATUS_LABELS: Record<string, string> = {
 
 const PAGE_SIZES = [12, 21, 30, 50];
 
+function getLogId(l: { logId?: string | null } | null | undefined): string {
+  return l?.logId ?? "";
+}
+
 function getResponsivePageSize(): number {
   if (typeof window === "undefined") return 21;
   if (window.innerWidth < 640) return 12;
@@ -58,7 +62,7 @@ function getResponsivePageSize(): number {
 
 // ─── Upload Row Type ─────────────────────────────────────────────────────────
 interface UploadLog {
-  id: number;
+  logId: string;
   filename: string;
   size_bytes: number;
   duration_ms: number;
@@ -68,7 +72,7 @@ interface UploadLog {
 
 // ─── Download Row Type ───────────────────────────────────────────────────────
 interface DownloadLog {
-  id: number;
+  logId: string;
   filename: string | null;
   ip_address: string;
   country: string | null;
