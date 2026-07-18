@@ -9,7 +9,8 @@ export class ApiClientError extends Error {
   constructor(
     message: string,
     public readonly code: string,
-    public readonly statusCode: number
+    public readonly statusCode: number,
+    public readonly details?: unknown
   ) {
     super(message);
     this.name = "ApiClientError";
@@ -62,7 +63,7 @@ export async function apiRequest<T>(
     if (response.status === 401) {
       localStorage.setItem("nqdrive_is_logged_in", "false");
     }
-    throw new ApiClientError(json.error.message, json.error.code, response.status);
+    throw new ApiClientError(json.error.message, json.error.code, response.status, (json.error as any).details);
   }
 
   return json.data;

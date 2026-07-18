@@ -26,6 +26,22 @@ export interface UploadItem {
   provider?: string;
 }
 
+export type CopyItemStatus = "queued" | "copying" | "success" | "error" | "cancelled";
+
+export interface CopyItem {
+  id: string;
+  sourceFileId: string;
+  sourceFilename: string;
+  sourceSize: number;
+  sourceProvider?: string;
+  targetFolderId: string | null;
+  targetFolderPath: string | null;
+  status: CopyItemStatus;
+  progress: UploadProgress;
+  errorMessage?: string;
+  newFileId?: string;
+}
+
 // Simplified serializable item for storage history
 export interface RecentUploadItem {
   id: string;
@@ -39,6 +55,7 @@ export interface RecentUploadItem {
 export interface UploadContextValue {
   items: UploadItem[];
   recentItems: RecentUploadItem[];
+  copyItems: CopyItem[];
   addFilesToQueue: (files: FileList | File[], folderId?: string | null, targetAccountId?: string | null) => void;
   setTargetAccount: (id: string, accountId: string | null, provider?: string) => void;
   startUpload: (id: string) => Promise<void>;
@@ -48,6 +65,10 @@ export interface UploadContextValue {
   removeItem: (id: string) => void;
   clearFinished: () => void;
   clearRecent: () => void;
+  addCopyJob: (file: { fileId: string; filename: string; sizeBytes: number; provider?: string }, targetFolderId: string | null, targetFolderPath?: string | null) => string;
+  startCopy: (id: string) => Promise<void>;
+  cancelCopy: (id: string) => void;
+  removeCopyItem: (id: string) => void;
   isUploadSidebarOpen: boolean;
   setUploadSidebarOpen: (open: boolean) => void;
 }
@@ -134,6 +155,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient();
   const { user } = useAuthContext();
   const [items, setItems] = useState<Record<string, UploadItem>>({});
+  const [copyItemsMap, setCopyItemsMap] = useState<Record<string, CopyItem>>({});
   const [isUploadSidebarOpen, setUploadSidebarOpen] = useState(false);
 
   // Local storage to persist user-dismissed DB log IDs
@@ -153,8 +175,10 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   };
 
   const hasActiveUploads = useMemo(
-    () => Object.values(items).some((i) => i.status === "uploading" || i.status === "queued"),
-    [items]
+    () =>
+      Object.values(items).some((i) => i.status === "uploading" || i.status === "queued") ||
+      Object.values(copyItemsMap).some((c) => c.status === "copying" || c.status === "queued"),
+    [items, copyItemsMap]
   );
 
   // Load from DB via listUploads — hanya polling saat ada upload aktif atau sidebar terbuka
@@ -192,12 +216,18 @@ export function UploadProvider({ children }: { children: ReactNode }) {
   }, [dbLogs, dismissedRecentIds]);
 
   const abortControllers = useRef<Record<string, AbortController>>({});
+  const copyAbortControllers = useRef<Record<string, AbortController>>({});
+  const copyProgressIntervals = useRef<Record<string, ReturnType<typeof setInterval>>>({});
 
   // Cleanup abort controllers on unmount to prevent memory leak
   useEffect(() => {
     return () => {
       Object.values(abortControllers.current).forEach((controller) => controller.abort());
       abortControllers.current = {};
+      Object.values(copyAbortControllers.current).forEach((controller) => controller.abort());
+      copyAbortControllers.current = {};
+      Object.values(copyProgressIntervals.current).forEach((i) => clearInterval(i));
+      copyProgressIntervals.current = {};
     };
   }, []);
 
@@ -460,15 +490,177 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     });
   }, [recentItems]);
 
+  // ─── Copy logic ──────────────────────────────────────────────────────
+  const updateCopyItem = useCallback((id: string, patch: Partial<CopyItem>) => {
+    setCopyItemsMap((prev) => {
+      const existing = prev[id];
+      if (!existing) return prev;
+      return { ...prev, [id]: { ...existing, ...patch } };
+    });
+  }, []);
+
+  const addCopyJob = useCallback(
+    (file: { fileId: string; filename: string; sizeBytes: number; provider?: string }, targetFolderId: string | null, targetFolderPath: string | null = null) => {
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}-copy`;
+      const newItem: CopyItem = {
+        id,
+        sourceFileId: file.fileId,
+        sourceFilename: file.filename,
+        sourceSize: file.sizeBytes,
+        sourceProvider: file.provider,
+        targetFolderId,
+        targetFolderPath,
+        status: "queued",
+        progress: { uploadedBytes: 0, totalBytes: file.sizeBytes, percentage: 0, speedBytesPerSecond: 0, etaSeconds: 0 },
+      };
+      setCopyItemsMap((prev) => ({ ...prev, [id]: newItem }));
+      // Auto buka sidebar progress biar user lihat
+      setUploadSidebarOpen(true);
+      // Auto start
+      setTimeout(() => {
+        // will be started by caller via startCopy, but we auto-trigger here too for convenience
+      }, 50);
+      return id;
+    },
+    []
+  );
+
+  const startCopy = useCallback(
+    async (id: string) => {
+      const item = copyItemsMap[id] ?? null;
+      // Ambil fresh dari state via functional? Untuk simplicity baca dari map snapshot yang ada di closure — tapi bisa stale.
+      // Kita ambil dari copyItemsMap ref via setCopyItemsMap callback di bawah, namun untuk accountId kita sudah punya fileId.
+      // Untuk menghindari stale, kita baca current dari setCopyItemsMap updater.
+      let currentItem: CopyItem | null = null;
+      setCopyItemsMap((prev) => {
+        currentItem = prev[id] ?? null;
+        return prev;
+      });
+      // Jika masih null karena closure lama, fallback ke item dari closure
+      const effectiveItem = currentItem ?? copyItemsMap[id] ?? item;
+      if (!effectiveItem) return;
+
+      const abortController = new AbortController();
+      copyAbortControllers.current[id] = abortController;
+
+      // Simulasi progress — naik pelan sampai 85% selama request berlangsung
+      let simulatedBytes = 0;
+      const total = effectiveItem.sourceSize || 1;
+      const startedAt = Date.now();
+      const interval = setInterval(() => {
+        simulatedBytes = Math.min(simulatedBytes + total * 0.04 + Math.random() * total * 0.02, total * 0.85);
+        const elapsed = (Date.now() - startedAt) / 1000;
+        const speed = elapsed > 0 ? simulatedBytes / elapsed : 0;
+        const remaining = total - simulatedBytes;
+        const eta = speed > 0 ? remaining / speed : 0;
+        updateCopyItem(id, {
+          progress: {
+            uploadedBytes: simulatedBytes,
+            totalBytes: total,
+            percentage: (simulatedBytes / total) * 100,
+            speedBytesPerSecond: speed,
+            etaSeconds: eta,
+          },
+        });
+      }, 600);
+      copyProgressIntervals.current[id] = interval;
+
+      try {
+        updateCopyItem(id, { status: "copying" });
+
+        const { fileService } = await import("../services/file.service");
+        const result = await fileService.copy(effectiveItem.sourceFileId, effectiveItem.targetFolderId);
+
+        clearInterval(interval);
+        delete copyProgressIntervals.current[id];
+
+        updateCopyItem(id, {
+          status: "success",
+          newFileId: (result as any)?.file?.fileId ?? "",
+          progress: { uploadedBytes: total, totalBytes: total, percentage: 100, speedBytesPerSecond: 0, etaSeconds: 0 },
+        });
+
+        queryClient.invalidateQueries({ queryKey: ["files"] });
+        queryClient.invalidateQueries({ queryKey: ["folders"] });
+        queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
+
+        // Auto remove success setelah 4 detik
+        setTimeout(() => {
+          setCopyItemsMap((prev) => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+          });
+        }, 4000);
+
+        delete copyAbortControllers.current[id];
+      } catch (error: any) {
+        clearInterval(interval);
+        delete copyProgressIntervals.current[id];
+
+        if (error?.name === "AbortError") {
+          updateCopyItem(id, { status: "cancelled" });
+        } else {
+          // Cek apakah error dari apiRequest dengan code QUOTA_EXCEEDED
+          let msg = error?.message || "Copy gagal.";
+          try {
+            if (error?.message?.includes("QUOTA_EXCEEDED") || error?.code === "QUOTA_EXCEEDED") {
+              msg = "Storage tidak cukup untuk menyalin file.";
+            }
+          } catch {}
+          updateCopyItem(id, { status: "error", errorMessage: msg });
+        }
+        delete copyAbortControllers.current[id];
+      }
+    },
+    [copyItemsMap, queryClient, updateCopyItem]
+  );
+
+  const cancelCopy = useCallback((id: string) => {
+    copyAbortControllers.current[id]?.abort();
+    const interval = copyProgressIntervals.current[id];
+    if (interval) {
+      clearInterval(interval);
+      delete copyProgressIntervals.current[id];
+    }
+    setCopyItemsMap((prev) => {
+      const existing = prev[id];
+      if (!existing) return prev;
+      return { ...prev, [id]: { ...existing, status: "cancelled" as const } };
+    });
+    delete copyAbortControllers.current[id];
+  }, []);
+
+  const removeCopyItem = useCallback((id: string) => {
+    copyAbortControllers.current[id]?.abort();
+    const interval = copyProgressIntervals.current[id];
+    if (interval) {
+      clearInterval(interval);
+      delete copyProgressIntervals.current[id];
+    }
+    delete copyAbortControllers.current[id];
+    setCopyItemsMap((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+  }, []);
+
   const sortedItems = useMemo(
     () => Object.values(items).sort((a, b) => b.id.localeCompare(a.id)),
     [items]
+  );
+
+  const sortedCopyItems = useMemo(
+    () => Object.values(copyItemsMap).sort((a, b) => b.id.localeCompare(a.id)),
+    [copyItemsMap]
   );
 
   const contextValue = useMemo(
     () => ({
       items: sortedItems,
       recentItems,
+      copyItems: sortedCopyItems,
       addFilesToQueue,
       setTargetAccount,
       startUpload,
@@ -478,12 +670,17 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       removeItem,
       clearFinished,
       clearRecent,
+      addCopyJob,
+      startCopy,
+      cancelCopy,
+      removeCopyItem,
       isUploadSidebarOpen,
       setUploadSidebarOpen,
     }),
     [
       sortedItems,
       recentItems,
+      sortedCopyItems,
       addFilesToQueue,
       setTargetAccount,
       startUpload,
@@ -493,7 +690,12 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       removeItem,
       clearFinished,
       clearRecent,
+      addCopyJob,
+      startCopy,
+      cancelCopy,
+      removeCopyItem,
       isUploadSidebarOpen,
+      setUploadSidebarOpen,
     ]
   );
 

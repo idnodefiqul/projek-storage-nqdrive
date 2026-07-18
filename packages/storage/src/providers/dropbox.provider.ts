@@ -358,6 +358,7 @@ export class DropboxProvider implements StorageProvider {
    * Server-side copy di Dropbox via files/copy_v2 — data tidak lewat worker.
    * `providerFileId` bisa berupa id ("id:xxx") atau path; Dropbox menerima keduanya
    * sebagai from_path. autorename:true agar nama bentrok otomatis diberi sufiks.
+   * Untuk file besar Dropbox bisa balik async_job_id → perlu polling copy_batch/check_v2.
    */
   async copyFile(params: {
     credentials: ProviderCredentials;
@@ -379,10 +380,69 @@ export class DropboxProvider implements StorageProvider {
     if (!res.ok) {
       throw new Error(`Failed to copy Dropbox file: ${res.status} ${await res.text()}`);
     }
-    const data = (await res.json()) as { metadata?: { id?: string } };
-    const newId = data.metadata?.id;
-    if (!newId) throw new Error("Dropbox copy_v2 tidak mengembalikan id file baru.");
-    return { providerFileId: newId };
+    const raw = (await res.json()) as any;
+
+    // Case 1: immediate success
+    if (raw.metadata?.id) {
+      return { providerFileId: raw.metadata.id as string };
+    }
+
+    // Case 2: async job — polling (batas 20s biar tidak kena Worker timeout)
+    const asyncJobId = raw.async_job_id as string | undefined;
+    if (asyncJobId) {
+      const deadline = Date.now() + 20_000; // 20 detik, bukan 2 menit
+      let waitMs = 600;
+      while (Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, waitMs));
+        const checkRes = await fetch(`${DROPBOX_API_BASE}/files/copy_batch/check_v2`, {
+          method: "POST",
+          headers: { ...this.authHeader(accessToken), "Content-Type": "application/json" },
+          body: JSON.stringify({ async_job_id: asyncJobId }),
+        });
+        if (!checkRes.ok) {
+          throw new Error(`Failed to check Dropbox copy status: ${checkRes.status} ${await checkRes.text()}`);
+        }
+        const check = (await checkRes.json()) as any;
+        const tag = check[".tag"] as string | undefined;
+        if (tag === "complete" || tag === "complete_with_metadata") {
+          // Entries: array, first entry metadata
+          const meta = check.entries?.[0]?.metadata ?? check.entries?.[0] ?? check.metadata ?? check;
+          const id = meta?.id ?? meta?.metadata?.id;
+          if (id) return { providerFileId: id as string };
+          // fallback: if complete but no id, try to list by name
+          // Use filename we requested
+          // Search via list? For now throw to try fallback listing
+          throw new Error("Dropbox async copy selesai tapi tidak mengembalikan id.");
+        } else if (tag === "failed") {
+          throw new Error(`Dropbox async copy gagal: ${JSON.stringify(check)}`);
+        }
+        // in_progress → continue polling
+        waitMs = Math.min(waitMs * 1.5, 3000);
+      }
+      // Timeout 20s — coba cari file hasil copy by name sebagai fallback
+      try {
+        const listRes = await fetch(`${DROPBOX_API_BASE}/files/list_folder`, {
+          method: "POST",
+          headers: { ...this.authHeader(accessToken), "Content-Type": "application/json" },
+          body: JSON.stringify({ path: "", limit: 200 }),
+        });
+        if (listRes.ok) {
+          const data = (await listRes.json()) as { entries: Array<{ ".tag": string; id?: string; name?: string }> };
+          const found = data.entries.find((e) => e[".tag"] === "file" && e.name === params.filename);
+          if (found?.id) return { providerFileId: found.id };
+          // fallback cari yang mengandung nama (autorename)
+          const base = params.filename.replace(/\s*\(copy\)/i, "").trim();
+          const fuzzy = data.entries.find((e) => e[".tag"] === "file" && (e.name ?? "").includes(base));
+          if (fuzzy?.id) return { providerFileId: fuzzy.id };
+        }
+      } catch {}
+      throw new Error("Dropbox copy melebihi batas waktu tunggu (20 detik) dan fallback pencarian gagal.");
+    }
+
+    // Fallback: raw itself maybe is metadata directly
+    if (raw.id) return { providerFileId: raw.id as string };
+
+    throw new Error(`Dropbox copy_v2 respons tidak dikenali: ${JSON.stringify(raw).slice(0, 300)}`);
   }
 
   async refreshAccessToken(params: {

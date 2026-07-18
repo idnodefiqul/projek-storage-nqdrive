@@ -6,7 +6,7 @@ import { FileRepository } from "../database/file.repository";
 import { DriveAccountRepository } from "../database/drive-account.repository";
 import { GoogleAccountConnectionService } from "../services/google-account-connection.service";
 import { resolveCredentials } from "../utils/credentials";
-import { StorageProviderFactory } from "@nqdrive/storage";
+import { StorageProviderFactory, reserveBytesForProvider } from "@nqdrive/storage";
 import { DEFAULT_PAGE_SIZE } from "@nqdrive/shared";
 import { writeAuditLog } from "../utils/audit";
 import type { Env } from "../config/env";
@@ -328,6 +328,24 @@ fileRoutes.post("/:id/copy", zValidator("json", copyFileSchema), async (c) => {
     return c.json({ success: false, error: { code: "TARGET_NOT_FOUND", message: "Folder tujuan tidak ditemukan." } }, 404);
   }
 
+  // ── Cek storage cukup sebelum copy (biar popup muncul sebelum sidebar progress) ──
+  const { UploadService } = await import("../services/upload.service");
+  const uploadServiceForQuota = new UploadService(c.env);
+  const freshUsed = await uploadServiceForQuota.getDbUsedBytes(account.id);
+  const effectiveTotal = account.totalStorageBytes;
+  const available = Math.max(0, effectiveTotal - freshUsed);
+  const reserve = reserveBytesForProvider(account.provider as any);
+  if (available < file.sizeBytes + reserve) {
+    return c.json({
+      success: false,
+      error: {
+        code: "QUOTA_EXCEEDED",
+        message: `Storage tidak cukup. Tersedia ${available} byte, butuh ${file.sizeBytes} byte + cadangan ${reserve} byte.`,
+        details: { available, required: file.sizeBytes, reserve, used: freshUsed, total: effectiveTotal },
+      },
+    }, 422);
+  }
+
   // Nama salinan: "nama (copy).ext"
   const dotIdx = file.filename.lastIndexOf(".");
   const copyName = dotIdx > 0
@@ -352,10 +370,8 @@ fileRoutes.post("/:id/copy", zValidator("json", copyFileSchema), async (c) => {
     }, 500);
   }
 
-  const { UploadService } = await import("../services/upload.service");
-  const uploadService = new UploadService(c.env);
-  const slug = await uploadService.generateUniqueSlug(copyName);
-  const shareCode = UploadService.generateShareCode();
+  const slug = await uploadServiceForQuota.generateUniqueSlug(copyName);
+  const shareCode = (await import("../services/upload.service")).UploadService.generateShareCode();
 
   const newFile = await fileRepository.create({
     filename: copyName,
@@ -371,11 +387,11 @@ fileRoutes.post("/:id/copy", zValidator("json", copyFileSchema), async (c) => {
 
   // Re-calc quota dari DB SUM — idempotent, pola sama dengan finalizeUpload
   try {
-    const freshUsed = await uploadService.getDbUsedBytes(account.id);
+    const freshUsedAfter = await uploadServiceForQuota.getDbUsedBytes(account.id);
     await driveAccountRepository.updateQuota(account.id, {
       totalBytes: account.totalStorageBytes,
-      usedBytes: freshUsed,
-      availableBytes: Math.max(0, account.totalStorageBytes - freshUsed),
+      usedBytes: freshUsedAfter,
+      availableBytes: Math.max(0, account.totalStorageBytes - freshUsedAfter),
     });
   } catch (err) {
     console.error(`[file copy] gagal recalc quota account ${account.id}:`, err);

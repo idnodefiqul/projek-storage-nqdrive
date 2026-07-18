@@ -29,6 +29,7 @@ import { useUpload } from "../hooks/use-upload";
 import { useMinLoading } from "../hooks/use-min-loading";
 import { useSettings } from "../hooks/use-settings";
 import { buildDownloadPath } from "../services/settings.service";
+import { fileService } from "../services/file.service";
 import { Virtuoso } from "react-virtuoso";
 import { buildFolderTree, getChildrenByPath, type FolderNode } from "../lib/folder-tree";
 
@@ -667,9 +668,7 @@ function DetailPanel({ item, onClose, actions }: { item: ItemData | null; onClos
                     </div>
                     <PanelBtn icon={Pencil} label="Ganti Nama" onClick={startRename} />
                     <PanelBtn icon={FolderInput} label="Pindahkan ke Folder" onClick={() => { actions.onMoveFile(file); onClose(); }} />
-                    {file.driveAccountProvider === "google_drive" && (
-                      <PanelBtn icon={Copy} label="Salin ke Folder" onClick={() => { actions.onCopyFile(file); onClose(); }} />
-                    )}
+                    <PanelBtn icon={Copy} label="Salin ke Folder" onClick={() => { actions.onCopyFile(file); onClose(); }} />
                   </>
                 )}
 
@@ -734,18 +733,39 @@ function MoveCopyDialog({
 }: {
   target: MoveCopyTarget | null;
   onClose: () => void;
-  onConfirm: (targetFolderId: string | null) => void;
+  onConfirm: (targetFolderId: string | null, targetFolderPath: string | null) => void;
   isPending: boolean;
 }) {
-  // Flat list semua folder — 1 request, cache 2 menit, navigasi instant tanpa N request.
-  const { data: allFoldersData, isLoading: isAllLoading } = useAllFolders(!!target);
-  const flatFolders = (allFoldersData?.folders ?? []) as Folder[];
-
-  const tree = useMemo(() => buildFolderTree(flatFolders), [flatFolders]);
-
-  // Path folder yang sedang dibrowse di picker (independen dari halaman utama) — sekarang dari memory, bukan API.
+  // Semua hooks harus di atas early return — biar tidak kena React error #310
   const [pickerPath, setPickerPath] = useState("");
   const [search, setSearch] = useState("");
+
+  const { data: allFoldersData, isLoading: isAllLoading } = useAllFolders(!!target);
+  const flatFolders = (allFoldersData?.folders ?? []) as Folder[];
+  const tree = useMemo(() => buildFolderTree(flatFolders), [flatFolders]);
+
+  const activeNode = useMemo(() => {
+    return pickerPath ? tree.byPath.get(pickerPath) ?? null : null;
+  }, [pickerPath, tree]);
+  const pickerFolderId = useMemo(() => {
+    return activeNode ? getFolderId(activeNode as any) : null;
+  }, [activeNode]);
+
+  const currentChildren = useMemo(() => {
+    return getChildrenByPath(tree, pickerPath) as FolderNode[];
+  }, [tree, pickerPath]);
+
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredFolders: FolderNode[] = useMemo(() => {
+    if (!normalizedSearch) return currentChildren;
+    return tree.flatWithPath.filter((n) => n.name.toLowerCase().includes(normalizedSearch)).slice(0, 300);
+  }, [normalizedSearch, currentChildren, tree.flatWithPath]);
+
+  const { data: pickerFilesData, isLoading: isPickerFilesLoading } = useFiles(
+    { folderId: pickerFolderId, page: 1, pageSize: 50 },
+    { enabled: !!target && !normalizedSearch && !isAllLoading },
+  );
+  const pickerFiles = (pickerFilesData?.items ?? []) as FileWithAccount[];
 
   // Reset saat dialog dibuka untuk file berbeda
   useEffect(() => {
@@ -758,28 +778,6 @@ function MoveCopyDialog({
   if (!target) return null;
 
   const isMove = target.mode === "move";
-  const activeNode = pickerPath ? tree.byPath.get(pickerPath) ?? null : null;
-  const pickerFolderId = activeNode ? getFolderId(activeNode as any) : null;
-
-  // Children dari path saat ini — instant dari memory tree (0 network)
-  const currentChildren = useMemo(() => {
-    return getChildrenByPath(tree, pickerPath) as FolderNode[];
-  }, [tree, pickerPath]);
-
-  // Search across all folders — client-side, instant
-  const normalizedSearch = search.trim().toLowerCase();
-  const filteredFolders: FolderNode[] = useMemo(() => {
-    if (!normalizedSearch) return currentChildren;
-    return tree.flatWithPath.filter((n) => n.name.toLowerCase().includes(normalizedSearch)).slice(0, 300);
-  }, [normalizedSearch, currentChildren, tree.flatWithPath]);
-
-  // Isi file pada folder yang sedang dibrowse — read-only konteks, tidak block navigasi folder
-  const { data: pickerFilesData, isLoading: isPickerFilesLoading } = useFiles(
-    { folderId: pickerFolderId, page: 1, pageSize: 50 },
-    { enabled: !!target && !normalizedSearch && !isAllLoading },
-  );
-  const pickerFiles = (pickerFilesData?.items ?? []) as FileWithAccount[];
-
   // Move ke folder tempat file sekarang berada = no-op → disable tombol
   const isSameFolder = isMove && (target.file.folderId ?? null) === (pickerFolderId ?? null);
   const segments = pickerPath ? pickerPath.split("/") : [];
@@ -812,14 +810,14 @@ function MoveCopyDialog({
         )}
       </div>
 
-      {/* Breadcrumb picker — hidden saat searching */}
+      {/* Breadcrumb picker — hidden saat searching, pakai Home biar sama kayak dashboard */}
       {!isSearching && (
         <div className="flex items-center gap-1 overflow-x-auto whitespace-nowrap text-xs font-medium text-[rgb(var(--ink-500))] scrollbar-hide">
           <button
             onClick={() => setPickerPath("")}
             className={cn("flex items-center gap-1 rounded-md px-1.5 py-1 transition hover:bg-[rgb(var(--surface-muted))]/70", !pickerPath && "text-[rgb(var(--foreground))] font-semibold")}
           >
-            <Home className="h-3.5 w-3.5" /> Root
+            <Home className="h-3.5 w-3.5" /> Home
           </button>
           {segments.map((seg, idx) => (
             <React.Fragment key={idx}>
@@ -836,101 +834,81 @@ function MoveCopyDialog({
         </div>
       )}
 
-      {/* Daftar folder — virtuoso untuk ribuan item tetap 60fps */}
-      <div className="h-[300px] overflow-hidden rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface-muted))]/30">
+      {/* Daftar folder+file gabung — versi pertama yang simpel seperti request awal copy/move */}
+      <div className="h-[300px] overflow-hidden rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface-muted))]/30 p-1.5">
         {isAllLoading ? (
-          <div className="flex flex-col gap-1.5 p-1.5">
+          <div className="flex flex-col gap-1.5">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="h-9 animate-pulse rounded-lg bg-[rgb(var(--surface-muted))]/70" />
             ))}
           </div>
         ) : !showFolderList && pickerFiles.length === 0 && !isPickerFilesLoading ? (
           <p className="px-2.5 py-10 text-center text-xs text-[rgb(var(--ink-500))]">
-            {isSearching ? `Tidak ada folder cocok "${search}".` : pickerPath ? "Folder ini kosong." : "Belum ada folder di root."}
+            {isSearching ? `Tidak ada folder cocok "${search}"` : pickerPath ? "Folder ini kosong." : "Belum ada folder di Home."}
           </p>
         ) : (
-          <div className="flex h-full flex-col">
-            {/* Tombol .. untuk naik — hidden saat search */}
+          <div className="flex h-full flex-col overflow-hidden">
             {!isSearching && pickerPath ? (
               <button
                 onClick={() => setPickerPath(segments.slice(0, -1).join("/"))}
-                className="flex w-full shrink-0 items-center gap-2.5 border-b border-[rgb(var(--border-subtle))]/60 bg-[rgb(var(--surface))]/60 px-2.5 py-2 text-sm font-medium text-[rgb(var(--ink-500))] transition hover:bg-[rgb(var(--surface-muted))]/70"
+                className="flex w-full shrink-0 items-center gap-2.5 rounded-lg bg-[rgb(var(--surface))]/60 px-2.5 py-2 text-sm font-medium text-[rgb(var(--ink-500))] transition hover:bg-[rgb(var(--surface-muted))]/70"
               >
                 <CornerLeftUp className="h-4 w-4 shrink-0" /> ..
               </button>
             ) : null}
 
-            {showFolderList && (
-              <div className="min-h-0 flex-1">
-                <Virtuoso
-                  data={filteredFolders}
-                  style={{ height: pickerFiles.length || isPickerFilesLoading ? "58%" : "100%" }}
-                  overscan={200}
-                  itemContent={(_idx, f: FolderNode) => (
-                    <div className="px-1.5 py-0.5">
-                      <button
-                        onClick={() => {
-                          if (isSearching) {
-                            // Saat search, klik langsung set target ke folder tersebut
-                            setPickerPath(f.path);
-                            setSearch("");
-                          } else {
-                            setPickerPath(f.path);
-                          }
-                        }}
-                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-[rgb(var(--foreground))] transition hover:bg-[rgb(var(--surface-muted))]/70"
-                      >
-                        <FolderSolid className="h-5 w-5 shrink-0 text-amber-400" />
-                        <span className="min-w-0 flex-1 truncate text-left" title={f.name}>{f.name}</span>
-                        {isSearching ? (
-                          <span className="max-w-[140px] shrink-0 truncate text-[11px] text-[rgb(var(--ink-500))]" title={f.path}>{f.path}</span>
-                        ) : (
-                          <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-40" />
-                        )}
-                      </button>
-                    </div>
-                  )}
-                />
-              </div>
-            )}
-
-            {/* File di folder ini — read-only konteks, tidak block navigasi folder */}
-            {!isSearching && (pickerFiles.length > 0 || isPickerFilesLoading) && (
-              <div className="shrink-0 border-t border-[rgb(var(--border-subtle))]/60 bg-[rgb(var(--surface))]/40">
-                <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--ink-500))]">
-                  File di sini
-                </div>
-                <div className="max-h-[120px] overflow-y-auto px-1 pb-1">
-                  {isPickerFilesLoading ? (
-                    <div className="flex items-center justify-center py-3">
-                      <Loader2 className="h-4 w-4 animate-spin text-[rgb(var(--ink-500))]" />
-                    </div>
+            <div className="min-h-0 flex-1 overflow-y-auto space-y-0.5 pt-1">
+              {filteredFolders.map((f: FolderNode) => (
+                <button
+                  key={getFolderId(f as any)}
+                  onClick={() => {
+                    if (isSearching) {
+                      setPickerPath(f.path);
+                      setSearch("");
+                    } else {
+                      setPickerPath(f.path);
+                    }
+                  }}
+                  className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-[rgb(var(--foreground))] transition hover:bg-[rgb(var(--surface-muted))]/70"
+                >
+                  <FolderSolid className="h-5 w-5 shrink-0 text-amber-400" />
+                  <span className="min-w-0 flex-1 truncate text-left" title={f.name}>{f.name}</span>
+                  {isSearching ? (
+                    <span className="max-w-[140px] shrink-0 truncate text-[11px] text-[rgb(var(--ink-500))]" title={f.path}>{f.path}</span>
                   ) : (
-                    pickerFiles.map((file) => {
-                      const ft = getFileTypeInfo(file.filename);
-                      return (
-                        <div
-                          key={getFileId(file)}
-                          className="flex w-full cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-[rgb(var(--ink-500))]"
-                          title={file.filename}
-                        >
-                          <ft.Icon className={cn("h-4 w-4 shrink-0", ft.color)} />
-                          <span className="min-w-0 flex-1 truncate text-left text-[13px]">{file.filename}</span>
-                          <span className="shrink-0 text-[11px] tabular-nums opacity-70">{formatBytes(file.sizeBytes)}</span>
-                        </div>
-                      );
-                    })
+                    <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-40" />
                   )}
+                </button>
+              ))}
+
+              {!isSearching && pickerFiles.map((file) => {
+                const ft = getFileTypeInfo(file.filename);
+                return (
+                  <div
+                    key={getFileId(file)}
+                    className="flex w-full cursor-default items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-[rgb(var(--ink-500))]"
+                    title={file.filename}
+                  >
+                    <ft.Icon className={cn("h-5 w-5 shrink-0", ft.color)} />
+                    <span className="min-w-0 flex-1 truncate text-left">{file.filename}</span>
+                    <span className="shrink-0 text-[11px] tabular-nums opacity-70">{formatBytes(file.sizeBytes)}</span>
+                  </div>
+                );
+              })}
+
+              {isPickerFilesLoading && (
+                <div className="flex items-center justify-center py-3">
+                  <Loader2 className="h-4 w-4 animate-spin text-[rgb(var(--ink-500))]" />
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
       </div>
 
       <DialogFooter>
         <Button variant="outline" onClick={onClose} disabled={isPending}>Batal</Button>
-        <Button onClick={() => onConfirm(pickerFolderId)} disabled={isPending || isSameFolder} title={isSameFolder ? "File sudah berada di folder ini" : undefined}>
+        <Button onClick={() => onConfirm(pickerFolderId, pickerPath || null)} disabled={isPending || isSameFolder} title={isSameFolder ? "File sudah berada di folder ini" : undefined}>
           {isPending
             ? (isMove ? "Memindahkan..." : "Menyalin...")
             : isSameFolder
@@ -1577,27 +1555,112 @@ export function FilesPage({ folderPath }: { folderPath: string }) {
   }, [viewMode]);
   const [selectedItem, setSelectedItem] = useState<ItemData | null>(null);
   const [moveCopyTarget, setMoveCopyTarget] = useState<MoveCopyTarget | null>(null);
+  const [quotaExceededInfo, setQuotaExceededInfo] = useState<{ available: number; required: number; reserve: number } | null>(null);
+  const [copyProgress, setCopyProgress] = useState<{
+    open: boolean;
+    filename: string;
+    progress: number;
+    status: "copying" | "success" | "error";
+    targetPath: string | null;
+    error?: string;
+  } | null>(null);
+  const copyProgressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const handleMoveCopyConfirm = useCallback(async (targetFolderId: string | null) => {
+  const handleMoveCopyConfirm = useCallback(async (targetFolderId: string | null, targetFolderPath: string | null = null) => {
     if (!moveCopyTarget) return;
     const { file, mode } = moveCopyTarget;
     try {
       if (mode === "move") {
         await moveFile.mutateAsync({ id: getFileId(file), targetFolderId });
         toast({ title: "File dipindahkan", description: file.filename, variant: "success" });
+        setMoveCopyTarget(null);
       } else {
-        await copyFile.mutateAsync({ id: getFileId(file), targetFolderId });
-        toast({ title: "File disalin", description: file.filename, variant: "success" });
+        // ── Cek storage cukup sebelum popup salin (popup storage tidak cukup duluan) ──
+        const accounts = driveAccountsData?.accounts ?? [];
+        const srcAccount = accounts.find((acc: any) => {
+          const accId = (acc as any).accountId ?? (acc as any).publicId ?? (acc as any).id;
+          const fileAccId = (file as any).accountId ?? "";
+          return accId === fileAccId || (acc as any).email === file.driveAccountEmail;
+        }) as any;
+        if (srcAccount) {
+          const reserve = reserveForProvider(srcAccount.provider);
+          const available = srcAccount.availableStorageBytes ?? 0;
+          if (available < file.sizeBytes + reserve) {
+            setQuotaExceededInfo({ available, required: file.sizeBytes, reserve });
+            return;
+          }
+        }
+        // Popup salin langsung seperti file manager Android — tidak masuk sidebar
+        const targetPathDisplay = targetFolderPath ? targetFolderPath : "Home";
+        setMoveCopyTarget(null);
+        setCopyProgress({
+          open: true,
+          filename: file.filename,
+          progress: 5,
+          status: "copying",
+          targetPath: targetPathDisplay,
+        });
+
+        // Simulasi progress biar tidak stuck, naik pelan 5% → 85% selama nunggu backend
+        if (copyProgressIntervalRef.current) clearInterval(copyProgressIntervalRef.current);
+        let simulated = 5;
+        copyProgressIntervalRef.current = setInterval(() => {
+          simulated = Math.min(simulated + Math.random() * 6 + 2, 85);
+          setCopyProgress((prev) => prev ? { ...prev, progress: simulated } : prev);
+        }, 700) as any;
+
+        try {
+          await fileService.copy(getFileId(file), targetFolderId);
+          if (copyProgressIntervalRef.current) {
+            clearInterval(copyProgressIntervalRef.current);
+            copyProgressIntervalRef.current = null;
+          }
+          setCopyProgress((prev) => prev ? { ...prev, progress: 100, status: "success" } : prev);
+          toast({ title: "File disalin", description: `${file.filename} → ${targetPathDisplay}`, variant: "success" });
+          queryClient.invalidateQueries({ queryKey: ["files"] });
+          queryClient.invalidateQueries({ queryKey: ["folders"] });
+          queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
+          setTimeout(() => setCopyProgress(null), 1200);
+        } catch (err: any) {
+          if (copyProgressIntervalRef.current) {
+            clearInterval(copyProgressIntervalRef.current);
+            copyProgressIntervalRef.current = null;
+          }
+          const msg = (err?.message ?? "").toLowerCase();
+          const code = (err as any)?.code ?? "";
+          if (code === "QUOTA_EXCEEDED" || msg.includes("quota") || msg.includes("tidak cukup")) {
+            const details = (err as any)?.details;
+            if (details) {
+              setQuotaExceededInfo({ available: details.available ?? 0, required: details.required ?? file.sizeBytes, reserve: details.reserve ?? 0 });
+            } else {
+              setQuotaExceededInfo({ available: 0, required: file.sizeBytes, reserve: 0 });
+            }
+            setCopyProgress(null);
+            return;
+          }
+          setCopyProgress((prev) => prev ? { ...prev, status: "error", error: err?.message ?? "Gagal menyalin file" } : prev);
+        }
       }
-      setMoveCopyTarget(null);
     } catch (error) {
+      // Cek quota error dari backend juga sebelum popup progress
+      const errMsg = error instanceof Error ? error.message : String(error);
+      if (errMsg.toLowerCase().includes("quota") || errMsg.toLowerCase().includes("storage tidak cukup")) {
+        const anyErr = error as any;
+        const details = anyErr?.details ?? anyErr?.error?.details ?? anyErr?.details;
+        if (details) {
+          setQuotaExceededInfo({ available: details.available ?? 0, required: details.required ?? file.sizeBytes, reserve: details.reserve ?? 0 });
+        } else {
+          setQuotaExceededInfo({ available: 0, required: file.sizeBytes, reserve: 0 });
+        }
+        return;
+      }
       toast({
         title: mode === "move" ? "Gagal memindahkan file" : "Gagal menyalin file",
         description: error instanceof Error ? error.message : undefined,
         variant: "error",
       });
     }
-  }, [moveCopyTarget, moveFile, copyFile, toast]);
+  }, [moveCopyTarget, moveFile, toast, driveAccountsData, queryClient]);
 
   // Pagination gabungan folder + file (fix Android: >10 item tidak ganti halaman malah ke bawah terus)
   // total = folder terfilter + total file server (dari query totalFilesData agar tetap ada saat file fetch diskip)
@@ -1900,6 +1963,92 @@ export function FilesPage({ folderPath }: { folderPath: string }) {
       onConfirm={handleMoveCopyConfirm}
       isPending={moveFile.isPending || copyFile.isPending}
     />
+
+    {/* Popup storage tidak cukup — muncul sebelum sidebar progress */}
+    <Dialog open={!!quotaExceededInfo} onOpenChange={(o) => !o && setQuotaExceededInfo(null)}>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          <span className="grid h-8 w-8 place-items-center rounded-full bg-red-100 text-red-600 dark:bg-red-900/30"><HardDrive className="h-4 w-4" /></span>
+          Storage Tidak Cukup
+        </DialogTitle>
+        <DialogDescription>
+          {quotaExceededInfo ? (
+            <>
+              File <strong>{moveCopyTarget?.file.filename ?? ""}</strong> ukuran{" "}
+              <strong>{formatBytes(quotaExceededInfo.required)}</strong> tidak bisa disalin.
+              <br />
+              Sisa storage: <strong>{formatBytes(quotaExceededInfo.available)}</strong>, butuh{" "}
+              <strong>{formatBytes(quotaExceededInfo.required + quotaExceededInfo.reserve)}</strong> (termasuk cadangan{" "}
+              {formatBytes(quotaExceededInfo.reserve)}).
+            </>
+          ) : (
+            "Storage tidak cukup untuk menyalin file."
+          )}
+        </DialogDescription>
+      </DialogHeader>
+      <DialogFooter>
+        <Button variant="outline" onClick={() => setQuotaExceededInfo(null)}>Tutup</Button>
+        <Button onClick={() => { setQuotaExceededInfo(null); window.location.href = "/dashboard/storage-manager"; }}>
+          Kelola Storage
+        </Button>
+      </DialogFooter>
+    </Dialog>
+
+    {/* Popup salin file seperti file manager Android — progress langsung, bukan sidebar */}
+    <Dialog open={!!copyProgress?.open} onOpenChange={(o) => !o && copyProgress?.status !== "copying" && setCopyProgress(null)}>
+      <DialogHeader>
+        <DialogTitle className="flex items-center gap-2">
+          {copyProgress?.status === "success" ? (
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30"><CheckCircle2 className="h-4 w-4" /></span>
+          ) : copyProgress?.status === "error" ? (
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-red-100 text-red-600 dark:bg-red-900/30"><X className="h-4 w-4" /></span>
+          ) : (
+            <span className="grid h-8 w-8 place-items-center rounded-full bg-blue-100 text-blue-600 dark:bg-blue-900/30"><Loader2 className="h-4 w-4 animate-spin" /></span>
+          )}
+          {copyProgress?.status === "success" ? "Salin Selesai" : copyProgress?.status === "error" ? "Gagal Menyalin" : "Menyalin File"}
+        </DialogTitle>
+        <DialogDescription className="truncate">
+          {copyProgress?.filename} → {copyProgress?.targetPath || "Home"}
+        </DialogDescription>
+      </DialogHeader>
+      <div className="px-4 pb-2">
+        <div className="space-y-3">
+          <div className="h-2.5 w-full overflow-hidden rounded-full bg-[rgb(var(--surface-muted))]">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500",
+                copyProgress?.status === "error" ? "bg-red-500" : copyProgress?.status === "success" ? "bg-emerald-500" : "bg-blue-500"
+              )}
+              style={{ width: `${copyProgress?.progress ?? 0}%` }}
+            />
+          </div>
+          <div className="flex justify-between text-[11px] text-[rgb(var(--ink-500))]">
+            <span>{copyProgress?.status === "copying" ? "Menyalin di server..." : copyProgress?.status === "success" ? "Selesai" : copyProgress?.error ?? "Error"}</span>
+            <span className="font-mono font-bold">{Math.round(copyProgress?.progress ?? 0)}%</span>
+          </div>
+          {copyProgress?.status === "error" && copyProgress?.error && (
+            <p className="text-[12px] text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/30 p-2 rounded-lg">{copyProgress.error}</p>
+          )}
+        </div>
+      </div>
+      <DialogFooter>
+        {copyProgress?.status === "copying" ? (
+          <Button variant="outline" onClick={() => {
+            if (copyProgressIntervalRef.current) { clearInterval(copyProgressIntervalRef.current); copyProgressIntervalRef.current = null; }
+            setCopyProgress(null);
+          }}>
+            Batal (background)
+          </Button>
+        ) : (
+          <>
+            <Button variant="outline" onClick={() => setCopyProgress(null)}>Tutup</Button>
+            {copyProgress?.status === "error" && (
+              <Button onClick={() => setCopyProgress(null)}>Coba Lagi</Button>
+            )}
+          </>
+        )}
+      </DialogFooter>
+    </Dialog>
 
     <ConfirmFormatAllDrivesDialog
       open={isFormatAllOpen}

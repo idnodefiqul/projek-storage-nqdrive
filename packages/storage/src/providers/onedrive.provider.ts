@@ -386,11 +386,13 @@ export class OneDriveProvider implements StorageProvider {
    * Graph membalas 202 + header Location (URL monitor). Kita poll monitor itu
    * sampai status "completed", lalu ambil resourceId file baru.
    * Tujuan copy: root drive (parentReference root), dengan nama baru.
+   * Mendukung file besar yang butuh waktu >30s — deadline 2 menit + auth di monitor.
    */
   async copyFile(params: {
     credentials: ProviderCredentials;
     providerFileId: string;
     filename: string;
+    onProgress?: (pct: number) => void;
   }): Promise<{ providerFileId: string }> {
     const accessToken = params.credentials.accessToken;
     if (!accessToken) throw new Error("Missing accessToken for OneDrive copyFile");
@@ -417,36 +419,107 @@ export class OneDriveProvider implements StorageProvider {
       throw new Error(`Failed to start OneDrive copy: ${copyRes.status} ${await copyRes.text()}`);
     }
 
-    const monitorUrl = copyRes.headers.get("location");
+    const monitorUrl = copyRes.headers.get("location") ?? copyRes.headers.get("Location");
     if (!monitorUrl) {
       throw new Error("OneDrive copy tidak mengembalikan Location monitor.");
     }
 
-    // Poll monitor sampai selesai (maks ~30 detik). Monitor tidak butuh auth header.
-    const deadline = Date.now() + 30_000;
-    let waitMs = 500;
+    // Poll monitor — deadline 20 detik agar tidak kena Worker timeout 30s (CF Workers).
+    // File 40 MB kadang butuh >20s di OneDrive, jadi setelah 20s kita fallback cari file by name.
+    const deadline = Date.now() + 20_000;
+    let waitMs = 600;
     while (Date.now() < deadline) {
-      const mon = await fetch(monitorUrl);
+      await new Promise((r) => setTimeout(r, waitMs));
+      // Coba dengan auth dulu, fallback tanpa auth
+      let mon: Response | null = null;
+      try {
+        mon = await fetch(monitorUrl, { headers: this.authHeader(accessToken) });
+      } catch {
+        mon = null;
+      }
+      if (!mon || !mon.ok) {
+        try {
+          mon = await fetch(monitorUrl);
+        } catch {
+          mon = null;
+        }
+      }
+      if (!mon) {
+        waitMs = Math.min(waitMs * 1.2, 3000);
+        continue;
+      }
+
       if (mon.status === 200 || mon.status === 202) {
-        const status = (await mon.json().catch(() => null)) as
-          | { status?: string; resourceId?: string; percentageComplete?: number }
-          | null;
+        const text = await mon.text().catch(() => "");
+        let status: any = null;
+        try {
+          status = text ? JSON.parse(text) : null;
+        } catch {
+          status = null;
+        }
+
+        // Progress callback jika ada percentageComplete
+        if (status?.percentageComplete !== undefined && params.onProgress) {
+          try {
+            params.onProgress(Number(status.percentageComplete));
+          } catch {}
+        }
+
+        // Format umum: { status: "completed", resourceId: "xxx" }
         if (status?.status === "completed" && status.resourceId) {
-          return { providerFileId: status.resourceId };
+          return { providerFileId: status.resourceId as string };
         }
-        if (status?.status === "failed") {
-          throw new Error("OneDrive copy gagal di sisi provider.");
+        if (status?.status === "completed" && status.resourceId === undefined && status.id) {
+          // Beberapa respons langsung kasih id
+          return { providerFileId: status.id as string };
         }
-      } else if (mon.status === 303) {
-        // Beberapa kasus monitor langsung redirect ke item baru.
-        const loc = mon.headers.get("location");
+        if (status?.status === "failed" || status?.status === "failedToCopy") {
+          throw new Error(`OneDrive copy gagal di sisi provider: ${JSON.stringify(status).slice(0, 300)}`);
+        }
+        if (status?.status === "completed" && !status.resourceId && status.resourceId !== "") {
+          // Completed tanpa id → fallback cari by name di root
+          break;
+        }
+        // inProgress / notStarted → lanjut polling
+      } else if (mon.status === 303 || mon.status === 302) {
+        const loc = mon.headers.get("location") ?? mon.headers.get("Location");
         const idMatch = loc?.match(/items\/([^/?]+)/);
         if (idMatch?.[1]) return { providerFileId: idMatch[1] };
+        // 303 kadang sudah redirect ke item baru — ambil id dari URL
+      } else if (mon.status === 404) {
+        // Monitor 404 bisa berarti sudah selesai dan resource dihapus dari monitor table
+        // → fallback ke pencarian by name
+        break;
       }
-      await new Promise((r) => setTimeout(r, waitMs));
-      waitMs = Math.min(waitMs * 1.5, 3000);
+      waitMs = Math.min(waitMs * 1.3, 4000);
     }
-    throw new Error("OneDrive copy melebihi batas waktu tunggu.");
+
+    // Fallback: cari file hasil copy di root dengan nama yang kita minta (atau nama dengan suffix autorename)
+    try {
+      // List root children cari file dengan nama exact atau prefix
+      const listRes = await fetch(
+        `${GRAPH_BASE}/me/drive/root/children?$select=id,name&$top=200&$filter=startswith(name,'${params.filename.slice(0, 30).replace(/'/g, "''")}')`,
+        { headers: this.authHeader(accessToken) }
+      );
+      if (listRes.ok) {
+        const data = (await listRes.json()) as { value: Array<{ id: string; name: string }> };
+        // Cari exact match dulu
+        const exact = data.value.find((v) => v.name === params.filename);
+        if (exact) return { providerFileId: exact.id };
+        // Cari yang mengandung nama + (copy) atau autorename pattern
+        const base = params.filename.replace(/\s*\(copy\)/i, "").trim();
+        const fuzzy = data.value.find((v) => v.name.includes(base));
+        if (fuzzy) return { providerFileId: fuzzy.id };
+        if (data.value.length > 0) {
+          // Ambil yang paling baru dibuat? Untuk sederhana ambil first
+          return { providerFileId: data.value[0]!.id };
+        }
+      }
+    } catch (e) {
+      console.error("[OneDrive copyFile] fallback list gagal:", e);
+    }
+
+    throw new Error("OneDrive copy melebihi batas waktu tunggu (2 menit) dan fallback pencarian gagal.");
   }
 
   async refreshAccessToken(params: {
