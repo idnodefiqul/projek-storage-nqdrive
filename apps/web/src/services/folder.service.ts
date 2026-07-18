@@ -8,6 +8,10 @@ export const folderService = {
       { signal }
     ),
 
+  /** Flat list semua folder aktif — 1 request untuk picker, agar navigasi instant tanpa N request. */
+  all: (signal?: AbortSignal) =>
+    apiRequest<{ folders: Folder[] }>("/folders/all", { signal }),
+
   /**
    * Resolve a slash-separated path ke folder data + children.
    *

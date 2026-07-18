@@ -121,6 +121,25 @@ export class FolderRepository {
     return row ? rowToFolder(row) : null;
   }
 
+  /**
+   * Flat list semua folder aktif (tidak di-trash) tanpa size aggregation.
+   * Dipakai picker Pindah/Salin agar 1 request = semua folder, navigasi instant di client.
+   * Sengaja tanpa SUM(size_bytes) agar query tetap cepat walau ribuan folder.
+   */
+  async listAllActive(): Promise<Folder[]> {
+    // JOIN untuk ambil parent_folder_public_id agar toPublicFolder bisa mapping tanpa query tambahan
+    const { results } = await this.db
+      .prepare(
+        `SELECT f.*, pf.public_id as parent_folder_public_id
+         FROM folders f
+         LEFT JOIN folders pf ON pf.id = f.parent_folder_id
+         WHERE f.deleted_at IS NULL
+         ORDER BY f.name ASC`
+      )
+      .all<FolderRow & { parent_folder_public_id?: string | null }>();
+    return results.map(rowToFolder);
+  }
+
   // Cache for path resolution to avoid N sequential queries on deep paths
   private static pathCache = new Map<string, { id: number; ancestors: Folder[]; expires: number }>();
   private static readonly PATH_CACHE_TTL = 30_000; // 30s

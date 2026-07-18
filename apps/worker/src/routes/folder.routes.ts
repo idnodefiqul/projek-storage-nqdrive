@@ -36,6 +36,17 @@ function toPublicFolder(folder: any) {
 }
 
 /**
+ * GET /api/folders/all
+ * Flat list semua folder aktif — dipakai picker Pindah/Salin agar 1 request = semua folder.
+ * Harus di atas route param ":" agar tidak tertabrak.
+ */
+folderRoutes.get("/all", async (c) => {
+  const repository = new FolderRepository(c.env.DB);
+  const folders = await repository.listAllActive();
+  return c.json({ success: true, data: { folders: folders.map(toPublicFolder) } });
+});
+
+/**
  * GET /api/folders
  * Lists folders under a parent — accepts ?parentFolderId=<id> (internal use only).
  * Frontend should prefer /api/folders/resolve for human-readable navigation.

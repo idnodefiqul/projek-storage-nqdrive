@@ -10,7 +10,7 @@ import {
   ChevronLeft, ChevronsLeft, ChevronsRight, MoreVertical,
   Pencil, AlertTriangle, HardDrive, Share2, Link2, Globe2,
   Plus, Download, ExternalLink, FolderOpen, LayoutGrid, List,
-  Sparkles, ChevronDown, Check, Ban,
+  Sparkles, ChevronDown, Check, Ban, FolderInput, Copy, CornerLeftUp,
 } from "lucide-react";
 import { SiDropbox } from "@icons-pack/react-simple-icons";
 import { ArchiveBoxArrowDownIcon, FolderIcon as FolderSolid } from "@heroicons/react/24/solid";
@@ -22,36 +22,50 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { formatBytes } from "@nqdrive/shared";
-import { useFiles, useDeleteFile, useUpdateFileVisibility, useRenameFile } from "../hooks/use-files";
+import { useFiles, useDeleteFile, useUpdateFileVisibility, useRenameFile, useMoveFile, useCopyFile } from "../hooks/use-files";
 import { useFormatAllDriveAccounts, useDriveAccounts } from "../hooks/use-drive-accounts";
-import { useFolderByPath, useCreateFolder, useDeleteFolder, useRenameFolder, useShareFolder, useUnshareFolder } from "../hooks/use-folders";
+import { useFolderByPath, useAllFolders, useCreateFolder, useDeleteFolder, useRenameFolder, useShareFolder, useUnshareFolder } from "../hooks/use-folders";
 import { useUpload } from "../hooks/use-upload";
 import { useMinLoading } from "../hooks/use-min-loading";
 import { useSettings } from "../hooks/use-settings";
 import { buildDownloadPath } from "../services/settings.service";
+import { Virtuoso } from "react-virtuoso";
+import { buildFolderTree, getChildrenByPath, type FolderNode } from "../lib/folder-tree";
 
 
 import type { FileVisibility, FileWithAccount, Folder } from "@nqdrive/types";
 import { getFileTypeInfo } from "../lib/file-icons";
 import { FilePreviewDialog } from "../components/file-preview";
-import { PageTransition } from "../components/page-transition";
 import { PageHeader } from "../components/ui-kit";
 import { googleDriveSvg, onedriveSvg } from "../assets";
 
-// - URL schema: ?folder=Windows/11/subfolder -
-// Menggunakan "folder" sebagai nama param (bukan "path") agar URL lebih deskriptif.
-// Separator antar level folder adalah "/" literal - tidak di-encode jadi %2F.
-// Contoh: /dashboard/files?folder=Scripts
-//         /dashboard/files?folder=Windows/11
-//         /dashboard/files?folder=Windows/11/namafolder/namafolder
+// - URL schema -
+// Format baru (profesional, ala file manager): /dashboard/files/folder/Windows/11
+// Format lama (?folder=Windows/11) tetap didukung → auto-redirect ke format baru.
 const searchSchema = z.object({
   folder: z.string().optional().catch(undefined),
 });
 
 export const Route = createFileRoute("/dashboard/files")({
   validateSearch: searchSchema,
-  component: FilesPage,
+  component: FilesIndexPage,
 });
+
+/** Root files page + redirect link lama ?folder=X → /dashboard/files/folder/X */
+function FilesIndexPage() {
+  const searchParams = Route.useSearch();
+  const navigate = useNavigate();
+  const legacyFolder = searchParams.folder ?? "";
+
+  useEffect(() => {
+    if (legacyFolder) {
+      navigate({ to: "/dashboard/files/folder/$", params: { _splat: legacyFolder }, replace: true });
+    }
+  }, [legacyFolder, navigate]);
+
+  if (legacyFolder) return null;
+  return <FilesPage folderPath="" />;
+}
 
 const VISIBILITY_LABEL: Record<FileVisibility, string> = {
   public: "Public",
@@ -313,6 +327,8 @@ type DetailActions = {
   onChangeVisibility: (file: FileWithAccount, v: FileVisibility) => Promise<void> | void;
   onRenameFile: (file: FileWithAccount) => Promise<void> | void;
   onDeleteFile: (file: FileWithAccount) => void;
+  onMoveFile: (file: FileWithAccount) => void;
+  onCopyFile: (file: FileWithAccount) => void;
   onShareFolder: (folder: Folder) => Promise<void> | void;
   onUnshareFolder: (folder: Folder) => Promise<void> | void;
   onCopyFolderLink: (folder: Folder) => void;
@@ -650,6 +666,10 @@ function DetailPanel({ item, onClose, actions }: { item: ItemData | null; onClos
                       ))}
                     </div>
                     <PanelBtn icon={Pencil} label="Ganti Nama" onClick={startRename} />
+                    <PanelBtn icon={FolderInput} label="Pindahkan ke Folder" onClick={() => { actions.onMoveFile(file); onClose(); }} />
+                    {file.driveAccountProvider === "google_drive" && (
+                      <PanelBtn icon={Copy} label="Salin ke Folder" onClick={() => { actions.onCopyFile(file); onClose(); }} />
+                    )}
                   </>
                 )}
 
@@ -700,6 +720,225 @@ function DetailPanel({ item, onClose, actions }: { item: ItemData | null; onClos
         </>
       )}
     </AnimatePresence>
+  );
+}
+
+// --- Move/Copy dialog: mini folder browser (pola Google Drive "Pindahkan ke") ---
+type MoveCopyTarget = { file: FileWithAccount; mode: "move" | "copy" };
+
+function MoveCopyDialog({
+  target,
+  onClose,
+  onConfirm,
+  isPending,
+}: {
+  target: MoveCopyTarget | null;
+  onClose: () => void;
+  onConfirm: (targetFolderId: string | null) => void;
+  isPending: boolean;
+}) {
+  // Flat list semua folder — 1 request, cache 2 menit, navigasi instant tanpa N request.
+  const { data: allFoldersData, isLoading: isAllLoading } = useAllFolders(!!target);
+  const flatFolders = (allFoldersData?.folders ?? []) as Folder[];
+
+  const tree = useMemo(() => buildFolderTree(flatFolders), [flatFolders]);
+
+  // Path folder yang sedang dibrowse di picker (independen dari halaman utama) — sekarang dari memory, bukan API.
+  const [pickerPath, setPickerPath] = useState("");
+  const [search, setSearch] = useState("");
+
+  // Reset saat dialog dibuka untuk file berbeda
+  useEffect(() => {
+    if (target) {
+      setPickerPath("");
+      setSearch("");
+    }
+  }, [target]);
+
+  if (!target) return null;
+
+  const isMove = target.mode === "move";
+  const activeNode = pickerPath ? tree.byPath.get(pickerPath) ?? null : null;
+  const pickerFolderId = activeNode ? getFolderId(activeNode as any) : null;
+
+  // Children dari path saat ini — instant dari memory tree (0 network)
+  const currentChildren = useMemo(() => {
+    return getChildrenByPath(tree, pickerPath) as FolderNode[];
+  }, [tree, pickerPath]);
+
+  // Search across all folders — client-side, instant
+  const normalizedSearch = search.trim().toLowerCase();
+  const filteredFolders: FolderNode[] = useMemo(() => {
+    if (!normalizedSearch) return currentChildren;
+    return tree.flatWithPath.filter((n) => n.name.toLowerCase().includes(normalizedSearch)).slice(0, 300);
+  }, [normalizedSearch, currentChildren, tree.flatWithPath]);
+
+  // Isi file pada folder yang sedang dibrowse — read-only konteks, tidak block navigasi folder
+  const { data: pickerFilesData, isLoading: isPickerFilesLoading } = useFiles(
+    { folderId: pickerFolderId, page: 1, pageSize: 50 },
+    { enabled: !!target && !normalizedSearch && !isAllLoading },
+  );
+  const pickerFiles = (pickerFilesData?.items ?? []) as FileWithAccount[];
+
+  // Move ke folder tempat file sekarang berada = no-op → disable tombol
+  const isSameFolder = isMove && (target.file.folderId ?? null) === (pickerFolderId ?? null);
+  const segments = pickerPath ? pickerPath.split("/") : [];
+  const showFolderList = isAllLoading || filteredFolders.length > 0 || search.trim().length === 0;
+  const isSearching = normalizedSearch.length > 0;
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && !isPending && onClose()}>
+      <DialogHeader>
+        <DialogTitle>{isMove ? "Pindahkan ke..." : "Salin ke..."}</DialogTitle>
+        <DialogDescription className="truncate">
+          {target.file.filename}
+        </DialogDescription>
+      </DialogHeader>
+
+      {/* Search */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[rgb(var(--ink-500))]/60" />
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Cari folder..."
+          className="h-9 pl-9"
+          autoComplete="off"
+        />
+        {search && (
+          <button onClick={() => setSearch("")} className="absolute right-2 top-1/2 -translate-y-1/2 grid h-6 w-6 place-items-center rounded-md text-[rgb(var(--ink-500))]/60 hover:bg-[rgb(var(--surface-muted))]/70">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Breadcrumb picker — hidden saat searching */}
+      {!isSearching && (
+        <div className="flex items-center gap-1 overflow-x-auto whitespace-nowrap text-xs font-medium text-[rgb(var(--ink-500))] scrollbar-hide">
+          <button
+            onClick={() => setPickerPath("")}
+            className={cn("flex items-center gap-1 rounded-md px-1.5 py-1 transition hover:bg-[rgb(var(--surface-muted))]/70", !pickerPath && "text-[rgb(var(--foreground))] font-semibold")}
+          >
+            <Home className="h-3.5 w-3.5" /> Root
+          </button>
+          {segments.map((seg, idx) => (
+            <React.Fragment key={idx}>
+              <ChevronRight className="h-3 w-3 shrink-0 opacity-50" />
+              <button
+                onClick={() => setPickerPath(segments.slice(0, idx + 1).join("/"))}
+                className={cn("max-w-[120px] truncate rounded-md px-1.5 py-1 transition hover:bg-[rgb(var(--surface-muted))]/70", idx === segments.length - 1 && "text-[rgb(var(--foreground))] font-semibold")}
+                title={seg}
+              >
+                {seg}
+              </button>
+            </React.Fragment>
+          ))}
+        </div>
+      )}
+
+      {/* Daftar folder — virtuoso untuk ribuan item tetap 60fps */}
+      <div className="h-[300px] overflow-hidden rounded-xl border border-[rgb(var(--border-subtle))] bg-[rgb(var(--surface-muted))]/30">
+        {isAllLoading ? (
+          <div className="flex flex-col gap-1.5 p-1.5">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-9 animate-pulse rounded-lg bg-[rgb(var(--surface-muted))]/70" />
+            ))}
+          </div>
+        ) : !showFolderList && pickerFiles.length === 0 && !isPickerFilesLoading ? (
+          <p className="px-2.5 py-10 text-center text-xs text-[rgb(var(--ink-500))]">
+            {isSearching ? `Tidak ada folder cocok "${search}".` : pickerPath ? "Folder ini kosong." : "Belum ada folder di root."}
+          </p>
+        ) : (
+          <div className="flex h-full flex-col">
+            {/* Tombol .. untuk naik — hidden saat search */}
+            {!isSearching && pickerPath ? (
+              <button
+                onClick={() => setPickerPath(segments.slice(0, -1).join("/"))}
+                className="flex w-full shrink-0 items-center gap-2.5 border-b border-[rgb(var(--border-subtle))]/60 bg-[rgb(var(--surface))]/60 px-2.5 py-2 text-sm font-medium text-[rgb(var(--ink-500))] transition hover:bg-[rgb(var(--surface-muted))]/70"
+              >
+                <CornerLeftUp className="h-4 w-4 shrink-0" /> ..
+              </button>
+            ) : null}
+
+            {showFolderList && (
+              <div className="min-h-0 flex-1">
+                <Virtuoso
+                  data={filteredFolders}
+                  style={{ height: pickerFiles.length || isPickerFilesLoading ? "58%" : "100%" }}
+                  overscan={200}
+                  itemContent={(_idx, f: FolderNode) => (
+                    <div className="px-1.5 py-0.5">
+                      <button
+                        onClick={() => {
+                          if (isSearching) {
+                            // Saat search, klik langsung set target ke folder tersebut
+                            setPickerPath(f.path);
+                            setSearch("");
+                          } else {
+                            setPickerPath(f.path);
+                          }
+                        }}
+                        className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm font-medium text-[rgb(var(--foreground))] transition hover:bg-[rgb(var(--surface-muted))]/70"
+                      >
+                        <FolderSolid className="h-5 w-5 shrink-0 text-amber-400" />
+                        <span className="min-w-0 flex-1 truncate text-left" title={f.name}>{f.name}</span>
+                        {isSearching ? (
+                          <span className="max-w-[140px] shrink-0 truncate text-[11px] text-[rgb(var(--ink-500))]" title={f.path}>{f.path}</span>
+                        ) : (
+                          <ChevronRight className="h-3.5 w-3.5 shrink-0 opacity-40" />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                />
+              </div>
+            )}
+
+            {/* File di folder ini — read-only konteks, tidak block navigasi folder */}
+            {!isSearching && (pickerFiles.length > 0 || isPickerFilesLoading) && (
+              <div className="shrink-0 border-t border-[rgb(var(--border-subtle))]/60 bg-[rgb(var(--surface))]/40">
+                <div className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-[rgb(var(--ink-500))]">
+                  File di sini
+                </div>
+                <div className="max-h-[120px] overflow-y-auto px-1 pb-1">
+                  {isPickerFilesLoading ? (
+                    <div className="flex items-center justify-center py-3">
+                      <Loader2 className="h-4 w-4 animate-spin text-[rgb(var(--ink-500))]" />
+                    </div>
+                  ) : (
+                    pickerFiles.map((file) => {
+                      const ft = getFileTypeInfo(file.filename);
+                      return (
+                        <div
+                          key={getFileId(file)}
+                          className="flex w-full cursor-default items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-[rgb(var(--ink-500))]"
+                          title={file.filename}
+                        >
+                          <ft.Icon className={cn("h-4 w-4 shrink-0", ft.color)} />
+                          <span className="min-w-0 flex-1 truncate text-left text-[13px]">{file.filename}</span>
+                          <span className="shrink-0 text-[11px] tabular-nums opacity-70">{formatBytes(file.sizeBytes)}</span>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <DialogFooter>
+        <Button variant="outline" onClick={onClose} disabled={isPending}>Batal</Button>
+        <Button onClick={() => onConfirm(pickerFolderId)} disabled={isPending || isSameFolder} title={isSameFolder ? "File sudah berada di folder ini" : undefined}>
+          {isPending
+            ? (isMove ? "Memindahkan..." : "Menyalin...")
+            : isSameFolder
+              ? "Sudah di sini"
+              : (isMove ? "Pindahkan ke sini" : "Salin ke sini")}
+        </Button>
+      </DialogFooter>
+    </Dialog>
   );
 }
 
@@ -887,28 +1126,45 @@ function ConfirmFormatAllDrivesDialog({
     </Dialog>
   );
 }
-function FilesPage() {
+export function FilesPage({ folderPath }: { folderPath: string }) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const searchParams = Route.useSearch();
-  const navigate = useNavigate({ from: Route.fullPath });
+  const navigate = useNavigate();
   const { data: settings } = useSettings();
 
-  // Path folder saat ini dari URL param "folder".
+  // Path folder saat ini dari URL path (splat) — dioper via prop oleh route.
   // Contoh: "" = root, "Scripts" = folder Scripts, "Windows/11" = subfolder 11 di dalam Windows
-  const currentFolderPath = searchParams.folder ?? "";
+  const currentFolderPath = folderPath;
 
-  // Navigasi ke folder path baru - mengupdate URL param "folder"
+  // Breadcrumb instant fallback dari path string agar header tidak kedip saat resolve API loading
+  const instantBreadcrumb = useMemo(() => {
+    if (!currentFolderPath) return { ancestors: [] as Folder[], currentFolder: null as Folder | null };
+    const segs = currentFolderPath.split("/").filter(Boolean);
+    if (segs.length === 0) return { ancestors: [] as Folder[], currentFolder: null as Folder | null };
+    const ancestors = segs.slice(0, -1).map((name) => ({ name, folderId: `fallback-${name}`, parentFolderId: null } as unknown as Folder));
+    const currentFolder = { name: segs[segs.length - 1], folderId: "fallback-current", parentFolderId: null } as unknown as Folder;
+    return { ancestors, currentFolder };
+  }, [currentFolderPath]);
+
+  // Navigasi ke folder path baru - update URL path /dashboard/files/folder/<path>
+  // AJAX style: SPA navigate tanpa full reload, header tetap stabil
   const navigateTo = useCallback(
-    (folderPath: string) => {
-      navigate({ search: folderPath ? { folder: folderPath } : {} });
+    (newFolderPath: string) => {
+      if (newFolderPath) {
+        navigate({ to: "/dashboard/files/folder/$", params: { _splat: newFolderPath } });
+      } else {
+        navigate({ to: "/dashboard/files", search: {} });
+      }
     },
     [navigate]
   );
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(() => getResponsivePageSize());
-  const [search, setSearch] = useState("");
+  // Search persisten via sessionStorage biar tidak hilang saat route ganti (popup fix pakai AJAX)
+  const [search, setSearch] = useState(() => {
+    try { return sessionStorage.getItem("nqdrive-files-search") ?? ""; } catch { return ""; }
+  });
 
   // Responsive pageSize: Android kecil 12, Desktop besar 21
   useEffect(() => {
@@ -928,6 +1184,17 @@ function FilesPage() {
       mqDesktop.removeEventListener("change", handler);
     };
   }, []);
+  // Prefetch semua folder untuk picker Pindah/Salin agar dialog pertama kali sudah instant
+  useEffect(() => {
+    const t = setTimeout(() => {
+      queryClient.prefetchQuery({ queryKey: ["folders", "all"], queryFn: ({ signal }) => import("../services/folder.service").then(m => m.folderService.all(signal)) }).catch(() => {});
+    }, 800);
+    return () => clearTimeout(t);
+  }, [queryClient]);
+  // Persist search biar tidak hilang saat ganti route (AJAX silent)
+  useEffect(() => {
+    try { sessionStorage.setItem("nqdrive-files-search", search); } catch {}
+  }, [search]);
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [visibilityFilter, setVisibilityFilter] = useState<FileVisibility | "">("");
 
@@ -1066,13 +1333,15 @@ function FilesPage() {
   const renameFolder = useRenameFolder();
   const shareFolder = useShareFolder();
   const unshareFolder = useUnshareFolder();
+  const moveFile = useMoveFile();
+  const copyFile = useCopyFile();
   const uploadHook = useUpload();
 
   // - Handlers -
 
   const handleFolderClick = useCallback((folder: Folder) => {
     // Append nama folder ke path saat ini dengan separator "/"
-    // Tidak perlu encodeURIComponent - navigateTo akan meneruskan ke ?folder= param secara utuh
+    // navigateTo meneruskan path utuh ke URL /dashboard/files/folder/<path>
     const newPath = currentFolderPath
       ? `${currentFolderPath}/${folder.name}`
       : folder.name;
@@ -1307,6 +1576,28 @@ function FilesPage() {
     try { localStorage.setItem("nqdrive-files-view", viewMode); } catch {}
   }, [viewMode]);
   const [selectedItem, setSelectedItem] = useState<ItemData | null>(null);
+  const [moveCopyTarget, setMoveCopyTarget] = useState<MoveCopyTarget | null>(null);
+
+  const handleMoveCopyConfirm = useCallback(async (targetFolderId: string | null) => {
+    if (!moveCopyTarget) return;
+    const { file, mode } = moveCopyTarget;
+    try {
+      if (mode === "move") {
+        await moveFile.mutateAsync({ id: getFileId(file), targetFolderId });
+        toast({ title: "File dipindahkan", description: file.filename, variant: "success" });
+      } else {
+        await copyFile.mutateAsync({ id: getFileId(file), targetFolderId });
+        toast({ title: "File disalin", description: file.filename, variant: "success" });
+      }
+      setMoveCopyTarget(null);
+    } catch (error) {
+      toast({
+        title: mode === "move" ? "Gagal memindahkan file" : "Gagal menyalin file",
+        description: error instanceof Error ? error.message : undefined,
+        variant: "error",
+      });
+    }
+  }, [moveCopyTarget, moveFile, copyFile, toast]);
 
   // Pagination gabungan folder + file (fix Android: >10 item tidak ganti halaman malah ke bawah terus)
   // total = folder terfilter + total file server (dari query totalFilesData agar tetap ada saat file fetch diskip)
@@ -1351,22 +1642,19 @@ function FilesPage() {
 
   return (
     <>
-    <PageTransition>
-      {/* FIX: pagination tidak ngambang/sticky.
-          - Outer flex flex-1 + min-h memastikan tinggi minimal = tinggi layar dikurangi header
-          - Content flex-1 mendorong pagination ke bawah saat file sedikit (desktop & mobile)
-          - Desktop: min-h lebih kecil + pb bawah agar pagination sedikit ke atas (tidak nempel bawah)
-          - Safe-area inset untuk URL bar mobile
-          - scrollbar-hide: hilangkan garis scroll seperti sidebar */}
+      {/* Layout file manager — tanpa PageTransition pada navigasi folder agar terasa AJAX silent,
+          bukan full page fade. Hanya content list yang skeleton, header/breadcrumb tetap stabil. */}
       <div className="flex flex-1 min-h-[calc(100dvh-10rem)] flex-col gap-3 pb-2 scrollbar-hide sm:min-h-[calc(100dvh-9rem)] lg:min-h-[calc(100dvh-180px)]">
         {/* Toolbar — tetap di atas, tidak sticky floating */}
         <div className="app-card flex flex-col gap-2.5 p-3 sm:p-4">
-          {/* Breadcrumb (Home) — di dalam kontainer, tepat di atas search */}
-          {pathData?.ancestors && (
-            <div className="min-w-0">
-              <Breadcrumb ancestors={pathData.ancestors} currentFolder={pathData.folder ?? null} onNavigate={navigateTo} />
-            </div>
-          )}
+          {/* Breadcrumb — instant dari URL/path, tidak tunggu resolve API, jadi tidak kedip */}
+          <div className="min-w-0">
+            <Breadcrumb
+              ancestors={(pathData?.ancestors ?? instantBreadcrumb.ancestors) as Folder[]}
+              currentFolder={(pathData?.folder ?? instantBreadcrumb.currentFolder) as Folder | null}
+              onNavigate={navigateTo}
+            />
+          </div>
 
           {/* Baris search + kontrol */}
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
@@ -1412,8 +1700,9 @@ function FilesPage() {
           </div>
         </div>
 
-        {/* Grid/List file — flex-1 agar mendorong pagination ke bawah saat file sedikit */}
-        <div key={currentFolderPath || "__root__"} className="flex flex-1 flex-col files-list-scroll scrollbar-hide">
+        {/* Grid/List file — flex-1 agar mendorong pagination ke bawah saat file sedikit
+            Tanpa key currentFolderPath agar tidak remount header jadi flicker — scroll reset via useEffect */}
+        <div className="flex flex-1 flex-col files-list-scroll scrollbar-hide">
           <div className="relative flex-1 scrollbar-hide">
           {isFetchingData ? (
             <div className={cn(
@@ -1505,7 +1794,6 @@ function FilesPage() {
           </div>
         </div>
       </div>
-    </PageTransition>
 
     {/* Detail Panel — portal ke body agar full-screen seperti sidebar tema/progress */}
     {createPortal(
@@ -1520,6 +1808,8 @@ function FilesPage() {
           onChangeVisibility: handleVisibilityChange,
           onRenameFile: handleRenameFileDirect,
           onDeleteFile: (f) => setFileToDelete(f),
+          onMoveFile: (f) => setMoveCopyTarget({ file: f, mode: "move" }),
+          onCopyFile: (f) => setMoveCopyTarget({ file: f, mode: "copy" }),
           onShareFolder: async (f) => {
             const newShareUuid = await handleShareFolder(f);
             if (newShareUuid) {
@@ -1603,6 +1893,13 @@ function FilesPage() {
       <FilePreviewDialog file={previewFile} onClose={() => setPreviewFile(null)} />,
       document.body
     )}
+
+    <MoveCopyDialog
+      target={moveCopyTarget}
+      onClose={() => setMoveCopyTarget(null)}
+      onConfirm={handleMoveCopyConfirm}
+      isPending={moveFile.isPending || copyFile.isPending}
+    />
 
     <ConfirmFormatAllDrivesDialog
       open={isFormatAllOpen}

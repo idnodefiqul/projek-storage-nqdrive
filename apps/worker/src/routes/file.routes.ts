@@ -1,10 +1,11 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
-import { listFilesQuerySchema, renameFileSchema, updateFileVisibilitySchema } from "@nqdrive/api";
+import { listFilesQuerySchema, renameFileSchema, updateFileVisibilitySchema, moveFileSchema, copyFileSchema } from "@nqdrive/api";
 import { requireAuth } from "../middleware/require-auth.middleware";
 import { FileRepository } from "../database/file.repository";
 import { DriveAccountRepository } from "../database/drive-account.repository";
 import { GoogleAccountConnectionService } from "../services/google-account-connection.service";
+import { resolveCredentials } from "../utils/credentials";
 import { StorageProviderFactory } from "@nqdrive/storage";
 import { DEFAULT_PAGE_SIZE } from "@nqdrive/shared";
 import { writeAuditLog } from "../utils/audit";
@@ -243,6 +244,149 @@ fileRoutes.delete("/:id", async (c) => {
 
   writeAuditLog(c, { action: "file.delete", status: "warning", detail: file.filename });
   return c.json({ success: true, data: { message: "File dipindahkan ke Trash." } });
+});
+
+/**
+ * Resolve targetFolderId (fld_xxx / numeric legacy / null=root) ke internal id.
+ * Return { ok: false } jika folder tujuan tidak ditemukan / sudah di-trash.
+ */
+async function resolveTargetFolder(
+  db: D1Database,
+  rawTarget: string | number | null
+): Promise<{ ok: true; folderId: number | null; folderName: string | null } | { ok: false }> {
+  if (rawTarget === null || rawTarget === "" || rawTarget === 0) {
+    return { ok: true, folderId: null, folderName: null };
+  }
+  const { FolderRepository } = await import("../database/folder.repository");
+  const folderRepo = new FolderRepository(db);
+  const folder = await folderRepo.findByPublicIdOrId(rawTarget);
+  if (!folder) return { ok: false };
+  return { ok: true, folderId: folder.id, folderName: folder.name };
+}
+
+/**
+ * POST /api/files/:id/move
+ * Pindahkan file ke folder lain (targetFolderId: fld_xxx atau null = root).
+ * Folder bersifat virtual (kolom folder_id) — file di provider tidak tersentuh.
+ */
+fileRoutes.post("/:id/move", zValidator("json", moveFileSchema), async (c) => {
+  const rawId = c.req.param("id");
+  const { targetFolderId } = c.req.valid("json");
+  const fileRepository = new FileRepository(c.env.DB);
+
+  const file = await (fileRepository as any).findByPublicIdOrId(rawId) as any;
+  if (!file) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
+
+  const target = await resolveTargetFolder(c.env.DB, targetFolderId);
+  if (!target.ok) {
+    return c.json({ success: false, error: { code: "TARGET_NOT_FOUND", message: "Folder tujuan tidak ditemukan." } }, 404);
+  }
+
+  // No-op: sudah berada di folder tujuan
+  if ((file.folderIdNumeric ?? null) === target.folderId) {
+    return c.json({ success: true, data: { file: toPublicFile(file), moved: false } });
+  }
+
+  await fileRepository.updateFolderId(file.id, target.folderId);
+  const updated = await fileRepository.findById(file.id);
+
+  writeAuditLog(c, {
+    action: "file.move",
+    status: "success",
+    detail: `${file.filename} → ${target.folderName ?? "Root"}`,
+  });
+  return c.json({ success: true, data: { file: toPublicFile(updated ?? file), moved: true } });
+});
+
+/**
+ * POST /api/files/:id/copy
+ * Salin file ke folder lain — server-side copy di provider (data tidak lewat worker).
+ * Saat ini hanya Google Drive yang mendukung (provider.copyFile).
+ */
+fileRoutes.post("/:id/copy", zValidator("json", copyFileSchema), async (c) => {
+  const rawId = c.req.param("id");
+  const { targetFolderId } = c.req.valid("json");
+  const fileRepository = new FileRepository(c.env.DB);
+  const driveAccountRepository = new DriveAccountRepository(c.env.DB);
+
+  const file = await (fileRepository as any).findByPublicIdOrId(rawId) as any;
+  if (!file) return c.json({ success: false, error: { code: "NOT_FOUND", message: "File tidak ditemukan." } }, 404);
+
+  const account = await driveAccountRepository.findById(file.driveAccountId);
+  if (!account) return c.json({ success: false, error: { code: "ACCOUNT_NOT_FOUND", message: "Akun drive tidak ditemukan." } }, 404);
+
+  const provider = StorageProviderFactory.resolve(account.provider) as any;
+  if (typeof provider.copyFile !== "function") {
+    return c.json({
+      success: false,
+      error: { code: "PROVIDER_NOT_SUPPORTED", message: "Provider ini belum mendukung salin file." },
+    }, 422);
+  }
+
+  const target = await resolveTargetFolder(c.env.DB, targetFolderId);
+  if (!target.ok) {
+    return c.json({ success: false, error: { code: "TARGET_NOT_FOUND", message: "Folder tujuan tidak ditemukan." } }, 404);
+  }
+
+  // Nama salinan: "nama (copy).ext"
+  const dotIdx = file.filename.lastIndexOf(".");
+  const copyName = dotIdx > 0
+    ? `${file.filename.slice(0, dotIdx)} (copy)${file.filename.slice(dotIdx)}`
+    : `${file.filename} (copy)`;
+
+  const credentials = await resolveCredentials(account, c.env);
+
+  let newProviderFileId: string;
+  try {
+    const result = await provider.copyFile({
+      credentials,
+      providerFileId: file.providerFileId,
+      filename: copyName,
+    });
+    newProviderFileId = result.providerFileId;
+  } catch (error) {
+    writeAuditLog(c, { action: "file.copy", status: "error", detail: file.filename });
+    return c.json({
+      success: false,
+      error: { code: "COPY_FAILED", message: error instanceof Error ? error.message : "Gagal menyalin file di provider." },
+    }, 500);
+  }
+
+  const { UploadService } = await import("../services/upload.service");
+  const uploadService = new UploadService(c.env);
+  const slug = await uploadService.generateUniqueSlug(copyName);
+  const shareCode = UploadService.generateShareCode();
+
+  const newFile = await fileRepository.create({
+    filename: copyName,
+    slug,
+    providerFileId: newProviderFileId,
+    driveAccountId: account.id,
+    folderId: target.folderId,
+    sizeBytes: file.sizeBytes,
+    mimeType: file.mimeType,
+    visibility: "private",
+    shareCode,
+  });
+
+  // Re-calc quota dari DB SUM — idempotent, pola sama dengan finalizeUpload
+  try {
+    const freshUsed = await uploadService.getDbUsedBytes(account.id);
+    await driveAccountRepository.updateQuota(account.id, {
+      totalBytes: account.totalStorageBytes,
+      usedBytes: freshUsed,
+      availableBytes: Math.max(0, account.totalStorageBytes - freshUsed),
+    });
+  } catch (err) {
+    console.error(`[file copy] gagal recalc quota account ${account.id}:`, err);
+  }
+
+  writeAuditLog(c, {
+    action: "file.copy",
+    status: "success",
+    detail: `${file.filename} → ${target.folderName ?? "Root"}`,
+  });
+  return c.json({ success: true, data: { file: toPublicFile(newFile) } }, 201);
 });
 
 export { fileRoutes };

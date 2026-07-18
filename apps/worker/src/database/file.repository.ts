@@ -287,6 +287,14 @@ export class FileRepository {
       .run();
   }
 
+  /** Move: pindahkan file ke folder lain (null = root). Provider tidak tersentuh — folder bersifat virtual. */
+  async updateFolderId(id: number, folderId: number | null): Promise<void> {
+    await this.db
+      .prepare("UPDATE files SET folder_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL")
+      .bind(folderId, id)
+      .run();
+  }
+
   async updateVisibility(id: number, visibility: FileVisibility): Promise<void> {
     await this.db
       .prepare("UPDATE files SET visibility = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL")

@@ -354,6 +354,37 @@ export class DropboxProvider implements StorageProvider {
     return files;
   }
 
+  /**
+   * Server-side copy di Dropbox via files/copy_v2 — data tidak lewat worker.
+   * `providerFileId` bisa berupa id ("id:xxx") atau path; Dropbox menerima keduanya
+   * sebagai from_path. autorename:true agar nama bentrok otomatis diberi sufiks.
+   */
+  async copyFile(params: {
+    credentials: ProviderCredentials;
+    providerFileId: string;
+    filename: string;
+  }): Promise<{ providerFileId: string }> {
+    const accessToken = params.credentials.accessToken;
+    if (!accessToken) throw new Error("Missing accessToken for Dropbox copyFile");
+
+    const res = await fetch(`${DROPBOX_API_BASE}/files/copy_v2`, {
+      method: "POST",
+      headers: { ...this.authHeader(accessToken), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from_path: params.providerFileId,
+        to_path: `/${params.filename}`,
+        autorename: true,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Failed to copy Dropbox file: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as { metadata?: { id?: string } };
+    const newId = data.metadata?.id;
+    if (!newId) throw new Error("Dropbox copy_v2 tidak mengembalikan id file baru.");
+    return { providerFileId: newId };
+  }
+
   async refreshAccessToken(params: {
     refreshToken: string;
   }): Promise<{ accessToken: string; expiresAt: string }> {

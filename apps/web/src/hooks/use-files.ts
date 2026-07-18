@@ -57,6 +57,31 @@ export function useDeleteFile() {
   });
 }
 
+export function useMoveFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, targetFolderId }: { id: string; targetFolderId: string | null }) =>
+      fileService.move(id, targetFolderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["files"] });
+      queryClient.invalidateQueries({ queryKey: ["folders"] }); // size folder asal & tujuan berubah
+    },
+  });
+}
+
+export function useCopyFile() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, targetFolderId }: { id: string; targetFolderId: string | null }) =>
+      fileService.copy(id, targetFolderId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["files"] });
+      queryClient.invalidateQueries({ queryKey: ["folders"] });
+      queryClient.invalidateQueries({ queryKey: ["storage-manager"] }); // kuota akun bertambah
+    },
+  });
+}
+
 export function useRenameSyncFile() {
   const queryClient = useQueryClient();
   return useMutation({

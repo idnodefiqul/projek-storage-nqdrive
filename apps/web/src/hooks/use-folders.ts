@@ -2,6 +2,23 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { folderService } from "../services/folder.service";
 
 /**
+ * Flat list semua folder — dipakai picker Pindah/Salin agar 1 request = semua folder.
+ * Cache 2 menit, tidak refetch saat window focus.
+ */
+export function useAllFolders(enabled = true) {
+  return useQuery({
+    queryKey: ["folders", "all"],
+    queryFn: ({ signal }) => folderService.all(signal),
+    staleTime: 2 * 60_000,
+    gcTime: 10 * 60_000,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    retry: 1,
+    enabled,
+  });
+}
+
+/**
  * Resolves a human-readable path ("Dokumen/Proyek") to folder data.
  * Pass empty string for root.
  */

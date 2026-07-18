@@ -143,20 +143,7 @@ export class UploadService {
         throw new UploadValidationError("Ukuran file tidak bisa ditentukan setelah upload. Coba upload ulang.");
       }
 
-      // Generate a 23-character random share code for direct-link protection.
-      // Biased toward letters over digits, and mixes lower- & upper-case so the
-      // code reads like a random slug (e.g. "aK7fbQ...") instead of a numeric ID.
-      // Letters are weighted 2x heavier than digits, so a code has clearly more
-      // letters than numbers while still reliably containing a few digits (~2/23).
-      const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-      const digits = "0123456789";
-      const charset = letters + letters + digits;
-      let shareCode = "";
-      const randomValues = new Uint32Array(23);
-      crypto.getRandomValues(randomValues);
-      for (let i = 0; i < 23; i++) {
-        shareCode += charset[(randomValues[i]!) % charset.length];
-      }
+      const shareCode = UploadService.generateShareCode();
 
       const file = await this.fileRepository.create({
         filename: params.filename,
@@ -253,15 +240,7 @@ export class UploadService {
 
     const slug = await this.generateUniqueSlug(params.filename);
 
-    const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    const digits = "0123456789";
-    const charset = letters + letters + digits;
-    let shareCode = "";
-    const randomValues = new Uint32Array(23);
-    crypto.getRandomValues(randomValues);
-    for (let i = 0; i < 23; i++) {
-      shareCode += charset[(randomValues[i]!) % charset.length];
-    }
+    const shareCode = UploadService.generateShareCode();
 
     const file = await this.fileRepository.create({
       filename: params.filename,
@@ -301,7 +280,7 @@ export class UploadService {
   }
 
   /** Hitung total bytes dari DB — sumber kebenaran untuk used quota. */
-  private async getDbUsedBytes(accountId: number): Promise<number> {
+  async getDbUsedBytes(accountId: number): Promise<number> {
     try {
       const row = await this.env.DB.prepare(
         "SELECT COALESCE(SUM(size_bytes), 0) as total FROM files WHERE drive_account_id = ? AND deleted_at IS NULL"
@@ -312,7 +291,27 @@ export class UploadService {
     }
   }
 
-  private async generateUniqueSlug(filename: string): Promise<string> {
+  /**
+   * Generate a 23-character random share code for direct-link protection.
+   * Biased toward letters over digits, and mixes lower- & upper-case so the
+   * code reads like a random slug (e.g. "aK7fbQ...") instead of a numeric ID.
+   * Letters are weighted 2x heavier than digits, so a code has clearly more
+   * letters than numbers while still reliably containing a few digits (~2/23).
+   */
+  static generateShareCode(): string {
+    const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const digits = "0123456789";
+    const charset = letters + letters + digits;
+    let shareCode = "";
+    const randomValues = new Uint32Array(23);
+    crypto.getRandomValues(randomValues);
+    for (let i = 0; i < 23; i++) {
+      shareCode += charset[(randomValues[i]!) % charset.length];
+    }
+    return shareCode;
+  }
+
+  async generateUniqueSlug(filename: string): Promise<string> {
     let slug = slugifyFilename(filename);
 
     for (let attempt = 0; attempt < 5; attempt++) {

@@ -48,4 +48,11 @@ export const fileService = {
     apiRequest<{ token: string }>(`/files/preview?file=${encodeURIComponent(slug)}`),
 
   remove: (id: string) => apiRequest<{ message: string }>(`/files/${id}`, { method: "DELETE" }),
+
+  // Move/Copy ke folder lain. targetFolderId: fld_xxx atau null = root.
+  move: (id: string, targetFolderId: string | null) =>
+    apiRequest<{ file: FileWithAccount; moved: boolean }>(`/files/${id}/move`, { method: "POST", body: { targetFolderId } }),
+
+  copy: (id: string, targetFolderId: string | null) =>
+    apiRequest<{ file: FileWithAccount }>(`/files/${id}/copy`, { method: "POST", body: { targetFolderId } }),
 };

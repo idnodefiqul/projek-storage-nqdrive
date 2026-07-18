@@ -24,7 +24,15 @@ export const listFilesQuerySchema = z.object({
   visibility: z.enum(FILE_VISIBILITY_OPTIONS).optional(),
 });
 
+// Move/Copy file ke folder lain. targetFolderId: fld_xxx (professional),
+// number (legacy), atau null = root.
+export const moveFileSchema = z.object({
+  targetFolderId: z.union([z.string(), z.number().int()]).nullable(),
+});
+export const copyFileSchema = moveFileSchema;
+
 export type UpdateFileVisibilityInput = z.infer<typeof updateFileVisibilitySchema>;
 export type RenameFileInput = z.infer<typeof renameFileSchema>;
 export type CreateFolderInput = z.infer<typeof createFolderSchema>;
 export type ListFilesQueryInput = z.infer<typeof listFilesQuerySchema>;
+export type MoveFileInput = z.infer<typeof moveFileSchema>;

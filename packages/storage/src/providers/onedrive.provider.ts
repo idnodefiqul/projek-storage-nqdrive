@@ -381,6 +381,74 @@ export class OneDriveProvider implements StorageProvider {
     return files;
   }
 
+  /**
+   * Server-side copy di OneDrive via Graph /copy — operasi ASINKRON.
+   * Graph membalas 202 + header Location (URL monitor). Kita poll monitor itu
+   * sampai status "completed", lalu ambil resourceId file baru.
+   * Tujuan copy: root drive (parentReference root), dengan nama baru.
+   */
+  async copyFile(params: {
+    credentials: ProviderCredentials;
+    providerFileId: string;
+    filename: string;
+  }): Promise<{ providerFileId: string }> {
+    const accessToken = params.credentials.accessToken;
+    if (!accessToken) throw new Error("Missing accessToken for OneDrive copyFile");
+
+    // Ambil driveId agar parentReference valid untuk root drive yang sama.
+    const rootRes = await fetch(`${GRAPH_BASE}/me/drive/root?select=id,parentReference`, {
+      headers: this.authHeader(accessToken),
+    });
+    if (!rootRes.ok) {
+      throw new Error(`Failed to resolve OneDrive root: ${rootRes.status} ${await rootRes.text()}`);
+    }
+    const root = (await rootRes.json()) as { id: string; parentReference?: { driveId?: string } };
+    const driveId = root.parentReference?.driveId;
+
+    const copyRes = await fetch(`${GRAPH_BASE}/me/drive/items/${params.providerFileId}/copy`, {
+      method: "POST",
+      headers: { ...this.authHeader(accessToken), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        parentReference: driveId ? { driveId, id: root.id } : { id: root.id },
+        name: params.filename,
+      }),
+    });
+    if (copyRes.status !== 202) {
+      throw new Error(`Failed to start OneDrive copy: ${copyRes.status} ${await copyRes.text()}`);
+    }
+
+    const monitorUrl = copyRes.headers.get("location");
+    if (!monitorUrl) {
+      throw new Error("OneDrive copy tidak mengembalikan Location monitor.");
+    }
+
+    // Poll monitor sampai selesai (maks ~30 detik). Monitor tidak butuh auth header.
+    const deadline = Date.now() + 30_000;
+    let waitMs = 500;
+    while (Date.now() < deadline) {
+      const mon = await fetch(monitorUrl);
+      if (mon.status === 200 || mon.status === 202) {
+        const status = (await mon.json().catch(() => null)) as
+          | { status?: string; resourceId?: string; percentageComplete?: number }
+          | null;
+        if (status?.status === "completed" && status.resourceId) {
+          return { providerFileId: status.resourceId };
+        }
+        if (status?.status === "failed") {
+          throw new Error("OneDrive copy gagal di sisi provider.");
+        }
+      } else if (mon.status === 303) {
+        // Beberapa kasus monitor langsung redirect ke item baru.
+        const loc = mon.headers.get("location");
+        const idMatch = loc?.match(/items\/([^/?]+)/);
+        if (idMatch?.[1]) return { providerFileId: idMatch[1] };
+      }
+      await new Promise((r) => setTimeout(r, waitMs));
+      waitMs = Math.min(waitMs * 1.5, 3000);
+    }
+    throw new Error("OneDrive copy melebihi batas waktu tunggu.");
+  }
+
   async refreshAccessToken(params: {
     refreshToken: string;
   }): Promise<{ accessToken: string; expiresAt: string }> {
