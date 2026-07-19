@@ -21,7 +21,7 @@ import {
 } from "@nqdrive/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { formatBytes } from "@nqdrive/shared";
+import { formatBytes, slugifyFilename } from "@nqdrive/shared";
 import { useFiles, useDeleteFile, useUpdateFileVisibility, useRenameFile, useMoveFile, useCopyFile } from "../hooks/use-files";
 import { useFormatAllDriveAccounts, useDriveAccounts } from "../hooks/use-drive-accounts";
 import { useFolderByPath, useAllFolders, useCreateFolder, useDeleteFolder, useRenameFolder, useShareFolder, useUnshareFolder } from "../hooks/use-folders";
@@ -1364,7 +1364,10 @@ export function FilesPage({ folderPath }: { folderPath: string }) {
   const handleCopyDirectLink = useCallback((file: FileWithAccount) => {
     const baseUrl = window.location.origin;
     const endpoint = settings?.download_endpoint ?? "default";
-    const path = buildDownloadPath(file.slug, file.shareCode, endpoint);
+    // FIX: pakai nama file asli (slugify tanpa suffix unik) biar URL tetap /get/namafile meski duplikat
+    // Dulu pakai file.slug yang sudah dibuat unik (start-hqm0) → link jadi aneh
+    const filenameForUrl = slugifyFilename(file.filename);
+    const path = buildDownloadPath(filenameForUrl, file.shareCode, endpoint);
     const url = `${baseUrl}${path}`;
     navigator.clipboard.writeText(url);
     toast({ title: "Link direct download disalin", description: url, variant: "success" });

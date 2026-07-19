@@ -332,7 +332,7 @@ app.get("/resource/:prefix/:shareCode/getlinkUrl", async (c) => {
   }
 
   const file = await c.env.DB.prepare(
-    `SELECT f.slug, a.refresh_token_encrypted
+    `SELECT f.filename, f.slug, a.refresh_token_encrypted
      FROM files f
      JOIN drive_accounts a ON f.drive_account_id = a.id
      WHERE f.share_code = ? AND f.deleted_at IS NULL AND f.visibility = 'public'`
@@ -343,7 +343,10 @@ app.get("/resource/:prefix/:shareCode/getlinkUrl", async (c) => {
   }
 
   const downloadEndpoint = await repo.get("download_endpoint") ?? "default";
-  const path = buildDownloadPath(file.slug, shareCode, downloadEndpoint);
+  // FIX: pakai nama asli file (slugify tanpa suffix unik) biar URL tetap /get/namafile meski duplikat
+  const { slugifyFilename } = await import("@nqdrive/shared");
+  const filenameForUrl = slugifyFilename(file.filename);
+  const path = buildDownloadPath(filenameForUrl, shareCode, downloadEndpoint);
   const origin = new URL(c.req.url).origin;
   const downloadUrl = `${origin}${path}`;
 

@@ -312,11 +312,15 @@ export class UploadService {
   }
 
   async generateUniqueSlug(filename: string): Promise<string> {
+    // Slug di DB tetap harus unik karena ada UNIQUE INDEX idx_files_slug_active.
+    // Tapi untuk URL direct download kita pakai nama asli (tanpa suffix) — lookup by shareCode, bukan slug.
+    // Jadi slug di DB boleh ada suffix -hqm0 untuk cegah tabrakan, tapi URL yang di-share tetap pakai nama asli.
     let slug = slugifyFilename(filename);
 
     for (let attempt = 0; attempt < 5; attempt++) {
       const existing = await this.fileRepository.findBySlug(slug);
       if (!existing) return slug;
+      const { makeSlugUnique } = await import("@nqdrive/shared");
       slug = makeSlugUnique(slugifyFilename(filename));
     }
 

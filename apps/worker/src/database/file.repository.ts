@@ -241,6 +241,14 @@ export class FileRepository {
     return row ? rowToFile(row) : null;
   }
 
+  async findByShareCode(shareCode: string): Promise<FileWithPublicId | null> {
+    const row = await this.db
+      .prepare("SELECT * FROM files WHERE share_code = ? AND deleted_at IS NULL")
+      .bind(shareCode)
+      .first<FileRow>();
+    return row ? rowToFile(row) : null;
+  }
+
   async create(params: {
     filename: string;
     slug: string;

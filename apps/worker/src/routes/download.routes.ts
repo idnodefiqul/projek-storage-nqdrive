@@ -62,17 +62,19 @@ async function handleDownload(c: Context<{ Bindings: Env }>) {
     const downloadService = new DownloadService(c.env);
     const downloadLogRepository = new DownloadLogRepository(c.env.DB);
 
-    // Ambil metadata file dulu
-    const fileInfo = await downloadService.getFileInfo(slug);
-    if (!fileInfo || fileInfo.shareCode !== shareCode) {
+    // FIX: cari file via shareCode (unique), bukan slug — jadi nama file duplikat tetap bisa pakai nama asli di URL
+    // Slug di URL diabaikan untuk lookup, hanya untuk SEO / menampilkan nama asli.
+    // Dukungan backward-compat: kalau file lama slug nya sudah unik dengan suffix -hqm0, tetap akan ketemu via shareCode.
+    const fileInfo = await downloadService.getFileInfoByShareCode(shareCode);
+    if (!fileInfo) {
       return c.text("Not Found", 404);
     }
 
     const dbSize = fileInfo.sizeBytes;
     const range = parseRangeHeader(rangeHeader, dbSize > 0 ? dbSize : Number.MAX_SAFE_INTEGER);
 
-    // Stream file dari Google Drive
-    const result = await downloadService.streamBySlug(slug, range);
+    // Stream file — pakai fileInfo langsung, tanpa lookup ulang by slug
+    const result = await downloadService.streamByFile(fileInfo, range);
 
     let totalSize = dbSize;
     if (result.contentRange) {

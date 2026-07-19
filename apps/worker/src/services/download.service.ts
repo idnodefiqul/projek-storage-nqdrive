@@ -44,6 +44,12 @@ export class DownloadService {
     return file;
   }
 
+  async getFileInfoByShareCode(shareCode: string): Promise<FileEntity | null> {
+    const file = await this.fileRepository.findByShareCode(shareCode);
+    if (!file || file.visibility !== "public") return null;
+    return file;
+  }
+
   /**
    * FIX: Ambil ukuran file langsung dari Google Drive API (metadata only, bukan stream).
    * Dipanggil hanya jika sizeBytes di DB = 0 atau tidak valid.
@@ -135,6 +141,13 @@ export class DownloadService {
     if (!file || file.visibility !== "public") {
       throw new FileNotAccessibleError("File tidak ditemukan.");
     }
+    return this.streamByFile(file, range);
+  }
+
+  async streamByFile(file: FileEntity, range: ParsedRange | null): Promise<StreamDownloadResult> {
+    if (!file || (file.visibility as any) !== "public") {
+      throw new FileNotAccessibleError("File tidak ditemukan.");
+    }
 
     const account = await this.driveAccountRepository.findById(file.driveAccountId);
     if (!account) {
@@ -152,8 +165,6 @@ export class DownloadService {
     });
 
     // Increment download count hanya untuk request pertama (bukan Range chunk lanjutan).
-    // Range start = 0 = awal file (download baru), null = full download tanpa range header.
-    // Jika range.start > 0 = resume/chunk berikutnya, jangan increment lagi.
     if (!range || range.start === 0) {
       await this.fileRepository.incrementDownloadCount(file.id).catch(console.error);
     }
@@ -162,13 +173,9 @@ export class DownloadService {
       file,
       stream: result.stream,
       sizeBytes: range ? range.end - range.start + 1 : result.sizeBytes,
-      // Prioritas: ukuran dari DB (paling cepat, tidak perlu request extra).
-      // Fallback: ukuran dari Google Drive response (selalu akurat, tapi butuh request).
       totalFileSizeBytes: file.sizeBytes > 0 ? file.sizeBytes : result.sizeBytes,
       mimeType: file.mimeType || result.mimeType,
       isPartial: range !== null,
-      // Pass-through header langsung dari Google Drive — ini yang kita butuhkan
-      // di route handler agar Content-Length dan Content-Range 100% akurat.
       contentRange: result.contentRange,
       contentLength: result.contentLength,
     };
