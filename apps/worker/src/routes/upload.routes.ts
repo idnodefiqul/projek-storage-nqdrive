@@ -14,6 +14,40 @@ const uploadRoutes = new Hono<{ Bindings: Env }>();
 const DROPBOX_CONTENT_BASE = "https://content.dropboxapi.com/2";
 const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
 
+// ── Micro-cache session + credentials per chunk ──────────────────────────────
+// Route /status/:sessionId dipanggil sekali per chunk (60 MB); tanpa cache tiap
+// chunk membayar SELECT upload_sessions + (Dropbox) lookup account + decrypt
+// credential. Di Node VPS (proses long-lived) cache ini menghilangkan biaya itu;
+// di CF Workers jadi warm-cache best-effort per isolate (miss = harmless).
+// TTL 5 menit supaya token yang di-refresh di tengah upload ikut terambil ulang.
+type CachedUploadSession = {
+  session: { google_upload_url: string; provider: string; drive_account_id: number; filename: string; mime_type: string; size_bytes: number };
+  credentials?: Awaited<ReturnType<typeof resolveCredentials>>;
+  expiresAt: number;
+};
+const sessionCache = new Map<string, CachedUploadSession>();
+const SESSION_CACHE_TTL_MS = 5 * 60_000;
+const SESSION_CACHE_MAX = 500;
+
+function getCachedSession(sessionId: string): CachedUploadSession | null {
+  const entry = sessionCache.get(sessionId);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    sessionCache.delete(sessionId);
+    return null;
+  }
+  return entry;
+}
+
+function setCachedSession(sessionId: string, entry: Omit<CachedUploadSession, "expiresAt">) {
+  // Size guard: buang entri tertua (insertion order Map) agar memori terbatas.
+  if (sessionCache.size >= SESSION_CACHE_MAX) {
+    const oldest = sessionCache.keys().next().value;
+    if (oldest !== undefined) sessionCache.delete(oldest);
+  }
+  sessionCache.set(sessionId, { ...entry, expiresAt: Date.now() + SESSION_CACHE_TTL_MS });
+}
+
 /** Parse "bytes {start}-{endInclusive}/{total}" → { start, endExclusive, total }. */
 function parseContentRange(value: string | undefined): { start: number; endExclusive: number; total: number } | null {
   if (!value) return null;
@@ -178,9 +212,14 @@ uploadRoutes.post("/session", async (c) => {
  */
 uploadRoutes.put("/status/:sessionId", async (c) => {
   const sessionId = c.req.param("sessionId");
-  const session = await c.env.DB.prepare(
-    "SELECT google_upload_url, provider, drive_account_id, filename, mime_type, size_bytes FROM upload_sessions WHERE id = ?"
-  ).bind(sessionId).first<{ google_upload_url: string; provider: string; drive_account_id: number; filename: string; mime_type: string; size_bytes: number }>();
+  const cached = getCachedSession(sessionId);
+  let session = cached?.session ?? null;
+  if (!session) {
+    session = await c.env.DB.prepare(
+      "SELECT google_upload_url, provider, drive_account_id, filename, mime_type, size_bytes FROM upload_sessions WHERE id = ?"
+    ).bind(sessionId).first<{ google_upload_url: string; provider: string; drive_account_id: number; filename: string; mime_type: string; size_bytes: number }>();
+    if (session) setCachedSession(sessionId, { session });
+  }
 
   if (!session) {
     return c.json({ success: false, error: { code: "SESSION_NOT_FOUND", message: "Upload session expired or invalid." } }, 404);
@@ -203,12 +242,18 @@ uploadRoutes.put("/status/:sessionId", async (c) => {
     // Chunk terakhir: end mencapai total (atau file kosong).
     const isLast = total === 0 || endExclusive >= total;
 
-    const accountRepo = new DriveAccountRepository(c.env.DB);
-    const account = await accountRepo.findById(session.drive_account_id);
-    if (!account) {
-      return c.json({ success: false, error: { code: "SESSION_NOT_FOUND", message: "Account gone." } }, 404);
+    // Credential di-cache bersama session — skip lookup account + decrypt per chunk.
+    let credentials = getCachedSession(sessionId)?.credentials;
+    if (!credentials) {
+      const accountRepo = new DriveAccountRepository(c.env.DB);
+      const account = await accountRepo.findById(session.drive_account_id);
+      if (!account) {
+        sessionCache.delete(sessionId);
+        return c.json({ success: false, error: { code: "SESSION_NOT_FOUND", message: "Account gone." } }, 404);
+      }
+      credentials = await resolveCredentials(account, c.env);
+      setCachedSession(sessionId, { session, credentials });
     }
-    const credentials = await resolveCredentials(account, c.env);
 
     if (!isLast) {
       const appendRes = await fetch(`${DROPBOX_CONTENT_BASE}/files/upload_session/append_v2`, {
@@ -227,6 +272,8 @@ uploadRoutes.put("/status/:sessionId", async (c) => {
         duplex: "half",
       } as any);
       if (!appendRes.ok) {
+        // 401 = token kadaluarsa — drop cache agar retry berikutnya re-resolve token baru.
+        if (appendRes.status === 401) sessionCache.delete(sessionId);
         const errText = await appendRes.text().catch(() => "Unknown error");
         return c.json({ success: false, error: { code: "DROPBOX_UPLOAD_ERROR", message: errText } }, 500);
       }
@@ -251,10 +298,12 @@ uploadRoutes.put("/status/:sessionId", async (c) => {
     } as any);
 
     if (!finishRes.ok) {
+      if (finishRes.status === 401) sessionCache.delete(sessionId);
       const errText = await finishRes.text().catch(() => "Unknown error");
       return c.json({ success: false, error: { code: "DROPBOX_UPLOAD_ERROR", message: errText } }, 500);
     }
     const data = (await finishRes.json()) as { id: string };
+    sessionCache.delete(sessionId);
     await c.env.DB.prepare("DELETE FROM upload_sessions WHERE id = ?").bind(sessionId).run();
     return c.json({ success: true, data: { providerFileId: data.id } });
   }
@@ -285,6 +334,7 @@ uploadRoutes.put("/status/:sessionId", async (c) => {
 
     if (odRes.status === 200 || odRes.status === 201) {
       const data = (await odRes.json()) as { id: string };
+      sessionCache.delete(sessionId);
       await c.env.DB.prepare("DELETE FROM upload_sessions WHERE id = ?").bind(sessionId).run();
       return c.json({ success: true, data: { providerFileId: data.id } });
     }
@@ -313,6 +363,7 @@ uploadRoutes.put("/status/:sessionId", async (c) => {
 
   if (googleRes.status === 200 || googleRes.status === 201) {
     const data = await googleRes.json();
+    sessionCache.delete(sessionId);
     await c.env.DB.prepare("DELETE FROM upload_sessions WHERE id = ?").bind(sessionId).run();
     return c.json({ success: true, data: { providerFileId: (data as any).id } });
   }

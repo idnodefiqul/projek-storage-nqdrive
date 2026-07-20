@@ -2,6 +2,7 @@ import { createContext, useContext, useCallback, useRef, useState, useMemo, useE
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { useAuthContext } from "./auth-provider";
 import { logService } from "../services/log.service";
+import type { CancelJobMsg, StartJobMsg, WorkerToMainMsg } from "../workers/upload-protocol";
 
 export interface UploadProgress {
   uploadedBytes: number;
@@ -80,74 +81,14 @@ const WORKER_BASE = (import.meta.env.VITE_WORKER_URL as string | undefined) ?? "
 // = lebih sedikit batas antar-chunk, progress bar lebih mulus.
 const CHUNK_SIZE = 60 * 1024 * 1024;
 
-// Porsi progress chunk yang dikreditkan dari leg browser→worker (diukur XHR).
-// Sisa 1-LEG1 diisi mulus via interpolasi selama worker meneruskan chunk ke
-// provider (Google/Dropbox) — inilah jeda yang dulu membuat bar "membeku" di
-// kelipatan chunk. Dengan menyisakan 10%, bar terus bergerak sampai response tiba.
-const LEG1_FRACTION = 0.9;
+// Maksimal file yang di-upload bersamaan. Tanpa batas, N file besar berebut
+// bandwidth upstream dan semuanya jadi lemot; 3 memberi throughput penuh
+// tanpa saling mencekik.
+const MAX_CONCURRENT_UPLOADS = 3;
 
-function uploadChunkXHR(
-  url: string,
-  chunk: Blob,
-  contentRange: string,
-  onProgress: (loaded: number) => void,
-  signal: AbortSignal
-): Promise<{ status: number; body: string }> {
-  return new Promise((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const size = chunk.size;
-    let leg1Done = false;
-    let creepValue = size * LEG1_FRACTION;
-    let creepTimer: ReturnType<typeof setInterval> | null = null;
-
-    const stopCreep = () => {
-      if (creepTimer !== null) {
-        clearInterval(creepTimer);
-        creepTimer = null;
-      }
-    };
-
-    xhr.upload.onprogress = (e) => {
-      if (!e.lengthComputable) return;
-      // Kreditkan hanya 90% selama upload browser→worker.
-      onProgress(Math.min(e.loaded, size) * LEG1_FRACTION);
-
-      // Begitu seluruh chunk terkirim ke worker, mulai interpolasi mulus mengisi
-      // 10% terakhir selama worker meneruskan ke provider + menunggu response.
-      if (e.loaded >= size && !leg1Done && size > 0) {
-        leg1Done = true;
-        creepValue = size * LEG1_FRACTION;
-        creepTimer = setInterval(() => {
-          // Dekati 100% chunk secara asimtotik (tak pernah menyentuh sebelum response).
-          creepValue += (size - creepValue) * 0.06;
-          onProgress(Math.min(creepValue, size * 0.995));
-        }, 100);
-      }
-    };
-
-    xhr.onload = () => {
-      stopCreep();
-      onProgress(size); // Chunk benar-benar selesai — pastikan bar di batas yang tepat.
-      resolve({ status: xhr.status, body: xhr.responseText });
-    };
-    xhr.onerror = () => {
-      stopCreep();
-      reject(new Error("Koneksi terputus saat upload."));
-    };
-    xhr.onabort = () => {
-      stopCreep();
-      reject(new DOMException("Upload dibatalkan", "AbortError"));
-    };
-
-    signal.addEventListener("abort", () => xhr.abort(), { once: true });
-
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Range", contentRange);
-    xhr.setRequestHeader("X-App-Client", "nqdrive-web");
-    xhr.withCredentials = true;
-    xhr.send(chunk);
-  });
-}
+// Loop chunk + XHR + creep timer berjalan di dedicated Web Worker
+// (src/workers/upload.worker.ts) supaya bebas dari throttling tab background —
+// inilah penyebab upload dulu "membeku" saat tab ditinggal.
 
 const STORAGE_DISMISSED_KEY = "nqdrive-dismissed-uploads";
 
@@ -180,6 +121,18 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       Object.values(copyItemsMap).some((c) => c.status === "copying" || c.status === "queued"),
     [items, copyItemsMap]
   );
+
+  // Peringatan native saat user mau menutup tab ketika masih ada upload aktif.
+  // Register hanya saat aktif agar tidak merusak bfcache saat idle.
+  useEffect(() => {
+    if (!hasActiveUploads) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [hasActiveUploads]);
 
   // Load from DB via listUploads — hanya polling saat ada upload aktif atau sidebar terbuka
   const { data: dbLogs } = useQuery({
@@ -215,9 +168,18 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       .filter((item) => !dismissedRecentIds.has(item.id));
   }, [dbLogs, dismissedRecentIds]);
 
+  // AbortController hanya untuk fase pembuatan session (fetch di main thread);
+  // fase chunk dikelola worker via pesan cancel.
   const abortControllers = useRef<Record<string, AbortController>>({});
   const copyAbortControllers = useRef<Record<string, AbortController>>({});
   const copyProgressIntervals = useRef<Record<string, ReturnType<typeof setInterval>>>({});
+
+  // ── State antrian & worker (ref agar tidak kena stale closure) ─────────
+  const uploadWorkerRef = useRef<Worker | null>(null);
+  const activeUploadIds = useRef<Set<string>>(new Set());
+  const uploadStartTimes = useRef<Record<string, number>>({});
+  // Intent saat user menekan pause vs cancel — worker hanya tahu "cancel".
+  const cancelIntent = useRef<Record<string, "pause" | "cancel">>({});
 
   // Cleanup abort controllers on unmount to prevent memory leak
   useEffect(() => {
@@ -228,6 +190,9 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       copyAbortControllers.current = {};
       Object.values(copyProgressIntervals.current).forEach((i) => clearInterval(i));
       copyProgressIntervals.current = {};
+      uploadWorkerRef.current?.terminate();
+      uploadWorkerRef.current = null;
+      activeUploadIds.current.clear();
     };
   }, []);
 
@@ -282,20 +247,62 @@ export function UploadProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const startUpload = useCallback(
-    async (id: string) => {
-      const item = items[id];
-      if (!item) return;
+  // ── Upload via Web Worker + antrian concurrency ─────────────────────────
+  // Mirror items terbaru untuk dibaca dari callback async (pump/worker message)
+  // tanpa stale closure.
+  const itemsRef = useRef<Record<string, UploadItem>>({});
+  useEffect(() => {
+    itemsRef.current = items;
+  }, [items]);
 
-      const abortController = new AbortController();
-      abortControllers.current[id] = abortController;
+  // FIFO id yang menunggu slot upload.
+  const pendingQueue = useRef<string[]>([]);
+  // Byte yang sudah di-ACK provider per item — satu-satunya offset yang aman
+  // untuk resume (progress.uploadedBytes bisa berada di tengah chunk/creep).
+  const committedBytesRef = useRef<Record<string, number>>({});
+  const uploadStartInfo = useRef<Record<string, { startedAt: number; baseOffset: number }>>({});
+  const pumpQueueRef = useRef<() => void>(() => {});
+  const workerMsgHandler = useRef<(msg: WorkerToMainMsg) => void>(() => {});
+
+  const getUploadWorker = useCallback(() => {
+    if (!uploadWorkerRef.current) {
+      const w = new Worker(new URL("../workers/upload.worker.ts", import.meta.url), { type: "module" });
+      w.onmessage = (e: MessageEvent<WorkerToMainMsg>) => workerMsgHandler.current(e.data);
+      w.onerror = () => {
+        // Worker crash — jangan biarkan upload nyangkut diam-diam.
+        activeUploadIds.current.forEach((activeId) =>
+          updateItem(activeId, { status: "error", errorMessage: "Upload worker berhenti tak terduga." })
+        );
+        activeUploadIds.current.clear();
+        uploadWorkerRef.current?.terminate();
+        uploadWorkerRef.current = null;
+        pumpQueueRef.current();
+      };
+      uploadWorkerRef.current = w;
+    }
+    return uploadWorkerRef.current;
+  }, [updateItem]);
+
+  const postCancelToWorker = useCallback((id: string) => {
+    uploadWorkerRef.current?.postMessage({ type: "cancel", id } satisfies CancelJobMsg);
+  }, []);
+
+  // Buat session (fetch, main thread) lalu serahkan loop chunk ke worker.
+  const dispatchUpload = useCallback(
+    async (id: string) => {
+      const item = itemsRef.current[id];
+      if (!item) {
+        activeUploadIds.current.delete(id);
+        pumpQueueRef.current();
+        return;
+      }
 
       const fileSize = item.file.size;
-      let accountId = item.accountId;
       let sessionId = item.sessionId;
-      let provider = item.provider;
 
       if (!sessionId) {
+        const abortController = new AbortController();
+        abortControllers.current[id] = abortController;
         try {
           updateItem(id, { status: "uploading" });
 
@@ -323,138 +330,266 @@ export function UploadProvider({ children }: { children: ReactNode }) {
 
           const sessionData = await sessionRes.json() as any;
           sessionId = sessionData.data?.sessionId;
-          accountId = sessionData.data?.accountId;
-          provider = sessionData.data?.provider;
-          
+          const accountId = sessionData.data?.accountId;
+          const provider = sessionData.data?.provider;
+
           updateItem(id, { sessionId, accountId, provider });
         } catch (error: any) {
+          const intent = cancelIntent.current[id];
+          delete cancelIntent.current[id];
           if (error.name === "AbortError") {
-            updateItem(id, { status: "paused" });
+            updateItem(id, { status: intent === "cancel" ? "cancelled" : "paused" });
           } else {
             updateItem(id, { status: "error", errorMessage: error.message || "Upload gagal." });
           }
           delete abortControllers.current[id];
+          activeUploadIds.current.delete(id);
+          pumpQueueRef.current();
           return;
         }
+        delete abortControllers.current[id];
+      } else {
+        updateItem(id, { status: "uploading" });
+      }
+
+      const startOffset = committedBytesRef.current[id] ?? 0;
+      uploadStartInfo.current[id] = { startedAt: Date.now(), baseOffset: startOffset };
+      getUploadWorker().postMessage({
+        type: "start",
+        id,
+        file: item.file,
+        sessionId: sessionId!,
+        workerBase: WORKER_BASE,
+        chunkSize: CHUNK_SIZE,
+        startOffset,
+      } satisfies StartJobMsg);
+    },
+    [getUploadWorker, updateItem]
+  );
+
+  // Isi slot kosong dari antrian — dipanggil setiap ada slot bebas (pesan
+  // terminal worker), jadi antrian jalan terus bahkan di background tab
+  // (trigger = message event, bukan timer yang di-throttle).
+  const pumpQueue = useCallback(() => {
+    while (activeUploadIds.current.size < MAX_CONCURRENT_UPLOADS && pendingQueue.current.length > 0) {
+      const qid = pendingQueue.current.shift()!;
+      if (activeUploadIds.current.has(qid)) continue;
+      activeUploadIds.current.add(qid);
+      void dispatchUpload(qid);
+    }
+  }, [dispatchUpload]);
+
+  useEffect(() => {
+    pumpQueueRef.current = pumpQueue;
+  }, [pumpQueue]);
+
+  // Finalize metadata setelah worker melaporkan seluruh byte diterima provider.
+  const handleUploadDone = useCallback(
+    async (id: string, providerFileId: string) => {
+      const item = itemsRef.current[id];
+      activeUploadIds.current.delete(id);
+      delete uploadStartInfo.current[id];
+      delete committedBytesRef.current[id];
+      if (!item) {
+        pumpQueue();
+        return;
       }
 
       try {
-        updateItem(id, { status: "uploading" });
+        const finalizeRes = await fetch(`${WORKER_BASE}/api/upload/finalize`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-App-Client": "nqdrive-web",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            providerFileId,
+            accountId: item.accountId,
+            filename: item.file.name,
+            mimeType: item.file.type || "application/octet-stream",
+            sizeBytes: item.file.size,
+            folderId: item.folderId,
+          }),
+        });
 
-        let completedBytes = item.progress.uploadedBytes || 0;
-        const startedAt = Date.now();
-        const uploadChunkSize = CHUNK_SIZE;
-        console.log(`[UploadProvider] startUpload: provider = ${provider}, fileSize = ${fileSize}, calculated chunk size = ${uploadChunkSize}`);
+        if (!finalizeRes.ok) throw new Error("Gagal menyimpan metadata");
 
-        while (completedBytes < fileSize || fileSize === 0) {
-          const chunkStart = completedBytes;
-          const end = Math.min(chunkStart + uploadChunkSize, fileSize);
-          const chunk = item.file.slice(chunkStart, end);
-          const contentRange = fileSize > 0 ? `bytes ${chunkStart}-${end - 1}/${fileSize}` : `bytes 0-0/0`;
-
-          const result = await uploadChunkXHR(
-            `${WORKER_BASE}/api/upload/status/${sessionId}`,
-            chunk,
-            contentRange,
-            (loaded) => {
-              const totalUploaded = chunkStart + loaded;
-              const elapsedSeconds = (Date.now() - startedAt) / 1000;
-              const speed = elapsedSeconds > 0 ? totalUploaded / elapsedSeconds : 0;
-              const remaining = fileSize - totalUploaded;
-              const eta = speed > 0 ? remaining / speed : 0;
-
-              updateItem(id, {
-                progress: {
-                  uploadedBytes: totalUploaded,
-                  totalBytes: fileSize,
-                  percentage: (totalUploaded / fileSize) * 100,
-                  speedBytesPerSecond: speed,
-                  etaSeconds: eta,
-                },
-              });
-            },
-            abortController.signal
-          );
-
-          if (result.status === 308) {
-            completedBytes = end;
-            continue;
-          }
-
-          if (result.status === 200 || result.status === 201) {
-            const resultData = JSON.parse(result.body);
-            const providerFileId = resultData.data?.providerFileId;
-
-            const finalizeRes = await fetch(`${WORKER_BASE}/api/upload/finalize`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-App-Client": "nqdrive-web",
-              },
-              credentials: "include",
-              body: JSON.stringify({
-                providerFileId,
-                accountId,
-                filename: item.file.name,
-                mimeType: item.file.type || "application/octet-stream",
-                sizeBytes: item.file.size,
-                folderId: item.folderId,
-              }),
-              signal: abortController.signal,
-            });
-
-            if (!finalizeRes.ok) throw new Error("Gagal menyimpan metadata");
-
-            updateItem(id, {
-              status: "success",
-              progress: { uploadedBytes: fileSize, totalBytes: fileSize, percentage: 100, speedBytesPerSecond: 0, etaSeconds: 0 },
-            });
-            queryClient.invalidateQueries({ queryKey: ["files"] });
-            queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
-            delete abortControllers.current[id];
-            return;
-          }
-
-          let errMsg = "Upload chunk gagal";
-          try { errMsg = JSON.parse(result.body)?.error?.message || errMsg; } catch {}
-          throw new Error(errMsg);
-        }
+        updateItem(id, {
+          status: "success",
+          progress: { uploadedBytes: item.file.size, totalBytes: item.file.size, percentage: 100, speedBytesPerSecond: 0, etaSeconds: 0 },
+        });
+        queryClient.invalidateQueries({ queryKey: ["files"] });
+        queryClient.invalidateQueries({ queryKey: ["storage-manager"] });
       } catch (error: any) {
-        if (error.name === "AbortError") {
-          updateItem(id, { status: "paused" });
-        } else {
-          updateItem(id, { status: "error", errorMessage: error.message || "Upload gagal." });
+        updateItem(id, { status: "error", errorMessage: error?.message || "Upload gagal." });
+      }
+      pumpQueue();
+    },
+    [pumpQueue, queryClient, updateItem]
+  );
+
+  // Handler pesan worker — di-assign ke ref tiap render agar selalu memakai
+  // callback terbaru tanpa re-bind onmessage.
+  useEffect(() => {
+    workerMsgHandler.current = (msg: WorkerToMainMsg) => {
+      const id = msg.id;
+      switch (msg.type) {
+        case "progress": {
+          const info = uploadStartInfo.current[id];
+          const elapsed = info ? (Date.now() - info.startedAt) / 1000 : 0;
+          const delta = msg.uploadedBytes - (info?.baseOffset ?? 0);
+          const speed = elapsed > 0 && delta > 0 ? delta / elapsed : 0;
+          const remaining = msg.totalBytes - msg.uploadedBytes;
+          updateItem(id, {
+            progress: {
+              uploadedBytes: msg.uploadedBytes,
+              totalBytes: msg.totalBytes,
+              percentage: msg.totalBytes > 0 ? (msg.uploadedBytes / msg.totalBytes) * 100 : 100,
+              speedBytesPerSecond: speed,
+              etaSeconds: speed > 0 ? remaining / speed : 0,
+            },
+          });
+          break;
         }
-        delete abortControllers.current[id];
+        case "chunk-done": {
+          committedBytesRef.current[id] = msg.committedBytes;
+          break;
+        }
+        case "done": {
+          void handleUploadDone(id, msg.providerFileId);
+          break;
+        }
+        case "error": {
+          activeUploadIds.current.delete(id);
+          delete uploadStartInfo.current[id];
+          updateItem(id, { status: "error", errorMessage: msg.message });
+          pumpQueue();
+          break;
+        }
+        case "cancelled": {
+          const intent = cancelIntent.current[id] ?? "cancel";
+          delete cancelIntent.current[id];
+          activeUploadIds.current.delete(id);
+          delete uploadStartInfo.current[id];
+          if (intent === "pause") {
+            // Snap progress kembali ke offset committed — resume mulai dari sini.
+            const committed = committedBytesRef.current[id] ?? 0;
+            setItems((prev) => {
+              const existing = prev[id];
+              if (!existing) return prev;
+              return {
+                ...prev,
+                [id]: {
+                  ...existing,
+                  status: "paused" as const,
+                  progress: {
+                    ...existing.progress,
+                    uploadedBytes: committed,
+                    percentage: existing.progress.totalBytes > 0 ? (committed / existing.progress.totalBytes) * 100 : 0,
+                    speedBytesPerSecond: 0,
+                    etaSeconds: 0,
+                  },
+                },
+              };
+            });
+          } else {
+            delete committedBytesRef.current[id];
+            updateItem(id, { status: "cancelled" });
+          }
+          pumpQueue();
+          break;
+        }
+      }
+    };
+  });
+
+  // Masukkan id ke antrian (idempoten) dan pompa slot.
+  const enqueueUploads = useCallback((ids: string[]) => {
+    ids.forEach((id) => {
+      if (activeUploadIds.current.has(id)) return;
+      if (!pendingQueue.current.includes(id)) pendingQueue.current.push(id);
+    });
+    setItems((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      ids.forEach((id) => {
+        const existing = next[id];
+        if (!existing || activeUploadIds.current.has(id)) return;
+        if (existing.status === "error" || existing.status === "paused") {
+          next[id] = { ...existing, status: "queued" as const, errorMessage: undefined };
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+    pumpQueueRef.current();
+  }, []);
+
+  const startUpload = useCallback(
+    async (id: string) => {
+      const item = items[id];
+      if (!item) return;
+      if (item.status === "queued" || item.status === "error" || item.status === "paused") {
+        enqueueUploads([id]);
       }
     },
-    [items, queryClient, updateItem]
+    [items, enqueueUploads]
   );
 
   const startAllUploads = useCallback(() => {
     // Jangan auto buka sidebar progress — user mau tetap di halaman files
-    Object.values(items).forEach((item) => {
-      if (item.status === "queued" || item.status === "error" || item.status === "paused") {
-        startUpload(item.id);
-      }
-    });
-  }, [items, startUpload]);
+    const ids = Object.values(items)
+      .filter((item) => item.status === "queued" || item.status === "error" || item.status === "paused")
+      .map((item) => item.id)
+      .sort();
+    enqueueUploads(ids);
+  }, [items, enqueueUploads]);
 
   const pauseUpload = useCallback((id: string) => {
-    abortControllers.current[id]?.abort();
+    cancelIntent.current[id] = "pause";
+    // Masih menunggu slot? Cukup keluarkan dari antrian.
+    pendingQueue.current = pendingQueue.current.filter((q) => q !== id);
+    if (abortControllers.current[id]) {
+      // Fase pembuatan session — abort fetch; catch dispatchUpload set status.
+      abortControllers.current[id].abort();
+      return;
+    }
+    if (activeUploadIds.current.has(id)) {
+      postCancelToWorker(id);
+      return;
+    }
+    delete cancelIntent.current[id];
     updateItem(id, { status: "paused" });
-    delete abortControllers.current[id];
-  }, [updateItem]);
+  }, [postCancelToWorker, updateItem]);
 
   const cancelUpload = useCallback((id: string) => {
-    abortControllers.current[id]?.abort();
+    cancelIntent.current[id] = "cancel";
+    pendingQueue.current = pendingQueue.current.filter((q) => q !== id);
+    delete committedBytesRef.current[id];
+    if (abortControllers.current[id]) {
+      abortControllers.current[id].abort();
+      return;
+    }
+    if (activeUploadIds.current.has(id)) {
+      postCancelToWorker(id);
+      return;
+    }
+    delete cancelIntent.current[id];
     updateItem(id, { status: "cancelled" });
-    delete abortControllers.current[id];
-  }, [updateItem]);
+  }, [postCancelToWorker, updateItem]);
 
   const removeItem = useCallback((id: string) => {
     abortControllers.current[id]?.abort();
     delete abortControllers.current[id];
+    // Bersihkan juga jejak antrian/worker bila item masih aktif.
+    pendingQueue.current = pendingQueue.current.filter((q) => q !== id);
+    if (activeUploadIds.current.has(id)) {
+      cancelIntent.current[id] = "cancel";
+      postCancelToWorker(id);
+    }
+    delete committedBytesRef.current[id];
+    delete uploadStartInfo.current[id];
     setItems((prev) => {
       const next = { ...prev };
       delete next[id];
@@ -466,7 +601,7 @@ export function UploadProvider({ children }: { children: ReactNode }) {
       saveDismissedIds(next);
       return next;
     });
-  }, []);
+  }, [postCancelToWorker]);
 
   const clearFinished = useCallback(() => {
     setItems((prev) => {
